@@ -9,6 +9,7 @@ const functions = [
   extractFunction(core, 'ItemRack.GetRuneID'),
   extractFunction(core, 'ItemRack.HasRuneID'),
   extractFunction(core, 'ItemRack.IsBareItemID'),
+  extractFunction(core, 'ItemRack.NormalizeItemFields'),
   extractFunction(core, 'ItemRack.SameItemFields'),
   extractFunction(core, 'ItemRack.SameExactID'),
   extractFunction(core, 'ItemRack.MatchesStoredItemFields'),
@@ -59,6 +60,12 @@ check(ItemRack.MatchesStoredItemID("33881",wrong),
   "an intentionally bare default ID must retain base-item compatibility")
 check(ItemRack.MatchesStoredItemID(wanted,wantedLong),
   "variable-length live item strings must match by stable item fields")
+
+local wantedEmptyFields = "33881:2648:24028::::::70:0"
+check(ItemRack.MatchesStoredItemID(wanted,wantedEmptyFields),
+  "empty colon-separated fields must normalize and match zero-padded fields")
+check(ItemRack.MatchesStoredItemID("3299:0:0:0:0:0:0:0","3299:::::::"),
+  "fully empty enhancement fields must match all-zero enhancement fields")
 
 local inv,bag,slot = ItemRack.FindItem(wanted,true)
 check(not inv and bag == 0 and slot == 2,

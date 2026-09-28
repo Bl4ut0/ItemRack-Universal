@@ -1375,13 +1375,16 @@ function ItemRack.IsSetEquipped(setname,exact)
 		local matchesStored = ItemRack.MatchesStoredItemID
 		
 		-- Special handling for Trinkets and Rings to allow swapped slots
-		local check11_12 = (set[11] and set[12])
-		local check13_14 = (set[13] and set[14])
+		local check11_12 = (set[11] or set[12])
+		local check13_14 = (set[13] or set[14])
 		
 		local anyChecked = false
 		for i in pairs(set) do
 			if type(i) == "number" then
-				if ItemRackUser.EnableQueues == "ON"
+				local queueContext = ItemRack.GetQueueContext(i,setname)
+				local slotQueue = queueContext.list
+				local hasActiveQueue = ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled
+				if hasActiveQueue
 				and (ItemRack.QueueStateReady ~= true or not ItemRack.IsEquippedSlotStateReady(i)) then
 					return false
 				end
@@ -1407,9 +1410,7 @@ function ItemRack.IsSetEquipped(setname,exact)
 				-- queue, accept whichever queued item is intentionally active for
 				-- this set context. Dormant queue settings must not make an unchanged
 				-- equipment set appear as "Custom".
-				local queueContext = ItemRack.GetQueueContext(i,setname)
-				local slotQueue = queueContext.list
-				if ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled then
+				if hasActiveQueue then
 					local currentBaseID = ItemRack.GetIRString(id,true)
 					local currentCustomTime
 					local currentInQueue = false

@@ -1,4 +1,8 @@
 __ Development __
+- Added ItemRack.NormalizeItemFields so empty colon fields from TBC Anniversary item links match zero-filled stored fields symmetrically.
+- UpdateCurrentSet now scans saved sets to auto-detect worn sets when CurrentSet is unequipped or undefined, restoring the active set and minimap icon when all items are equipped manually or via macros.
+- IsSetEquipped now allows single-slot ring/trinket cross checks and only gates queue readiness on slots with an active AutoQueue.
+- Fixed character sheet breakout menus appearing when CharacterSheetMenus is disabled by immediately hiding open menus and returning early, ignoring PaperDollFrame as keep-alive in MenuMouseover, and dismissing menus on toggle OFF.
 
 __ New in 4.50 - By Bl4ut0 __
 - Replaced the old TBC-focused README and CurseForge project copy with new universal documentation covering supported clients, installation, features, script-event protection, diagnostics, and support requirements. Removed obsolete parallel client-release guidance.

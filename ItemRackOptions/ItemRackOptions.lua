@@ -1209,6 +1209,11 @@ function ItemRackOpt.OptListCheckButtonOnClick(self,override)
 			ItemRackSettings.MenuOnShift = "OFF"
 		end
 		ItemRack.ReflectMenuOnRight()
+	elseif opt.variable=="CharacterSheetMenus" then
+		if check=="OFF" and ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.menuDockedTo then
+			ItemRackMenuFrame:Hide()
+			ItemRack.menuDockedTo = nil
+		end
 	elseif opt.variable=="OptSizeDefault" then
 		if check=="OFF" then
 			ItemRackUser.OptSizeDefault = "ON"
