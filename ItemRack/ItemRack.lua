@@ -444,6 +444,7 @@ ItemRackSettings = {
 	Cooldown90 = "OFF", -- whether to count cooldown in seconds at 90 instead of 60
 	EquipOnSetPick = "OFF", -- whether to equip a set when picked in the set tab of options
 	MinimapTooltip = "ON", -- whether to display the minimap button tooltip to explain clicks
+	MinimapMenuDir = "Auto", -- which way the minimap set menu opens: Auto, Up, Down, Left or Right
 	CharacterSheetMenus = "ON", -- whether to display slot menus on mouseover of the character sheet
 	LeftSlotsGoRight = "ON", -- whether left-side character slots dock their menus to the RIGHT instead of left
 	LeftSlotsGoRightDefaultSet = true, -- whether the default has been set/migrated to ON to fix off-screen issue
@@ -2478,6 +2479,7 @@ function ItemRack.InitCore()
 	ItemRackUser.SetMenuWrap = ItemRackUser.SetMenuWrap or "OFF" -- 2.21
 	ItemRackUser.SetMenuWrapValue = ItemRackUser.SetMenuWrapValue or 3 -- 2.21
 	ItemRackSettings.MinimapTooltip = ItemRackSettings.MinimapTooltip or "ON" -- 2.21
+	ItemRackSettings.MinimapMenuDir = ItemRackSettings.MinimapMenuDir or "Auto"
 	ItemRackSettings.CharacterSheetMenus = ItemRackSettings.CharacterSheetMenus or "ON" -- 2.22
 	ItemRackSettings.DisableAltClick = ItemRackSettings.DisableAltClick or "OFF" -- 2.23
 	ItemRackSettings.HidePetBattle = ItemRackSettings.HidePetBattle or "ON" -- 2.87
@@ -5479,7 +5481,12 @@ function ItemRack.MinimapOnClick(self,button)
 			ItemRackMenuFrame:Hide()
 		else
 			local xpos,ypos = GetCursorPosition()
-			if ypos>400 then
+			local dir = ItemRackSettings.MinimapMenuDir
+			if dir=="Left" then
+				ItemRack.DockWindows("TOPRIGHT",self,"TOPLEFT","HORIZONTAL")
+			elseif dir=="Right" then
+				ItemRack.DockWindows("TOPLEFT",self,"TOPRIGHT","HORIZONTAL")
+			elseif dir=="Down" or (dir~="Up" and ypos>400) then
 				ItemRack.DockWindows("TOPRIGHT",self,"BOTTOMRIGHT","VERTICAL")
 			else
 				ItemRack.DockWindows("BOTTOMRIGHT",self,"TOPRIGHT","VERTICAL")
@@ -6223,6 +6230,7 @@ function ItemRack.SlashHandler(arg1)
 				-- Interface & Misc
 				{ name = "ItemRackSettings.ShowMinimap", val = ItemRackSettings.ShowMinimap },
 				{ name = "ItemRackSettings.MinimapTooltip", val = ItemRackSettings.MinimapTooltip },
+				{ name = "ItemRackSettings.MinimapMenuDir", val = ItemRackSettings.MinimapMenuDir },
 				{ name = "ItemRackSettings.TrinketMenuMode", val = ItemRackSettings.TrinketMenuMode },
 				{ name = "ItemRackSettings.AnchorOther", val = ItemRackSettings.AnchorOther },
 				{ name = "ItemRackSettings.EquipToggle", val = ItemRackSettings.EquipToggle },

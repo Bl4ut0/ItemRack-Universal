@@ -268,6 +268,7 @@ function ItemRackOpt.OnLoad(self)
 		{type="check",optset=ItemRackSettings,variable="ShowMinimap",label="Show minimap button",tooltip="Show the minimap button to access options or change sets."},
 		{type="check",optset=ItemRackSettings,variable="MinimapTooltip",depend="ShowMinimap",label="Show minimap tooltip",tooltip="If tooltips enabled, show what mouse clicks will do when clicking the minimap button."},
 		{type="check",optset=ItemRackSettings,variable="LockMinimap",depend="ShowMinimap",label="Lock minimap button",tooltip="Prevent the minimap button from being moved."},
+		{type="button",button=ItemRackOptMinimapMenuDir,label="Flyout Menu direction",tooltip="Which way the minimap button's set menu opens. Auto picks up or down by screen position."},
 		{type="check",optset=ItemRackSettings,variable="TrinketMenuMode",label="TrinketMenu mode",tooltip="When mouseover of either trinket slot, open anchored to the top trinket.  Left click of a menu item will equip to the top trinket.  Right click will equip to the bottom trinket."},
 		{type="check",optset=ItemRackSettings,variable="AnchorOther",depend="TrinketMenuMode",label="Anchor other trinket",tooltip="In TrinketMenu mode, trinket menus dock to the top trinket.  Check this to anchor them to the bottom trinket."},
 		{type="check",optset=ItemRackSettings,variable="EquipToggle",label="Toggle sets on equip",tooltip="When a set is equipped, if it's already equipped, unequip it."},
@@ -299,6 +300,7 @@ function ItemRackOpt.OnLoad(self)
 	end
 
 	ItemRackOpt.InitializeSliders()
+	ItemRackOpt.UpdateMinimapMenuDir()
 	ItemRackOpt.TabOnClick(self,1) -- start at tab 1 (config)
 
 	ItemRackOptBindFrame:EnableMouseWheel(true)
@@ -314,6 +316,50 @@ function ItemRackOpt.OnLoad(self)
 
 	ItemRackOpt.TriStateCheckSetState(ItemRackOptShowHelm,nil)
 	ItemRackOpt.TriStateCheckSetState(ItemRackOptShowCloak,nil)
+end
+
+-- Flyout Menu direction dropdown (reuses the event editor's dropdown template)
+ItemRackOpt.MinimapMenuDirs = { "Auto", "Up", "Down", "Left", "Right" }
+
+function ItemRackOpt.UpdateMinimapMenuDir()
+	local drop, text = ItemRackOptMinimapMenuDir, ItemRackOptMinimapMenuDirText
+	if not drop.fitted then -- size the box to the longest label; point its arrow at our list
+		local widest = 0
+		for _,dir in ipairs(ItemRackOpt.MinimapMenuDirs) do
+			text:SetText("Flyout Menu: "..dir)
+			widest = math.max(widest,text:GetStringWidth())
+		end
+		text:SetWidth(widest)
+		drop:SetWidth(widest+22)
+		ItemRackOptMinimapMenuDirButton:SetScript("OnClick",ItemRackOpt.ToggleMinimapMenuDirPick)
+		drop.fitted = true
+	end
+	text:SetText("Flyout Menu: "..(ItemRackSettings.MinimapMenuDir or "Auto"))
+end
+
+function ItemRackOpt.ToggleMinimapMenuDirPick()
+	local pick = ItemRackOptMinimapMenuDirPick
+	if not pick then
+		pick = CreateFrame("Frame","ItemRackOptMinimapMenuDirPick",ItemRackOptMinimapMenuDir,"BackdropTemplate")
+		pick:SetFrameStrata("HIGH")
+		pick:SetPoint("TOPLEFT",ItemRackOptMinimapMenuDir,"BOTTOMLEFT",-11,0)
+		pick:SetSize(ItemRackOptMinimapMenuDir:GetWidth()+20,12+18*#ItemRackOpt.MinimapMenuDirs)
+		pick:SetBackdrop({bgFile="Interface\\ChatFrame\\ChatFrameBackground",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
+		pick:SetBackdropColor(.1,.1,.1)
+		for i,dir in ipairs(ItemRackOpt.MinimapMenuDirs) do
+			local item = CreateFrame("Button","ItemRackOptMinimapMenuDirPick"..i,pick,"ItemRackOptEventEditPickTypeTemplate")
+			item:SetPoint("TOPLEFT",10,-6-(i-1)*18)
+			item:SetWidth(ItemRackOptMinimapMenuDir:GetWidth())
+			item:SetText(dir)
+			item:SetScript("OnClick",function()
+				ItemRackSettings.MinimapMenuDir = dir
+				pick:Hide()
+				ItemRackOpt.UpdateMinimapMenuDir()
+			end)
+		end
+		pick:Hide()
+	end
+	if pick:IsShown() then pick:Hide() else pick:Show() end
 end
 
 function ItemRackOpt.InitializeSliders()
