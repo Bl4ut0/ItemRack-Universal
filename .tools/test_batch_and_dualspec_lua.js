@@ -739,6 +739,7 @@ ItemRack.EquipSet("RingSet")
 RunTimers()
 assert(inventory[11] == ${paired || duplicate ? 'exact' : 'substitute'},"available earlier target must equip its distinct planned source")
 assert(inventory[12] == ${paired ? 'substitute' : partial ? '"19003"' : 'exact'},"later target must keep its exact copy or retain existing gear when missing")
+assert(ItemRackUser.CurrentSet == "RingSet","observed batch must commit the logical set")
 assert(cursor == nil and ItemRack.ActiveEquipmentTransaction == nil,"batch must leave no cursor or transaction residue")
 `
   );
