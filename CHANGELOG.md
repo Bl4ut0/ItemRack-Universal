@@ -3,6 +3,9 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+
+
+## [4.51] - 2026-09-29
 ### Bug Fixes & Improvements
 - **TBC Minimap Set Auto-Detection & Link Normalization**: Added `ItemRack.NormalizeItemFields` so empty colon-delimited item fields from modern Classic/TBC Anniversary clients match zero-padded saved set fields symmetrically. `UpdateCurrentSet` now automatically scans saved sets when `CurrentSet` is unequipped or undefined, restoring the active set name, texture, and minimap broker display when all items of a set are equipped manually or via macros.
 - **IsSetEquipped Queue Gating & Partial Cross-Slot Matching**: Gated `QueueStateReady` and `IsEquippedSlotStateReady` checks exclusively to slots with an active, enabled AutoQueue, preventing transient watchdog retries or unqueued armor slots from causing false negative set detection. Partial sets with a single ring or trinket configured can now match either corresponding equipment slot.

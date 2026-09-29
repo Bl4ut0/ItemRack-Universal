@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.51 - By Bl4ut0 __
 - Added ItemRack.NormalizeItemFields so empty colon fields from TBC Anniversary item links match zero-filled stored fields symmetrically.
 - UpdateCurrentSet now scans saved sets to auto-detect worn sets when CurrentSet is unequipped or undefined, restoring the active set and minimap icon when all items are equipped manually or via macros.
 - IsSetEquipped now allows single-slot ring/trinket cross checks and only gates queue readiness on slots with an active AutoQueue.
