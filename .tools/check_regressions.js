@@ -328,6 +328,45 @@ check(
   'ItemRackOpt.GetSpecName must guard against nil GetTalentTabInfo.'
 );
 
+check(
+  core.includes('function ItemRack.NormalizeItemFields(str)') &&
+    core.includes('ItemRack.NormalizeItemFields(f1) == ItemRack.NormalizeItemFields(f2)'),
+  'SameItemFields must normalize empty and zero fields for cross-client link stability.'
+);
+
+check(
+  core.includes('if setname == _G.CUSTOM and not ItemRack.SetSwapping and ItemRackUser and ItemRackUser.Sets then') &&
+    core.includes('if count > bestCount and ItemRack.IsSetEquipped(name) then'),
+  'UpdateCurrentSet must scan saved sets to auto-detect worn sets when CurrentSet is unequipped.'
+);
+
+check(
+  core.includes('if ItemRackSettings.CharacterSheetMenus ~= "ON" or ItemRack.IsEquipmentManagerOpen() then') &&
+    core.includes('if ItemRackMenuFrame:IsVisible() and ItemRack.menuDockedTo then') &&
+    core.includes('ItemRackMenuFrame:Hide()') &&
+    core.includes('ItemRack.menuDockedTo = nil'),
+  'PaperDollItemSlotButton_OnEnter must dismiss open menus and return early when CharacterSheetMenus is disabled.'
+);
+
+check(
+  core.includes('if i ~= "PaperDollFrame" or ItemRackSettings.CharacterSheetMenus == "ON" then'),
+  'MenuMouseover must not treat PaperDollFrame as keep-alive when CharacterSheetMenus is disabled.'
+);
+
+check(
+  options.includes('elseif opt.variable=="CharacterSheetMenus" then') &&
+    options.includes('if check=="OFF" and ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.menuDockedTo then'),
+  'OptListCheckButtonOnClick must dismiss active character sheet menus immediately when toggled OFF.'
+);
+
+check(
+  equip.includes('local check11_12 = (set[11] or set[12])') &&
+    equip.includes('local check13_14 = (set[13] or set[14])') &&
+    equip.includes('local hasActiveQueue = ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled') &&
+    equip.includes('if hasActiveQueue'),
+  'IsSetEquipped must allow single-slot ring/trinket cross checks and only gate queue readiness on slots with active queues.'
+);
+
 const betaMarkdown = `# Changelog\n\n## [Development]\n\n### Bug Fixes & Improvements\n- Beta change\n\n## [4.0] - 2025-01-01\n- Old\n`;
 const promotedMarkdown = releaseTools.promoteBetaMarkdown(betaMarkdown, '4.1-beta1', '2026-08-14').text;
 check(promotedMarkdown.includes('## [4.1-beta1] - 2026-08-14'), 'Beta Markdown promotion failed.');

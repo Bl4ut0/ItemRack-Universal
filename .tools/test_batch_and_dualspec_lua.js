@@ -683,7 +683,7 @@ assert(ok4 and moving4 == false, "ItemRack.IsPlayerMoving must return false when
 // not just exact-first lookup. Ring identities are synthetic, not a new claim
 // that the original bracer report or the untriaged SoD report used this shape.
 const identityFunctions = [
-  'SameID', 'GetRuneID', 'HasRuneID', 'IsBareItemID', 'SameItemFields',
+  'SameID', 'GetRuneID', 'HasRuneID', 'IsBareItemID', 'NormalizeItemFields', 'SameItemFields',
   'SameExactID', 'MatchesStoredItemFields', 'MatchesStoredItemID', 'FindItem',
 ].map(name => extractFunction('ItemRack/ItemRack.lua', `ItemRack.${name}`)).join('\n');
 
@@ -744,6 +744,92 @@ assert(cursor == nil and ItemRack.ActiveEquipmentTransaction == nil,"batch must 
 `
   );
 }
+
+const updateCurrentSetSrc = extractFunction('ItemRack/ItemRack.lua', 'ItemRack.UpdateCurrentSet');
+const isSetEquippedSrc = extractFunction('ItemRack/ItemRackEquip.lua', 'ItemRack.IsSetEquipped');
+const paperDollOnEnterSrc = extractFunction('ItemRack/ItemRack.lua', 'PaperDollItemSlotButton_OnEnter');
+
+runCase(
+  'minimap-set-detection-and-character-menu-suppression',
+  `${commonSetup}
+local inventory = {
+  [1] = "3299:::::::",
+  [11] = "19001:0:0:0:0:0:0:0",
+}
+ItemRack.iSPatternBaseIDFromIR = "^(%-?%d+)"
+ItemRack.iSPatternItemFieldsFromIR = "^(%-?%d+:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*)"
+ItemRack.iSPatternRuneIDFromIR = ":runeid:(%d+)$"
+function ItemRack.GetIRString(value,base)
+  if base then return tostring(value or ""):match("^(%-?%d+)") or 0 end
+  return value or 0
+end
+function ItemRack.GetID(slot)
+  return inventory[slot] or 0
+end
+function ItemRack.GetTextureBySlot(slot)
+  return "Interface\\\\Icons\\\\Spell_Holy_SealOfSacrifice"
+end
+ItemRack.Broker = { icon = "", text = "" }
+ItemRackUser = {
+  CurrentSet = nil,
+  EnableQueues = "OFF",
+  Sets = {
+    ["PvP"] = {
+      equip = { [1] = "3299:0:0:0:0:0:0:0", [11] = "19001:::::::" },
+      icon = "Interface\\\\Icons\\\\Spell_Holy_SealOfSacrifice"
+    },
+    ["Partial"] = {
+      equip = { [1] = "3299:0:0:0:0:0:0:0" },
+      icon = "Interface\\\\Icons\\\\INV_Misc_QuestionMark"
+    }
+  }
+}
+function ItemRack.GetQueueContext(slot, setname)
+  return { list = {}, enabled = false }
+end
+
+${identityFunctions}
+${isSetEquippedSrc}
+${updateCurrentSetSrc}
+
+-- Case 1: CurrentSet is nil, but wearing all items for "PvP" (testing set auto-detection and colon-vs-zero field matching)
+ItemRack.UpdateCurrentSet()
+assert(ItemRackUser.CurrentSet == "PvP", "UpdateCurrentSet must auto-detect worn PvP set when CurrentSet is nil")
+assert(ItemRack.Broker.text == "PvP", "Broker text must update to detected set")
+assert(ItemRack.Broker.icon == "Interface\\\\Icons\\\\Spell_Holy_SealOfSacrifice", "Broker icon must update to detected set icon")
+
+-- Case 2: Changing one item makes it Custom
+inventory[1] = "99999:::::::"
+ItemRack.UpdateCurrentSet()
+assert(ItemRack.Broker.text == _G.CUSTOM, "Broker text must display Custom when items differ")
+assert(ItemRack.Broker.icon == "Interface\\\\AddOns\\\\ItemRack\\\\ItemRackIcon", "Broker icon must revert to default ItemRack icon")
+
+-- Case 3: Re-equipping the item restores set detection
+inventory[1] = "3299:::::::"
+ItemRack.UpdateCurrentSet()
+assert(ItemRack.Broker.text == "PvP", "Re-equipping set items must restore set name")
+assert(ItemRack.Broker.icon == "Interface\\\\Icons\\\\Spell_Holy_SealOfSacrifice", "Re-equipping set items must restore set icon")
+
+-- Case 4: Character sheet menu suppression when CharacterSheetMenus == "OFF"
+ItemRackSettings.CharacterSheetMenus = "OFF"
+local menuHidden = false
+ItemRackMenuFrame = {
+  IsVisible = function() return true end,
+  Hide = function() menuHidden = true end,
+}
+ItemRack.menuDockedTo = "CharacterHeadSlot"
+local oldEnterCalled = false
+ItemRack.oldPaperDollItemSlotButton_OnEnter = function(self) oldEnterCalled = true end
+
+local dummyButton = { GetName = function() return "CharacterHeadSlot" end }
+${paperDollOnEnterSrc}
+PaperDollItemSlotButton_OnEnter(dummyButton)
+assert(menuHidden == true, "PaperDollItemSlotButton_OnEnter must hide menu when CharacterSheetMenus is OFF")
+assert(ItemRack.menuDockedTo == nil, "PaperDollItemSlotButton_OnEnter must clear menuDockedTo when CharacterSheetMenus is OFF")
+assert(oldEnterCalled == true, "PaperDollItemSlotButton_OnEnter must call original handler")
+`,
+  ''
+);
 
 console.log('[BATCH & DUAL-SPEC LUA] Batch execution, exact-copy reservations, rollback safety, dual-spec, minimap, and spellbook safety assertions passed.');
 

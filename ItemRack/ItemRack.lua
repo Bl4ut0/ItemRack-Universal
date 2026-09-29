@@ -2547,7 +2547,29 @@ function ItemRack.UpdateCurrentSet()
 			setname = _G.CUSTOM
 		end
 	end
-	if ItemRackButton20 and ItemRackUser.Buttons[20] then
+	if setname == _G.CUSTOM and not ItemRack.SetSwapping and ItemRackUser and ItemRackUser.Sets then
+		local bestSet, bestCount = nil, 0
+		for name, set in pairs(ItemRackUser.Sets) do
+			if not name:match("^~") and set.equip then
+				local count = 0
+				for slot in pairs(set.equip) do
+					if type(slot) == "number" then
+						count = count + 1
+					end
+				end
+				if count > bestCount and ItemRack.IsSetEquipped(name) then
+					bestSet = name
+					bestCount = count
+				end
+			end
+		end
+		if bestSet then
+			setname = bestSet
+			ItemRackUser.CurrentSet = bestSet
+			texture = ItemRack.GetTextureBySlot(20)
+		end
+	end
+	if ItemRackButton20 and ItemRackUser.Buttons and ItemRackUser.Buttons[20] then
 		ItemRackButton20ItemRackIcon:SetTexture(texture)
 		local nameText = _G["ItemRackButton20Name"]
 		if nameText then
@@ -2555,8 +2577,10 @@ function ItemRack.UpdateCurrentSet()
 			nameText:Show()
 		end
 	end
-	ItemRack.Broker.icon = texture
-	ItemRack.Broker.text = setname
+	if ItemRack.Broker then
+		ItemRack.Broker.icon = texture
+		ItemRack.Broker.text = setname
+	end
 end
 
 --[[ Item info gathering ]]
@@ -2806,13 +2830,32 @@ function ItemRack.OnRuneUpdated(self,event,runeInfo)
 	end
 end
 
+-- Normalizes the first 8 item fields (itemID, enchant, 4 gems, suffix, unique) so
+-- that empty fields (e.g. "3299:::::::") and zero fields (e.g. "3299:0:0:0:0:0:0:0")
+-- match symmetrically across classic and modern item link string formats.
+function ItemRack.NormalizeItemFields(str)
+	if not str then return "" end
+	local base, rest = tostring(str):match("^(%-?%d+):?(.*)")
+	if not base then return tostring(str) end
+	local parts = { base }
+	for part in (rest .. ":"):gmatch("([^:]*):") do
+		table.insert(parts, part == "" and "0" or part)
+		if #parts == 8 then break end
+	end
+	while #parts < 8 do
+		table.insert(parts, "0")
+	end
+	return table.concat(parts, ":")
+end
+
 -- takes two ItemRack-style IDs and returns true if they share the same item-identifying fields (itemID, enchant, gems, suffix, unique)
 -- this is more precise than SameID (which only compares base itemID) but tolerant of item string format changes (Classic 10 fields vs TBC 14 fields)
 function ItemRack.SameItemFields(id1,id2)
 	if not id1 or not id2 or id1==0 or id2==0 then return false end
 	local f1 = tostring(id1):match(ItemRack.iSPatternItemFieldsFromIR) or tostring(id1)
 	local f2 = tostring(id2):match(ItemRack.iSPatternItemFieldsFromIR) or tostring(id2)
-	return f1 == f2
+	if f1 == f2 then return true end
+	return ItemRack.NormalizeItemFields(f1) == ItemRack.NormalizeItemFields(f2)
 end
 
 function ItemRack.SameExactID(id1,id2)
@@ -3844,14 +3887,20 @@ function ItemRack.MenuMouseover()
 		return false
 	end
 	
-	if frameName then IRmouseOverFrame = ItemRack.MenuMouseoverFrames[frameName] end
+	if frameName then
+		if frameName ~= "PaperDollFrame" or ItemRackSettings.CharacterSheetMenus == "ON" then
+			IRmouseOverFrame = ItemRack.MenuMouseoverFrames[frameName]
+		end
+	end
 	if SafeMouseIsOver(ItemRackMenuFrame) or IsShiftKeyDown() or (frame and frameName and frameVisible and IRmouseOverFrame) then
 		return -- keep menu open if mouse over menu, shift is down or mouse is immediately over a mouseover frame
 	end
 	for i in pairs(ItemRack.MenuMouseoverFrames) do
-		frame = _G[i]
-		if frame and frame:IsVisible() and SafeMouseIsOver(frame) then
-			return -- keep menu open if some frame beneath mouse is a mouseover frame
+		if i ~= "PaperDollFrame" or ItemRackSettings.CharacterSheetMenus == "ON" then
+			frame = _G[i]
+			if frame and frame:IsVisible() and SafeMouseIsOver(frame) then
+				return -- keep menu open if some frame beneath mouse is a mouseover frame
+			end
 		end
 	end
 	ItemRack.StopTimer("MenuMouseover")
@@ -5232,10 +5281,16 @@ function ItemRack.IsEquipmentManagerOpen()
 	if PaperDollFrame and PaperDollFrame.EquipmentManagerPane and PaperDollFrame.EquipmentManagerPane:IsShown() then
 		return true
 	end
+	if _G.PaperDollEquipmentManagerPane and _G.PaperDollEquipmentManagerPane:IsShown() then
+		return true
+	end
 	if GearManagerDialog and GearManagerDialog:IsShown() then
 		return true
 	end
 	if EquipmentFlyoutFrame and EquipmentFlyoutFrame:IsShown() then
+		return true
+	end
+	if _G.EquipmentFlyoutFrame and _G.EquipmentFlyoutFrame:IsShown() then
 		return true
 	end
 	if PaperDollFrame and PaperDollFrame.currentSideBar and PaperDollFrame.EquipmentManagerPane and PaperDollFrame.currentSideBar == PaperDollFrame.EquipmentManagerPane then
@@ -5246,7 +5301,7 @@ end
 
 ItemRack.oldPaperDollItemSlotButton_OnEnter = PaperDollItemSlotButton_OnEnter
 function PaperDollItemSlotButton_OnEnter(self)
-	if ItemRack.IsEquipmentManagerOpen() then
+	if ItemRackSettings.CharacterSheetMenus ~= "ON" or ItemRack.IsEquipmentManagerOpen() then
 		if ItemRackMenuFrame:IsVisible() and ItemRack.menuDockedTo then
 			ItemRackMenuFrame:Hide()
 			ItemRack.menuDockedTo = nil
