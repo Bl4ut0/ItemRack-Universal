@@ -520,6 +520,48 @@ assert(hidden == true, "ItemRack.MenuMouseover must hide menu when mouse is outs
 `
 );
 
+// Minimap flyout direction: MinimapMenuDir overrides the cursor-height guess; Auto keeps it
+const minimapOnClickFunc = extractFunction('ItemRack/ItemRack.lua', 'ItemRack.MinimapOnClick');
+
+runCase(
+  'minimap-menu-direction',
+  `${commonSetup}
+local cursorY = 600
+docked, built = nil, nil
+IsShiftKeyDown = function() return false end
+IsAltKeyDown = function() return false end
+GetCursorPosition = function() return 0, cursorY end
+function SetCursorY(y) cursorY = y end
+ItemRackMenuFrame = { IsVisible = function() return false end, Hide = function() end }
+ItemRack.DockWindows = function(menuDock, relativeTo, mainDock, orient)
+  docked = menuDock .. ">" .. mainDock .. ":" .. orient
+end
+ItemRack.BuildMenu = function(id) built = id end
+
+${minimapOnClickFunc}
+`,
+  `
+local function click(dir, y)
+  ItemRackSettings.MinimapMenuDir = dir
+  SetCursorY(y)
+  docked, built = nil, nil
+  ItemRack.MinimapOnClick({}, "LeftButton")
+  assert(built == 20, "set menu must be built for " .. tostring(dir))
+  return docked
+end
+
+-- Auto, and unset (profiles saved before the option), keep the original cursor-height rule
+assert(click("Auto", 600) == "TOPRIGHT>BOTTOMRIGHT:VERTICAL", "Auto opens down when the cursor is high")
+assert(click("Auto", 200) == "BOTTOMRIGHT>TOPRIGHT:VERTICAL", "Auto opens up when the cursor is low")
+assert(click(nil, 600) == "TOPRIGHT>BOTTOMRIGHT:VERTICAL", "unset behaves as Auto")
+-- Fixed directions ignore the cursor
+assert(click("Up", 600) == "BOTTOMRIGHT>TOPRIGHT:VERTICAL", "Up opens up even when the cursor is high")
+assert(click("Down", 200) == "TOPRIGHT>BOTTOMRIGHT:VERTICAL", "Down opens down even when the cursor is low")
+assert(click("Left", 600) == "TOPRIGHT>TOPLEFT:HORIZONTAL", "Left opens to the left")
+assert(click("Right", 200) == "TOPLEFT>TOPRIGHT:HORIZONTAL", "Right opens to the right")
+`
+);
+
 // Modern / Forever client ValidBag safety: GetItemFamily moved to C_Item.GetItemFamily
 const validBagFunc = extractFunction('ItemRack/ItemRack.lua', 'ItemRack.ValidBag');
 

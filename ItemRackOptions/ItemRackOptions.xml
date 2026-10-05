@@ -1342,6 +1342,13 @@
 							</OnClick>
 						</Scripts>
 					</Button>
+					<Button name="ItemRackOptMinimapMenuDir" inherits="ItemRackOptDropDownTemplate">
+						<Scripts>
+							<OnClick>
+								ItemRackOpt.ToggleMinimapMenuDirPick()
+							</OnClick>
+						</Scripts>
+					</Button>
 					<Slider name="ItemRackOptButtonSpacingSlider" inherits="ItemRackOptSliderTemplate"/>
 					<Slider name="ItemRackOptAlphaSlider" inherits="ItemRackOptSliderTemplate"/>
 					<Slider name="ItemRackOptMainScaleSlider" inherits="ItemRackOptSliderTemplate"/>
