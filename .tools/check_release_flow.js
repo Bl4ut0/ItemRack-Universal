@@ -15,6 +15,20 @@ function check(condition, message) {
   checks += 1;
 }
 
+// User's Universal/Anniversary naming complaint: both publication channels
+// must use the same product title without changing archive/module identifiers.
+for (const mode of ['beta', 'stable']) {
+  const version = mode === 'beta' ? '4.54-beta1' : '4.54';
+  const posts = releaseTools.renderReleasePosts(mode, version, '  - Example change  ');
+  for (const post of [posts.github, posts.curseForge]) {
+    check(post.startsWith(`# ItemRack Universal v${version}\n`) &&
+      !post.includes('ItemRack Anniversary') && post.includes('- Example change'),
+    `Universal naming complaint: ${mode} generated release posts must identify ItemRack Universal.`);
+  }
+  check(posts.curseForge.includes(mode === 'beta' ? '**Beta test release**' : '**Stable release**'),
+    'Universal release naming must preserve the publication channel.');
+}
+
 function between(source, start, end) {
   const startIndex = source.indexOf(start);
   const endIndex = source.indexOf(end, startIndex + start.length);

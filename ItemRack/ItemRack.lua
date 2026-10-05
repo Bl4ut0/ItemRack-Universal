@@ -1,12 +1,13 @@
 local addonName, addon = ...
 _G[addonName] = addon
+addon.DisplayName = "ItemRack Universal"
 
 local _
 
 -- Blizzard Keybinding UI localization strings
 -- These globals provide the human-readable names displayed in ESC > Keybindings > AddOns > ItemRack
 -- CLICK bindings require _G["BINDING_NAME_<full action string>"] format (spaces/colons included)
-BINDING_HEADER_ITEMRACK = "ItemRack"
+BINDING_HEADER_ITEMRACK = addon.DisplayName
 _G["BINDING_NAME_CLICK ItemRackButton0:LeftButton"]  = "Ammo (Slot 0)"
 _G["BINDING_NAME_CLICK ItemRackButton1:LeftButton"]  = "Head (Slot 1)"
 _G["BINDING_NAME_CLICK ItemRackButton2:LeftButton"]  = "Neck (Slot 2)"

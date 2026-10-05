@@ -1,4 +1,5 @@
 __ Development __
+- Unified addon-list, Options and keybinding titles as ItemRack Universal. Future release posts use the same Universal title; stable ItemRack and ItemRackOptions module/folder names remain compatible.
 
 __ New in 4.53-beta1 - By Bl4ut0 __
 - GitHub #29: confirm dependent weapon moves before resolving displaced sources again, guard equipment-source identities, park slot-restricted displaced items, preserve implicit source-slot restoration history, and release reservations at set completion. Added permanent reported and neighboring production-Lua regressions; live-client acceptance remains required.

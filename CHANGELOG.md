@@ -4,6 +4,9 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+### Bug Fixes & Improvements
+- **Universal Product Naming**: The addon list, Options title and keybinding category now identify ItemRack Universal. GitHub and CurseForge release posts share one Universal title renderer, and documentation uses the current project links. Stable `ItemRack` and `ItemRackOptions` folder/module identifiers remain unchanged for compatibility. Added permanent naming regressions; existing published beta metadata is unchanged.
+
 
 ## [4.53-beta1] - 2026-10-05
 ### Bug Fixes & Improvements

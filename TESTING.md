@@ -73,6 +73,7 @@ Shared-provider taint and actual client rendering remain client acceptance check
 
 | Report or failure | Permanent focused coverage |
 |---|---|
+| Supplied three-rogue complaint: Universal download appears as Anniversary in the addon list | `.tools/check_regressions.js`: named Universal naming complaint guards fail against the old TOC titles and pass after correction. `.tools/check_release_flow.js` executes the shared release-post renderer for beta and stable titles and preserves channel labels. Module identifiers, dependencies and archive naming retain existing standard-gate coverage. Addon-list and Options title layout require client acceptance. |
 | GitHub #29 / DefinitelyNotNate: weapon/shield set swaps roll back or finish with wrong weapons after 4.46 pipelining | `.tools/test_batch_and_dualspec_lua.js`: `issue-29-reported-shield` uses the reported 4.51 / Classic Era 1.15.9 identities and settings; `issue-29-followup-stale-source` models the follow-up with a synthetic third weapon. Both fail against candidate e28390c and pass after correction. Neighboring cases cover full bags, paired weapons, partial shield/held-item/main-hand-only moves, no-space refusal, later-pass rejection and rollback, actual endpoints, restoration history, queue context, unequip, and cleanup. `.tools/test_transaction_engine_lua.js` verifies stale expected-source rejection before any pickup. Live item-lock timing and protected equipment acceptance remain required. |
 | PR #28 / msromike: Forever 1.60.1, ItemRack 4.51 login fails when GetCurrentBindingSet returns 0 | `.tools/test_set_bindings_lua.js`, `binding save waits for a valid binding set`, reproduces the pre-fix SaveBindings error, verifies deferred persistence once set 2 becomes available and immediate saving for set 1. Login continuity and relog persistence still need client acceptance. |
 | PR #26 / msromike: relocated minimap button needs a fixed set-menu direction | `.tools/test_batch_and_dualspec_lua.js`, `minimap-menu-direction`, fails before the fix for Up and verifies Auto/unset compatibility plus all fixed dock directions. Rendering and minimap-collector layering remain client acceptance checks. |
@@ -96,6 +97,15 @@ Shared-provider taint and actual client rendering remain client acceptance check
 | TBC Anniversary: character sheet swap menus appear despite being disabled | `.tools/test_batch_and_dualspec_lua.js` verifies `PaperDollItemSlotButton_OnEnter` hides open menus and suppresses new ones when `CharacterSheetMenus == "OFF"`; `.tools/check_regressions.js` guards early return in `PaperDollItemSlotButton_OnEnter`, `PaperDollFrame` exclusion from `MenuMouseover` keep-alive, and immediate dismissal in `OptListCheckButtonOnClick`. |
 
 
+
+The supplied three-rogue complaint reports ItemRack 4.51 from CurseForge but
+does not include a reporter/source link, client build, set/boot identities,
+queue flags, diagnostic dump, or a screenshot of the image sizing. The
+boot-AutoQueue/keybind failure and icon complaint remain untriaged; existing
+readiness, queue-intent and icon tests do not reproduce this character's failure.
+The production quick-access texture has a two-pixel inset in a 36-pixel button;
+scaling preserves that ratio. This explains a possible visual difference but
+does not establish a rendering regression without the affected UI/screenshot.
 
 The recent CurseForge report by leocard about SoD items being reported missing
 still needs client build, saved/live item and rune identities, and a diagnostic

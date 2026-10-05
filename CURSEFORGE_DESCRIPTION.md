@@ -1,4 +1,4 @@
-# ItemRack — One addon for Classic, TBC Anniversary, and Forever
+# ItemRack Universal — One addon for Classic, TBC Anniversary, and Forever
 
 ItemRack makes equipment management fast and predictable. Save full or partial gear sets, switch them from a menu or keybind, automate changes for game events, and rotate cooldown items through configurable queues.
 
@@ -20,6 +20,8 @@ The ZIP installs two folders:
 - `ItemRackOptions` — the load-on-demand configuration module
 
 Keep both folders together in `Interface\AddOns`.
+
+The addon list displays **ItemRack Universal** and **ItemRack Universal Options**. The stable folder names `ItemRack` and `ItemRackOptions` are required by module dependencies and asset paths; leave those names unchanged.
 
 ## What ItemRack does
 
@@ -107,8 +109,8 @@ When reporting a problem, include:
 
 The dump identifies the exact ItemRack release and includes technical state such as event ownership, queues, equipment transactions, and locks. Review it before sharing because it can contain gear-set names and item information.
 
-- Source and issue tracker: https://github.com/Bl4ut0/ItemRack-Anniversary
-- Full controls: https://github.com/Bl4ut0/ItemRack-Anniversary/blob/master/CONTROLS.md
+- Source and issue tracker: https://github.com/Bl4ut0/ItemRack-Universal
+- Full controls: https://github.com/Bl4ut0/ItemRack-Universal/blob/master/CONTROLS.md
 
 ## Credits
 

@@ -192,7 +192,7 @@ function ItemRackOpt.OnLoad(self)
 	ItemRackOpt.PopulateEventList()
 	ItemRackOptSetsCurrentSet:EnableMouse(false)
 
-	ItemRackOptFrameTitle:SetText("IR "..ItemRack.Version)
+	ItemRackOptFrameTitle:SetText(ItemRack.DisplayName.." "..ItemRack.Version)
 
 	-- OptInfo: this table drives the scrollable options. must be defined after xml defined (so buttons are non-nil)
 	-- type = "label", "check", "number", "slider", "button" : what type of option element
