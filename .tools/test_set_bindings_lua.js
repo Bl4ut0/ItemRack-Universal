@@ -13,6 +13,8 @@ const configureButton = weaponMacro + '\n' + extractFunction(coreFile, 'ItemRack
 const neutralizeButton = extractFunction(coreFile, 'ItemRack.NeutralizeSetBindingButton');
 const queueBindings = extractFunction(coreFile, 'ItemRack.QueueSetBindingsAfterCombat');
 const setBindings = extractFunction(coreFile, 'ItemRack.SetSetBindings');
+const saveBindings = extractFunction(coreFile, 'ItemRack.SaveCurrentBindings');
+const bindingsChanged = extractFunction(coreFile, 'ItemRack.OnBindingsChanged');
 
 function runCase(name, setup, functions, assertions) {
   runLua(`${setup}\n${functions.join('\n')}\n${assertions}`, `set-binding:${name}`);
@@ -345,5 +347,43 @@ scripts.PreClick(); scripts.PostClick()
 assert(ItemRack.PendingSetBindingRequest.intent=="equip","rejected or wrong-copy weapon actions must retain an after-combat repair request")
 `);
 checks += 13;
+// Forever 1.60.1 report: "Usage: SaveBindings(1||2)" at PLAYER_LOGIN. The client
+// returned binding set 0 while a saved set key was being reconciled.
+runCase(
+  'binding save waits for a valid binding set',
+  `
+local bindingSet,saves,reconciles = 0,{},0
+ItemRack={
+  SetSetBindings=function() reconciles=reconciles+1 end,
+}
+function GetCurrentBindingSet() return bindingSet end
+function SaveBindings(which)
+  if which ~= 1 and which ~= 2 then error("Usage: SaveBindings(1||2)") end
+  table.insert(saves,which)
+end
+`,
+  [saveBindings, bindingsChanged],
+  `
+ItemRack.SaveCurrentBindings()
+assert(#saves == 0 and ItemRack.BindingSavePending == true,
+  "binding set 0 must defer the save instead of reaching SaveBindings")
+ItemRack.OnBindingsChanged()
+assert(#saves == 0 and ItemRack.BindingSavePending == true and reconciles == 1,
+  "a bindings update while the set is still 0 must keep the save pending")
+bindingSet=2
+ItemRack.OnBindingsChanged()
+assert(#saves == 1 and saves[1] == 2 and ItemRack.BindingSavePending == nil,
+  "the deferred save must land once on the first valid binding set")
+ItemRack.OnBindingsChanged()
+assert(#saves == 1 and reconciles == 3,
+  "a completed deferred save must not repeat on later bindings updates")
+bindingSet=1
+ItemRack.SaveCurrentBindings()
+assert(#saves == 2 and saves[2] == 1 and ItemRack.BindingSavePending == nil,
+  "account and character binding sets must still save immediately")
+`
+);
+checks += 5;
+
 
 console.log(`[SET BINDING LUA] ${checks} intent, containment, and reconciliation checks passed.`);

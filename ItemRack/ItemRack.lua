@@ -5710,9 +5710,13 @@ end
 
 function ItemRack.SaveCurrentBindings()
 	local bindingSet = GetCurrentBindingSet()
-	if bindingSet then
+	-- 1 = account, 2 = character. The client can report 0 before bindings have
+	-- loaded (PLAYER_LOGIN on WoW Forever); SaveBindings rejects that.
+	if bindingSet == 1 or bindingSet == 2 then
+		ItemRack.BindingSavePending = nil
 		return SaveBindings(bindingSet)
 	end
+	ItemRack.BindingSavePending = true
 end
 
 function ItemRack.ClearBindingAction(action,persist)
@@ -5991,6 +5995,7 @@ end
 function ItemRack.OnBindingsChanged()
 	if ItemRack.KeyBindingsChanged then ItemRack.KeyBindingsChanged() end
 	if not ItemRack.SetBindingsReconciling then ItemRack.SetSetBindings() end
+	if ItemRack.BindingSavePending then ItemRack.SaveCurrentBindings() end
 end
 
 --[[ Slash Handler ]]
