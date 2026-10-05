@@ -58,8 +58,23 @@ standard suite before its fix is considered complete:
 
 ### Report coverage in the standard gate
 
+The October 4, 2026 comparison review and user clarification about weapon-only
+saved sets are covered by `weapon-only combat binding is secure and never replayed`
+in `.tools/test_set_bindings_lua.js`. It checks weapon-only and opt-in full-set
+macro configuration, preserved item fields, repeated combat equip intent,
+deferred completion, wrong-copy repair, setting disablement, and unsafe input
+rejection. The pre-change empty secure carrier fails the macro assertion.
+No affected live-client build or specific weapon identities were supplied;
+these are production-Lua contract regressions, not verified protected actions.
+The same review's missing/incomplete icon APIs and missing combat-text function
+failed before correction in `.tools/test_set_icon_picker_lua.js` and the named
+`Forever notification API fallback` case in `.tools/test_cooldown_integration_lua.js`.
+Shared-provider taint and actual client rendering remain client acceptance checks.
+
 | Report or failure | Permanent focused coverage |
 |---|---|
+| PR #28 / msromike: Forever 1.60.1, ItemRack 4.51 login fails when GetCurrentBindingSet returns 0 | `.tools/test_set_bindings_lua.js`, `binding save waits for a valid binding set`, reproduces the pre-fix SaveBindings error, verifies deferred persistence once set 2 becomes available and immediate saving for set 1. Login continuity and relog persistence still need client acceptance. |
+| PR #26 / msromike: relocated minimap button needs a fixed set-menu direction | `.tools/test_batch_and_dualspec_lua.js`, `minimap-menu-direction`, fails before the fix for Up and verifies Auto/unset compatibility plus all fixed dock directions. Rendering and minimap-collector layering remain client acceptance checks. |
 | CurseForge baniro_: Mounted movement restores gear but loses the set and queues | `.tools/test_event_integration_lua.js` verifies final base-set and queue-context restoration. |
 | Missing saved items block the remaining set | `.tools/test_transactions_lua.js` verifies partial-set planning while retaining unsafe-transition guards. |
 | CurseForge Antatra: missing cooldown-state function produces recurring errors | `.tools/test_cooldown_integration_lua.js` verifies missing-module containment and one warning; it does not establish why the original client module failed to load. |

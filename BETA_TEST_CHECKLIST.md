@@ -10,6 +10,8 @@ Use the same universal archive for every row; do not build or test separate Fore
 - **Burning Crusade Classic Anniversary:** test dual-spec transitions, duplicate enchanted/gemmed items, fast multi-slot swaps, and AutoQueue.
 - **Forever/Camelot:** open Equipment Manager and ItemRack menus, test movement/mount events, specialization labels, item discovery, and the set-icon picker.
 - On every client, confirm the TOC version, `ItemRack.Version`, and `ItemRack.BuildID` identify the same candidate.
+- On Forever 1.60.1, log in twice with a saved set key and verify no SaveBindings usage error, working set hotkeys, and persisted keys after relog (PR #28).
+- Test Auto/Up/Down/Left/Right minimap flyouts with the stock button and any minimap collector. Verify direction, item clicks, and dropdown layout. EllesmereUI 9.3 collector layering requires its upstream PR #2305 fix according to the contributor; ItemRack's dock tests do not verify that external fix (PR #26).
 
 ## 1. Tooltip safety and layout
 
@@ -26,7 +28,9 @@ Use the same universal archive for every row; do not build or test separate Fore
 - Physically swap between the two rune variants and confirm the normal equip hold/penalty is recorded; re-engrave the currently equipped copy and confirm that operation alone does not manufacture a physical equip transition.
 - Re-engrave one equipped slot while another rune-bearing slot changes. Confirm only the engraved slot adopts the new rune identity and the physical swap keeps its normal hold, regardless of which inventory event appears first in diagnostics.
 - Confirm ItemRack chooses the saved rune, reports the correct set as equipped, colors tooltip rows correctly, and does not silently accept the other rune.
-- Test a bound weapon-only set during combat. If the secure macro cannot distinguish the copy, confirm the mismatch remains queued and resolves after combat instead of disappearing.
+- Test a bound weapon-only set during combat. If the secure macro cannot distinguish the copy, confirm the mismatch remains queued and resolves after combat instead of disappearing. Check duplicate enchants/gems and paired main-hand/off-hand moves; capture exact item links and client build if any action fails.
+- With **Swap set weapons during combat** off, a full-set hotkey must wait until combat ends. Turn it on: weapons must equip immediately and armor only after combat. Repeated combat presses must keep equip intent rather than schedule unequip. Disable it during combat and confirm protected button configuration changes only after combat ends. Rune-specific and empty weapon slots must remain deferred.
+- On Forever, open the icon picker then scroll/hover Blizzard Options > Advanced and check for taint errors. Enable floating combat text and both cooldown notification options; verify notices work without Lua errors, with and without optional chat output.
 - Repeat one saved set created before rune metadata existed; it should retain legacy base-item fallback.
 
 ## 3. Event ownership and same-spec re-enable

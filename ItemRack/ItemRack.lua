@@ -416,6 +416,7 @@ ItemRackUser = {
 }
 
 ItemRackSettings = {
+	CombatSetWeapons = "OFF", -- full-set hotkeys may submit weapons before deferred armor
 	MenuOnShift = "OFF", -- open menus on shift only
 	MenuOnRight = "OFF", -- open menus on right-click only
 	RightClickUse = "OFF", -- use the item on right-click instead of manually advancing the queue
@@ -444,6 +445,7 @@ ItemRackSettings = {
 	Cooldown90 = "OFF", -- whether to count cooldown in seconds at 90 instead of 60
 	EquipOnSetPick = "OFF", -- whether to equip a set when picked in the set tab of options
 	MinimapTooltip = "ON", -- whether to display the minimap button tooltip to explain clicks
+	MinimapMenuDir = "Auto", -- which way the minimap set menu opens: Auto, Up, Down, Left or Right
 	CharacterSheetMenus = "ON", -- whether to display slot menus on mouseover of the character sheet
 	LeftSlotsGoRight = "ON", -- whether left-side character slots dock their menus to the RIGHT instead of left
 	LeftSlotsGoRightDefaultSet = true, -- whether the default has been set/migrated to ON to fix off-screen issue
@@ -2478,6 +2480,7 @@ function ItemRack.InitCore()
 	ItemRackUser.SetMenuWrap = ItemRackUser.SetMenuWrap or "OFF" -- 2.21
 	ItemRackUser.SetMenuWrapValue = ItemRackUser.SetMenuWrapValue or 3 -- 2.21
 	ItemRackSettings.MinimapTooltip = ItemRackSettings.MinimapTooltip or "ON" -- 2.21
+	ItemRackSettings.MinimapMenuDir = ItemRackSettings.MinimapMenuDir or "Auto"
 	ItemRackSettings.CharacterSheetMenus = ItemRackSettings.CharacterSheetMenus or "ON" -- 2.22
 	ItemRackSettings.DisableAltClick = ItemRackSettings.DisableAltClick or "OFF" -- 2.23
 	ItemRackSettings.HidePetBattle = ItemRackSettings.HidePetBattle or "ON" -- 2.87
@@ -5185,7 +5188,7 @@ function ItemRack.Notify(msg)
 	PlaySound(SOUNDKIT.IG_CHARACTER_INFO_OPEN)
 	if SCT_Display then -- send via SCT if it exists
 		SCT_Display(msg,{r=.2,g=.7,b=.9})
-	elseif SHOW_COMBAT_TEXT=="1" then
+	elseif SHOW_COMBAT_TEXT=="1" and type(CombatText_AddMessage)=="function" then
 		CombatText_AddMessage(msg, CombatText_StandardScroll, .2, .7, .9) -- or default UI's SCT
 	else
 		-- send vis UIErrorsFrame if neither SCT exists
@@ -5534,7 +5537,12 @@ function ItemRack.MinimapOnClick(self,button)
 			ItemRackMenuFrame:Hide()
 		else
 			local xpos,ypos = GetCursorPosition()
-			if ypos>400 then
+			local dir = ItemRackSettings.MinimapMenuDir
+			if dir=="Left" then
+				ItemRack.DockWindows("TOPRIGHT",self,"TOPLEFT","HORIZONTAL")
+			elseif dir=="Right" then
+				ItemRack.DockWindows("TOPLEFT",self,"TOPRIGHT","HORIZONTAL")
+			elseif dir=="Down" or (dir~="Up" and ypos>400) then
 				ItemRack.DockWindows("TOPRIGHT",self,"BOTTOMRIGHT","VERTICAL")
 			else
 				ItemRack.DockWindows("BOTTOMRIGHT",self,"TOPRIGHT","VERTICAL")
@@ -5709,9 +5717,13 @@ end
 
 function ItemRack.SaveCurrentBindings()
 	local bindingSet = GetCurrentBindingSet()
-	if bindingSet then
+	-- 1 = account, 2 = character. The client can report 0 before bindings have
+	-- loaded (PLAYER_LOGIN on WoW Forever); SaveBindings rejects that.
+	if bindingSet == 1 or bindingSet == 2 then
+		ItemRack.BindingSavePending = nil
 		return SaveBindings(bindingSet)
 	end
+	ItemRack.BindingSavePending = true
 end
 
 function ItemRack.ClearBindingAction(action,persist)
@@ -5827,20 +5839,59 @@ function ItemRack.RunSetBinding(setname,request)
 	return executed and "executed" or "deferred",executeReason
 end
 
+function ItemRack.GetWeaponBindingMacro(setname)
+	local set = ItemRackUser.Sets and ItemRackUser.Sets[setname]
+	if not set or type(set.equip) ~= "table" then return "" end
+	local allowFullSet = ItemRackSettings and ItemRackSettings.CombatSetWeapons == "ON"
+	if set.AssociatedSpec and not allowFullSet then return "" end
+	local lines = {"/stopmacro [nocombat]"}
+	for slot,id in pairs(set.equip) do
+		-- Empty-slot and rune-specific requests need the normal planner. Secure
+		-- item strings cannot identify engraving or safely express an unequip.
+		if slot ~= 16 and slot ~= 17 and slot ~= 18 then
+			if not allowFullSet then return "" end
+		else
+			local text = tostring(id)
+			local base = tonumber(text:match("^(%d+)"))
+			if not text:match("^%d[%d:%-]*$") or not base or base <= 0 then return "" end
+		end
+	end
+	for slot=16,18 do
+		local id = set.equip[slot]
+		if id then
+			table.insert(lines,"/equipslot "..slot.." "..ItemRack.IRStringToItemString(tostring(id)))
+		end
+	end
+	return #lines > 1 and table.concat(lines,"\n") or ""
+end
+
 function ItemRack.ConfigureSetBindingButton(button,setname)
 	if not button or not setname or InCombatLockdown() then return false end
 	local buttonName = button.GetName and button:GetName() or ItemRack.GetSetBindingButtonName(setname)
 	ItemRack.SetBindingButtons[buttonName] = button
 	button:SetAttribute("type","macro")
-	button:SetAttribute("macrotext","")
+	local weaponMacro = ItemRack.GetWeaponBindingMacro(setname)
+	button:SetAttribute("macrotext",weaponMacro)
 	button:SetAttribute("useOnKeyDown",false)
 	local pendingRequest
 	button:SetScript("PreClick",function()
 		pendingRequest = ItemRack.BeginSetBinding(setname)
+		if weaponMacro ~= "" and pendingRequest and pendingRequest.inCombat then
+			-- Combat weapon actions always equip; an insecure toggle cannot
+			-- change the protected macro selected before combat.
+			pendingRequest.intent = "equip"
+		end
 	end)
 	button:SetScript("PostClick",function()
 		local request = pendingRequest
 		pendingRequest = nil
+		if weaponMacro ~= "" and request and request.inCombat then
+			-- Inventory observation owns completion of the secure action.
+			-- Retain the set request only for remaining armor or a rejected,
+			-- locked, or wrong-copy weapon; never schedule a combat toggle.
+			ItemRack.PendingSetBindingRequest = nil
+			if ItemRack.IsSetEquipped(setname) then return end
+		end
 		ItemRack.RunSetBinding(setname,request)
 	end)
 	return true
@@ -5951,6 +6002,7 @@ end
 function ItemRack.OnBindingsChanged()
 	if ItemRack.KeyBindingsChanged then ItemRack.KeyBindingsChanged() end
 	if not ItemRack.SetBindingsReconciling then ItemRack.SetSetBindings() end
+	if ItemRack.BindingSavePending then ItemRack.SaveCurrentBindings() end
 end
 
 --[[ Slash Handler ]]
@@ -6278,6 +6330,7 @@ function ItemRack.SlashHandler(arg1)
 				-- Interface & Misc
 				{ name = "ItemRackSettings.ShowMinimap", val = ItemRackSettings.ShowMinimap },
 				{ name = "ItemRackSettings.MinimapTooltip", val = ItemRackSettings.MinimapTooltip },
+				{ name = "ItemRackSettings.MinimapMenuDir", val = ItemRackSettings.MinimapMenuDir },
 				{ name = "ItemRackSettings.TrinketMenuMode", val = ItemRackSettings.TrinketMenuMode },
 				{ name = "ItemRackSettings.AnchorOther", val = ItemRackSettings.AnchorOther },
 				{ name = "ItemRackSettings.EquipToggle", val = ItemRackSettings.EquipToggle },

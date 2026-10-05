@@ -98,9 +98,10 @@ check(
 );
 const setBindings = between(core, 'ItemRack.SetBindingRequestSequence', '--[[ Slash Handler ]]');
 check(
-  !setBindings.includes('/equipslot [combat]') &&
-    setBindings.includes('button:SetAttribute("macrotext","")'),
-  'Set bindings must use an empty secure carrier, never a split in-combat weapon macro.'
+  setBindings.includes('ItemRack.GetWeaponBindingMacro(setname)') &&
+    setBindings.includes('slot ~= 16 and slot ~= 17 and slot ~= 18') &&
+    setBindings.includes('button:SetAttribute("macrotext",weaponMacro)'),
+  'Only validated weapon-only sets may configure a secure combat macro.'
 );
 check(
   setBindings.includes('button:SetScript("PreClick"') &&

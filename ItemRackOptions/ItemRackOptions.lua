@@ -235,6 +235,7 @@ function ItemRackOpt.OnLoad(self)
 		{type="slider",optset=ItemRackUser,button=ItemRackOptCharMenuWrapValueSlider,depend="CharMenuWrap",variable="CharMenuWrapValue",label="When to wrap",tooltip="When 'Char sheet wrap' checked, this is the number of menu items before wrapping to a new row/column.", min=1, max=30, step=1, form="%d"},
 
 		{type="label",label="Global Settings"},
+		{type="check",optset=ItemRackSettings,variable="CombatSetWeapons",label="Swap set weapons during combat",tooltip="Set hotkeys equip weapons immediately during combat and equip remaining gear after combat. Weapon-only sets already swap immediately. Combat presses equip rather than toggle; rune-specific and empty-slot weapon requests wait until combat ends."},
 		{type="check",optset=ItemRackSettings,variable="MenuOnShift",label="Menu on Shift",tooltip="Only show menu while Shift is held down."},
 		{type="check",optset=ItemRackSettings,variable="MenuOnRight",label="Menu on right click",tooltip="Open item and set flyout menus by right clicking buttons.\nWhen unchecked, flyout menus open on hover; Alt+Right-Click opens configuration.",combatlock=1},
 		{type="check",optset=ItemRackSettings,variable="RightClickUse",label="Use on Right-Click",tooltip="Right-clicking an item button uses the item instead of manually advancing its auto queue."},
@@ -268,6 +269,7 @@ function ItemRackOpt.OnLoad(self)
 		{type="check",optset=ItemRackSettings,variable="ShowMinimap",label="Show minimap button",tooltip="Show the minimap button to access options or change sets."},
 		{type="check",optset=ItemRackSettings,variable="MinimapTooltip",depend="ShowMinimap",label="Show minimap tooltip",tooltip="If tooltips enabled, show what mouse clicks will do when clicking the minimap button."},
 		{type="check",optset=ItemRackSettings,variable="LockMinimap",depend="ShowMinimap",label="Lock minimap button",tooltip="Prevent the minimap button from being moved."},
+		{type="button",button=ItemRackOptMinimapMenuDir,label="Flyout Menu direction",tooltip="Which way the minimap button's set menu opens. Auto picks up or down by screen position."},
 		{type="check",optset=ItemRackSettings,variable="TrinketMenuMode",label="TrinketMenu mode",tooltip="When mouseover of either trinket slot, open anchored to the top trinket.  Left click of a menu item will equip to the top trinket.  Right click will equip to the bottom trinket."},
 		{type="check",optset=ItemRackSettings,variable="AnchorOther",depend="TrinketMenuMode",label="Anchor other trinket",tooltip="In TrinketMenu mode, trinket menus dock to the top trinket.  Check this to anchor them to the bottom trinket."},
 		{type="check",optset=ItemRackSettings,variable="EquipToggle",label="Toggle sets on equip",tooltip="When a set is equipped, if it's already equipped, unequip it."},
@@ -299,6 +301,7 @@ function ItemRackOpt.OnLoad(self)
 	end
 
 	ItemRackOpt.InitializeSliders()
+	ItemRackOpt.UpdateMinimapMenuDir()
 	ItemRackOpt.TabOnClick(self,1) -- start at tab 1 (config)
 
 	ItemRackOptBindFrame:EnableMouseWheel(true)
@@ -314,6 +317,50 @@ function ItemRackOpt.OnLoad(self)
 
 	ItemRackOpt.TriStateCheckSetState(ItemRackOptShowHelm,nil)
 	ItemRackOpt.TriStateCheckSetState(ItemRackOptShowCloak,nil)
+end
+
+-- Flyout Menu direction dropdown (reuses the event editor's dropdown template)
+ItemRackOpt.MinimapMenuDirs = { "Auto", "Up", "Down", "Left", "Right" }
+
+function ItemRackOpt.UpdateMinimapMenuDir()
+	local drop, text = ItemRackOptMinimapMenuDir, ItemRackOptMinimapMenuDirText
+	if not drop.fitted then -- size the box to the longest label; point its arrow at our list
+		local widest = 0
+		for _,dir in ipairs(ItemRackOpt.MinimapMenuDirs) do
+			text:SetText("Flyout Menu: "..dir)
+			widest = math.max(widest,text:GetStringWidth())
+		end
+		text:SetWidth(widest)
+		drop:SetWidth(widest+22)
+		ItemRackOptMinimapMenuDirButton:SetScript("OnClick",ItemRackOpt.ToggleMinimapMenuDirPick)
+		drop.fitted = true
+	end
+	text:SetText("Flyout Menu: "..(ItemRackSettings.MinimapMenuDir or "Auto"))
+end
+
+function ItemRackOpt.ToggleMinimapMenuDirPick()
+	local pick = ItemRackOptMinimapMenuDirPick
+	if not pick then
+		pick = CreateFrame("Frame","ItemRackOptMinimapMenuDirPick",ItemRackOptMinimapMenuDir,"BackdropTemplate")
+		pick:SetFrameStrata("HIGH")
+		pick:SetPoint("TOPLEFT",ItemRackOptMinimapMenuDir,"BOTTOMLEFT",-11,0)
+		pick:SetSize(ItemRackOptMinimapMenuDir:GetWidth()+20,12+18*#ItemRackOpt.MinimapMenuDirs)
+		pick:SetBackdrop({bgFile="Interface\\ChatFrame\\ChatFrameBackground",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
+		pick:SetBackdropColor(.1,.1,.1)
+		for i,dir in ipairs(ItemRackOpt.MinimapMenuDirs) do
+			local item = CreateFrame("Button","ItemRackOptMinimapMenuDirPick"..i,pick,"ItemRackOptEventEditPickTypeTemplate")
+			item:SetPoint("TOPLEFT",10,-6-(i-1)*18)
+			item:SetWidth(ItemRackOptMinimapMenuDir:GetWidth())
+			item:SetText(dir)
+			item:SetScript("OnClick",function()
+				ItemRackSettings.MinimapMenuDir = dir
+				pick:Hide()
+				ItemRackOpt.UpdateMinimapMenuDir()
+			end)
+		end
+		pick:Hide()
+	end
+	if pick:IsShown() then pick:Hide() else pick:Show() end
 end
 
 function ItemRackOpt.InitializeSliders()
@@ -534,21 +581,25 @@ function ItemRackOpt.PopulateInitialIcons()
 	ItemRackOpt.PopulateInvIcons()
 	table.insert(ItemRackOpt.Icons,"Interface\\Icons\\INV_Banner_02")
 	table.insert(ItemRackOpt.Icons,"Interface\\Icons\\INV_Banner_03")
-	if RefreshPlayerSpellIconInfo then
-		RefreshPlayerSpellIconInfo()
-		local numMacros = #GetMacroIcons(MACRO_ICON_FILENAMES)
-		local texture
-		for i=1,numMacros do
-			texture = GetSpellorMacroIconInfo(i)
-			ItemRackOpt.AppendSetIcon(texture,true)
-		end
-	elseif IconDataProviderMixin then
-		local iconProvider = CreateAndInitFromMixin(IconDataProviderMixin, IconDataProviderExtraType.Spell)
-		if iconProvider then
-			for i=1, iconProvider:GetNumIcons() do
-				ItemRackOpt.AppendSetIcon(iconProvider:GetIconByIndex(i))
+	-- Read private icon lists rather than initializing Blizzard's shared icon
+	-- provider: its state can propagate addon taint into the Forever options UI.
+	if RefreshPlayerSpellIconInfo then pcall(RefreshPlayerSpellIconInfo) end
+	for _,apiName in ipairs({"GetMacroIcons","GetLooseMacroIcons","GetMacroItemIcons","GetLooseMacroItemIcons"}) do
+		local api = _G[apiName]
+		if type(api) == "function" then
+			local icons = {}
+			local ok,result = pcall(api,icons)
+			if ok then
+				if #icons > 0 then
+					for _,texture in ipairs(icons) do ItemRackOpt.AppendSetIcon(texture,true) end
+				elseif type(result) == "table" and GetSpellorMacroIconInfo then
+					-- Older clients return an index list instead of filling textures.
+					for i=1,#result do
+						local resolved,texture = pcall(GetSpellorMacroIconInfo,i)
+						if resolved then ItemRackOpt.AppendSetIcon(texture,true) end
+					end
+				end
 			end
-			iconProvider:Release()
 		end
 	end
 end
@@ -1204,7 +1255,9 @@ function ItemRackOpt.OptListCheckButtonOnClick(self,override)
 	if opt.variable then
 		opt.optset[opt.variable] = check
 	end
-	if opt.variable=="MenuOnRight" then
+	if opt.variable=="CombatSetWeapons" then
+		ItemRack.SetSetBindings()
+	elseif opt.variable=="MenuOnRight" then
 		if check=="ON" then
 			ItemRackSettings.MenuOnShift = "OFF"
 		end
