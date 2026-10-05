@@ -3,15 +3,16 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+
+
+## [4.53-beta1] - 2026-10-05
 ### Bug Fixes & Improvements
 - **Weapon Pipeline Source Dependencies (GitHub #29)**: Dependent set moves now confirm earlier moves and resolve displaced sources again instead of reusing stale equipment locations. Equipment-origin moves retain explicit source identity checks. Off-hand-only and main-hand-only displaced items are parked safely when required, implicit source slots retain restoration history, and completed sets release reservations. Added production-Lua coverage for the reported shield transition and the synthetic follow-up, full bags, legal paired weapons, partial restricted-slot moves, no-space refusal, later-pass rollback, queue context and unequip restoration. Live Classic Era protected-action and timing acceptance remains required.
 - **Combat Weapon Set Bindings**: Restored secure weapon-only combat hotkeys and added the default-off "Swap set weapons during combat" setting for full-set hotkeys. Remaining gear and rejected or wrong-copy weapons reconcile after combat. Combat presses equip rather than toggle; rune-specific and empty-slot weapons remain deferred.
 - **Forever API Compatibility**: Read private icon lists without initializing Blizzard's shared icon provider, tolerate missing or failing icon APIs, and fall back safely when floating combat text is unavailable.
 - **Forever Binding Save at Login (PR #28, msromike)**: Defer SaveBindings when the client reports binding set 0 and save once a valid account or character binding set becomes available.
 - **Minimap Flyout Direction (PR #26, msromike)**: Added Auto, Up, Down, Left, and Right choices. Auto preserves existing behavior; fixed directions support relocated minimap buttons. Third-party menu layering remains the collector addon's responsibility.
-- **Includes Prior 4.51 Candidate Fixes**: Includes item-link normalization and minimap set auto-detection, queue-aware and paired-slot set matching, and immediate suppression of disabled character-sheet swap menus. The 4.51 candidate was not published on GitHub; 4.52 includes these changes relative to published 4.50.
-
-
+- **Includes Unpublished Candidate Fixes**: Includes item-link normalization and minimap set auto-detection, queue-aware and paired-slot set matching, and immediate suppression of disabled character-sheet swap menus. Candidates 4.51 and 4.52 were not published; this beta includes their changes relative to published 4.50.
 
 ## [4.51] - 2026-09-29
 ### Bug Fixes & Improvements
