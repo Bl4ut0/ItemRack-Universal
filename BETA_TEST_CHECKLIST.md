@@ -10,6 +10,8 @@ Use the same universal archive for every row; do not build or test separate Fore
 - **Burning Crusade Classic Anniversary:** test dual-spec transitions, duplicate enchanted/gemmed items, fast multi-slot swaps, and AutoQueue.
 - **Forever/Camelot:** open Equipment Manager and ItemRack menus, test movement/mount events, specialization labels, item discovery, and the set-icon picker.
 - On every client, confirm the TOC version, `ItemRack.Version`, and `ItemRack.BuildID` identify the same candidate.
+- On Forever 1.60.1, log in twice with a saved set key and verify no SaveBindings usage error, working set hotkeys, and persisted keys after relog (PR #28).
+- Test Auto/Up/Down/Left/Right minimap flyouts with the stock button and any minimap collector. Verify direction, item clicks, and dropdown layout. EllesmereUI 9.3 collector layering requires its upstream PR #2305 fix according to the contributor; ItemRack's dock tests do not verify that external fix (PR #26).
 
 ## 1. Tooltip safety and layout
 
