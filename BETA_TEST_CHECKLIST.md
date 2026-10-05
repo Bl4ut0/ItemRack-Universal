@@ -20,6 +20,13 @@ Use the same universal archive for every row; do not build or test separate Fore
 - Confirm every expected set name appears, the tooltip backdrop contains the lines, and character-sheet flyouts do not overlap the tooltip.
 - Immediately hover and use several Blizzard action-bar buttons. Record any `ADDON_ACTION_BLOCKED`, `SetShown`, `SetAttribute`, or `GameTooltip` error.
 
+## Issue #29 weapon pipeline acceptance (Classic Era 1.15.9)
+
+- Save A with main hand `18805:1900:::::::60::::::::::` and shield `19349:929:::::::60::::::::::`. Save B with main hand `19859:1900:::::::60::::::::::` and the first weapon in off hand. With events off and queues on, equip A then B out of combat; verify both actual weapons, set name, queues, shield returned to bags, and no error or stuck swap. Test with full bags while the new main-hand weapon already occupies a carried bag slot.
+- Repeat the follow-up: put B's intended off-hand weapon in main hand, an unrelated one-handed weapon in off hand, and B's intended main-hand weapon in a bag. Equip B and verify exact final copies rather than the unrelated weapon moving to main hand.
+- Test a partial set moving the current main-hand weapon to off hand over a shield, then Unequip/Toggle out of combat. Verify both original weapon slots and base-set context restore. With no available staging slot, verify clean refusal and unchanged gear. Repeat the mirrored off-hand-to-main-hand case over a main-hand-only weapon.
+- Repeat rapidly with real item locks, paired weapon exchange, two-hand/shield transitions, and combat weapon hotkeys. Record client build, exact links, action sequence and `/itemrack dump` if any differs from the modeled outcome. These client checks have not been run by the agent.
+
 ## 2. Rune-specific copies (Season of Discovery)
 
 - Prepare two copies of the same base item with different runes and save each in a different set or queue position.

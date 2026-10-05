@@ -787,6 +787,109 @@ assert(cursor == nil and ItemRack.ActiveEquipmentTransaction == nil,"batch must 
   );
 }
 
+// Issue #29 (DefinitelyNotNate), Classic Era 1.15.9 / ItemRack 4.51.
+// First fixture uses the reported weapon/shield identities. The follow-up's
+// third weapon is synthetic because its exact identities were not supplied.
+for (const mode of ['reported-shield', 'followup-stale-source', 'reported-full-bags',
+  'partial-shield', 'partial-shield-no-space', 'later-pass-rejection', 'paired-weapons',
+  'partial-mainhand-only', 'partial-holdable']) {
+  if (process.env.ITEMRACK_ISSUE29_CASE && process.env.ITEMRACK_ISSUE29_CASE !== mode) continue;
+  const partial = mode.startsWith('partial-shield');
+  const full = mode === 'reported-full-bags' || mode === 'partial-shield-no-space';
+  const paired = mode === 'paired-weapons';
+  const reject = mode === 'later-pass-rejection';
+  const mainPartial = mode === 'partial-mainhand-only';
+  const reported = mode === 'reported-shield' || mode === 'followup-stale-source';
+  runCase(`issue-29-${mode}`, `${commonSetup}
+local first="18805:1900:::::::60::::::::::"
+local second="19859:1900:::::::60::::::::::"
+local shield="19349:929:::::::60::::::::::"
+local other="19000:1900:::::::60::::::::::" -- synthetic follow-up weapon
+local originalMain=${mainPartial ? 'second' : 'first'}
+local originalOff=${mainPartial ? 'first' : mode === 'followup-stale-source' ? 'other' : paired ? 'second' : 'shield'}
+if ${process.env.ITEMRACK_ISSUE29_TRACE === '1' ? 'true' : 'false'} then ItemRack.Debug=function(...) print(...) end; ItemRack.Print=print end
+local bags={[0]={${mode === 'partial-shield-no-space' ? '[1]="88888",' : partial || paired ? '' : '[1]=second,'}${full ? '[2]="99999",' : ''}}}
+local inventory={[16]=originalMain,[17]=originalOff}
+cursor=nil
+local illegalTransfers=0
+ItemRackUser.CurrentSet="Base"
+ItemRackUser.EnableEvents="OFF"
+ItemRackUser.EnableQueues="ON"
+ItemRack.QueueStateReady=true
+ItemRack.IsEquippedSlotStateReady=function() return true end
+ItemRackUser.EnablePerSetQueues="${reported ? 'OFF' : 'ON'}"
+local baseQueue={{id=shield}}
+local targetQueue={{id=first}}
+local globalQueue={{id=other}}
+ItemRackUser.Queues={[17]=globalQueue}
+ItemRackUser.QueuesEnabled={[17]=true}
+ItemRackUser.Sets.Base={equip={[16]=originalMain,[17]=originalOff},Queues={[17]=baseQueue},QueuesEnabled={[17]=true}}
+local targetEquip={${mainPartial ? '[16]=first' : `${partial ? '' : '[16]=second,'}[17]=first`}}
+ItemRackUser.Sets.Target={equip=targetEquip,old={[17]="history"},oldset="Older",Queues={[17]=targetQueue},QueuesEnabled={[17]=true}}
+ItemRackUser.Sets["~Unequip"]={equip={},old={}}
+ItemRack.KnownItems={}
+ItemRack.CombatQueue={}
+ItemRack.CanPlayerDualWield=function() return true end -- dual-wield-capable reported character
+ItemRack.iSPatternBaseIDFromIR="^(%-?%d+)"
+ItemRack.iSPatternItemFieldsFromIR="^(%-?%d+:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*)"
+ItemRack.iSPatternRuneIDFromIR=":runeid:(%d+)$"
+function ItemRack.GetIRString(value,base) if base then return tostring(value or ""):match("^(%-?%d+)") or 0 end; return value or 0 end
+function ItemRack.UpdateIRString(value) return value end
+function ItemRack.GetID(bag,slot) if slot then return bags[bag] and bags[bag][slot] or 0 end; return inventory[bag] or 0 end
+function ItemRack.GetInfoByID(id)
+  if id==shield then return tostring(id),nil,"${mode === 'partial-holdable' ? 'INVTYPE_HOLDABLE' : 'INVTYPE_SHIELD'}" end
+  if ${mainPartial ? 'true' : 'false'} and id==second then return tostring(id),nil,"INVTYPE_WEAPONMAINHAND" end
+  return tostring(id),nil,"INVTYPE_WEAPON"
+end
+function ItemRack.ValidBag(bag) return bag==0 end
+function GetContainerNumSlots(bag) return bag==0 and 2 or 0 end
+function GetContainerItemLink(bag,slot) return bags[bag] and bags[bag][slot] end
+function GetInventoryItemID(_,slot) return inventory[slot] end
+function GetInventoryItemLink(_,slot) return inventory[slot] end
+function PickupContainerItem(bag,slot) local held=cursor; cursor=bags[bag][slot]; bags[bag][slot]=held end
+function PickupInventoryItem(slot)
+  if slot==16 and cursor==shield then illegalTransfers=illegalTransfers+1; return end
+  if ${mainPartial ? 'true' : 'false'} and slot==17 and cursor==second then illegalTransfers=illegalTransfers+1; return end
+  if ${reject ? 'true' : 'false'} and slot==17 and cursor==first then return end
+  local held=cursor; cursor=inventory[slot]; inventory[slot]=held
+end
+${identityFunctions}
+${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.FindSpace')}
+${fs.readFileSync('ItemRack/ItemRackQueuePolicy.lua', 'utf8')}
+`, `${equipSource}
+ItemRack.EquipSet("Target")
+RunTimers()
+assert(illegalTransfers==0,"planner must not attempt a slot-restricted item in the wrong weapon slot")
+${reject || mode === 'partial-shield-no-space' ? `
+assert(inventory[16]==first and inventory[17]==originalOff,"rejected sequence must restore both original weapons")
+assert(ItemRackUser.CurrentSet=="Base","failure must preserve base-set context")
+assert(ItemRackUser.Sets.Target.old[17]=="history" and ItemRackUser.Sets.Target.oldset=="Older","failure must restore saved set history")
+assert(ItemRack.QueuePolicy.Resolve(ItemRackUser,nil,17).list==baseQueue,"failure must retain base queue context")
+${reject ? 'assert(bags[0][1]==second,"later rejection must roll back the previously confirmed main-hand pass")' : ''}
+` : `
+assert(inventory[16]==${mainPartial ? 'first' : partial ? 'nil' : 'second'} and inventory[17]==${mainPartial ? 'nil' : 'first'},"reported transition must equip the actual requested weapons")
+assert(ItemRackUser.CurrentSet=="Target","success must publish target-set context")
+assert(ItemRack.QueuePolicy.Resolve(ItemRackUser,nil,17).list==${reported ? 'globalQueue' : 'targetQueue'},"success must use the configured queue context")
+assert(ItemRackUser.Sets.Target.old[17]==originalOff,"restoration history must keep the original off hand")
+assert(ItemRackUser.Sets.Target.old[16]==originalMain,"restoration history must keep the original main hand including implicit source slots")
+${paired ? '' : `assert(bags[0][1]==${mainPartial ? 'originalMain' : 'originalOff'} or bags[0][2]==${mainPartial ? 'originalMain' : 'originalOff'},"displaced item must be returned to bags")`}
+`}
+assert(cursor==nil and ItemRack.ActiveEquipmentTransaction==nil,"sequence must leave no cursor or active transaction")
+assert(ItemRack.SetSwapping==nil and next(ItemRack.SwapList)==nil and #ItemRack.SetsWaiting==0,"sequence must terminate all set work")
+assert(ItemRack.SetSwapTimeout==nil and not (ItemRack.SetConfirmedMoves and ItemRack.SetConfirmedMoves.Target),"sequence must clear watchdog and confirmed-pass history")
+for _,locks in pairs(ItemRack.LockList) do assert(next(locks)==nil,"sequence must release all reservations") end
+${reject || mode === 'partial-shield-no-space' ? '' : `
+ItemRack.UnequipSet("Target")
+RunTimers()
+assert(inventory[16]==originalMain and inventory[17]==originalOff,"unequipping the set must restore both original equipment slots")
+assert(ItemRackUser.CurrentSet=="Base","unequip must restore base-set identity")
+assert(ItemRack.QueuePolicy.Resolve(ItemRackUser,nil,17).list==${reported ? 'globalQueue' : 'baseQueue'},"unequip must restore the original queue context")
+assert(cursor==nil and ItemRack.ActiveEquipmentTransaction==nil and ItemRack.SetSwapping==nil,"restoration must finish without cursor or transaction residue")
+for _,locks in pairs(ItemRack.LockList) do assert(next(locks)==nil,"restoration must release reservations") end
+`}
+`);
+}
+
 const updateCurrentSetSrc = extractFunction('ItemRack/ItemRack.lua', 'ItemRack.UpdateCurrentSet');
 const isSetEquippedSrc = extractFunction('ItemRack/ItemRackEquip.lua', 'ItemRack.IsSetEquipped');
 const paperDollOnEnterSrc = extractFunction('ItemRack/ItemRack.lua', 'PaperDollItemSlotButton_OnEnter');
@@ -873,5 +976,5 @@ assert(oldEnterCalled == true, "PaperDollItemSlotButton_OnEnter must call origin
   ''
 );
 
-console.log('[BATCH & DUAL-SPEC LUA] Batch execution, exact-copy reservations, rollback safety, dual-spec, minimap, and spellbook safety assertions passed.');
+console.log('[BATCH & DUAL-SPEC LUA] Batch execution, issue #29 weapon dependencies, exact-copy reservations, rollback safety, dual-spec, minimap, and spellbook safety assertions passed.');
 

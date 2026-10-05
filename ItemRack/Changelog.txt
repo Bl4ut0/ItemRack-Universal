@@ -1,4 +1,5 @@
 __ Development __
+- GitHub #29: confirm dependent weapon moves before resolving displaced sources again, guard equipment-source identities, park slot-restricted displaced items, preserve implicit source-slot restoration history, and release reservations at set completion. Added permanent reported and neighboring production-Lua regressions; live-client acceptance remains required.
 - Restored secure weapon-only combat hotkeys and added the default-off Swap set weapons during combat option for full sets. Remaining gear and failed weapons finish after combat. Combat presses equip, not toggle; rune-specific and empty-slot weapons remain deferred.
 - Hardened Forever icon loading using private lists and guarded API calls; notices fall back when floating combat text is unavailable.
 - PR #28 (msromike): defer binding saves at login until the binding set is account or character, then save once.
