@@ -235,6 +235,7 @@ function ItemRackOpt.OnLoad(self)
 		{type="slider",optset=ItemRackUser,button=ItemRackOptCharMenuWrapValueSlider,depend="CharMenuWrap",variable="CharMenuWrapValue",label="When to wrap",tooltip="When 'Char sheet wrap' checked, this is the number of menu items before wrapping to a new row/column.", min=1, max=30, step=1, form="%d"},
 
 		{type="label",label="Global Settings"},
+		{type="check",optset=ItemRackSettings,variable="CombatSetWeapons",label="Swap set weapons during combat",tooltip="Set hotkeys equip weapons immediately during combat and equip remaining gear after combat. Weapon-only sets already swap immediately. Combat presses equip rather than toggle; rune-specific and empty-slot weapon requests wait until combat ends."},
 		{type="check",optset=ItemRackSettings,variable="MenuOnShift",label="Menu on Shift",tooltip="Only show menu while Shift is held down."},
 		{type="check",optset=ItemRackSettings,variable="MenuOnRight",label="Menu on right click",tooltip="Open item and set flyout menus by right clicking buttons.\nWhen unchecked, flyout menus open on hover; Alt+Right-Click opens configuration.",combatlock=1},
 		{type="check",optset=ItemRackSettings,variable="RightClickUse",label="Use on Right-Click",tooltip="Right-clicking an item button uses the item instead of manually advancing its auto queue."},
@@ -534,21 +535,25 @@ function ItemRackOpt.PopulateInitialIcons()
 	ItemRackOpt.PopulateInvIcons()
 	table.insert(ItemRackOpt.Icons,"Interface\\Icons\\INV_Banner_02")
 	table.insert(ItemRackOpt.Icons,"Interface\\Icons\\INV_Banner_03")
-	if RefreshPlayerSpellIconInfo then
-		RefreshPlayerSpellIconInfo()
-		local numMacros = #GetMacroIcons(MACRO_ICON_FILENAMES)
-		local texture
-		for i=1,numMacros do
-			texture = GetSpellorMacroIconInfo(i)
-			ItemRackOpt.AppendSetIcon(texture,true)
-		end
-	elseif IconDataProviderMixin then
-		local iconProvider = CreateAndInitFromMixin(IconDataProviderMixin, IconDataProviderExtraType.Spell)
-		if iconProvider then
-			for i=1, iconProvider:GetNumIcons() do
-				ItemRackOpt.AppendSetIcon(iconProvider:GetIconByIndex(i))
+	-- Read private icon lists rather than initializing Blizzard's shared icon
+	-- provider: its state can propagate addon taint into the Forever options UI.
+	if RefreshPlayerSpellIconInfo then pcall(RefreshPlayerSpellIconInfo) end
+	for _,apiName in ipairs({"GetMacroIcons","GetLooseMacroIcons","GetMacroItemIcons","GetLooseMacroItemIcons"}) do
+		local api = _G[apiName]
+		if type(api) == "function" then
+			local icons = {}
+			local ok,result = pcall(api,icons)
+			if ok then
+				if #icons > 0 then
+					for _,texture in ipairs(icons) do ItemRackOpt.AppendSetIcon(texture,true) end
+				elseif type(result) == "table" and GetSpellorMacroIconInfo then
+					-- Older clients return an index list instead of filling textures.
+					for i=1,#result do
+						local resolved,texture = pcall(GetSpellorMacroIconInfo,i)
+						if resolved then ItemRackOpt.AppendSetIcon(texture,true) end
+					end
+				end
 			end
-			iconProvider:Release()
 		end
 	end
 end
@@ -1204,7 +1209,9 @@ function ItemRackOpt.OptListCheckButtonOnClick(self,override)
 	if opt.variable then
 		opt.optset[opt.variable] = check
 	end
-	if opt.variable=="MenuOnRight" then
+	if opt.variable=="CombatSetWeapons" then
+		ItemRack.SetSetBindings()
+	elseif opt.variable=="MenuOnRight" then
 		if check=="ON" then
 			ItemRackSettings.MenuOnShift = "OFF"
 		end

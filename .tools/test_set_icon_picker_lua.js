@@ -84,6 +84,29 @@ for i=1,20 do
 end
 
 local before = #ItemRackOpt.Icons
+-- Cross-fork compatibility review: Forever must not initialize the shared
+-- Blizzard icon provider, including when the legacy API is incomplete.
+RefreshPlayerSpellIconInfo = function() end
+GetMacroIcons = nil
+IconDataProviderMixin = {}
+CreateAndInitFromMixin = function() error("shared icon provider must not be touched") end
+local ok = pcall(ItemRackOpt.PopulateInitialIcons)
+check(ok and #ItemRackOpt.Icons == 22,"incomplete icon APIs must retain base choices without shared-provider access")
+GetMacroIcons = function(target) target[1]=901; target[2]=0 end
+GetLooseMacroIcons = function(target) target[1]=902 end
+ItemRackOpt.PopulateInitialIcons()
+check(ItemRackOpt.Icons[23] == 901 and ItemRackOpt.Icons[24] == 902,
+  "modern fill-table icon APIs returning nil must supply valid icons")
+GetMacroIcons = function() return {"legacy"} end
+GetSpellorMacroIconInfo = function() return "Spell_Legacy" end
+GetLooseMacroIcons = nil
+ItemRackOpt.PopulateInitialIcons()
+check(ItemRackOpt.Icons[23] == "Interface\\Icons\\Spell_Legacy",
+  "legacy indexed macro icons must remain available")
+GetMacroIcons = function() error("icon list unavailable") end
+check(pcall(ItemRackOpt.PopulateInitialIcons) and #ItemRackOpt.Icons == 22,
+  "failing icon APIs must preserve a dense base list")
+before = #ItemRackOpt.Icons
 ItemRackOpt.AppendSetIcon(nil)
 ItemRackOpt.AppendSetIcon(0)
 ItemRackOpt.AppendSetIcon("")

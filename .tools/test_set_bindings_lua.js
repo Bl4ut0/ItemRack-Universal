@@ -8,7 +8,8 @@ const clearBinding = extractFunction(coreFile, 'ItemRack.ClearBindingAction');
 const beginBinding = extractFunction(coreFile, 'ItemRack.BeginSetBinding');
 const processBinding = extractFunction(coreFile, 'ItemRack.ProcessPendingSetBinding');
 const runBinding = extractFunction(coreFile, 'ItemRack.RunSetBinding');
-const configureButton = extractFunction(coreFile, 'ItemRack.ConfigureSetBindingButton');
+const weaponMacro = extractFunction(coreFile, 'ItemRack.GetWeaponBindingMacro');
+const configureButton = weaponMacro + '\n' + extractFunction(coreFile, 'ItemRack.ConfigureSetBindingButton');
 const neutralizeButton = extractFunction(coreFile, 'ItemRack.NeutralizeSetBindingButton');
 const queueBindings = extractFunction(coreFile, 'ItemRack.QueueSetBindingsAfterCombat');
 const setBindings = extractFunction(coreFile, 'ItemRack.SetSetBindings');
@@ -281,9 +282,68 @@ assert(#ItemRack.RunAfterCombat == 1 and ItemRack.RunAfterCombat[1] == "SetSetBi
 );
 checks += 1;
 
-if (core.includes('/equipslot [combat]')) {
-  throw new Error('[SET BINDING LUA] Production code still contains a split secure equipslot macro.');
-}
-checks += 1;
+runCase('weapon-only combat binding is secure and never replayed', `
+local combat=false
+ItemRackUser={Sets={Weapons={equip={[16]="123:7:0:0:0:0:0:0",[17]="456"}}}}
+ItemRackSettings={EquipToggle="ON"}
+ItemRack={SetBindingButtons={},SetBindingRequestSequence=0,Debug=function() end,IsSetEquipped=function() return false end,
+IsPlayerReallyDead=function() return false end}
+function ItemRack.IRStringToItemString(id) return "item:"..id end
+function InCombatLockdown() return combat end
+local attributes,scripts={},{}
+local button={GetName=function() return "WeaponBinding" end,
+SetAttribute=function(_,key,value) attributes[key]=value end,
+SetScript=function(_,key,value) scripts[key]=value end}
+`, [beginBinding,configureButton,runBinding,processBinding], `
+ItemRack.ConfigureSetBindingButton(button,"Weapons")
+assert(attributes.macrotext=="/stopmacro [nocombat]\\n/equipslot 16 item:123:7:0:0:0:0:0:0\\n/equipslot 17 item:456",
+ "weapon-only binding must preserve saved item fields and deterministic slot order")
+combat=true
+ItemRack.PendingSetBindingRequest={setname="Older"}
+scripts.PreClick()
+ItemRack.IsSetEquipped=function() return true end -- observed secure completion
+scripts.PostClick()
+assert(ItemRack.PendingSetBindingRequest==nil,"secure combat weapon action must supersede old intent without replay")
+ItemRackUser.Sets.Weapons.equip[1]="789"
+assert(ItemRack.GetWeaponBindingMacro("Weapons")=="","mixed armor sets must stay deferred")
+ItemRackUser.Sets.Weapons.equip[1]=nil
+ItemRackUser.Sets.Weapons.equip[17]=0
+assert(ItemRack.GetWeaponBindingMacro("Weapons")=="","empty-slot requests must use the planner")
+ItemRackUser.Sets.Weapons.equip[17]="456:runeid:7"
+assert(ItemRack.GetWeaponBindingMacro("Weapons")=="","rune-specific requests must never lose identity in a secure macro")
+ItemRackUser.Sets.Weapons.equip[17]="456\\n/run bad()"
+assert(ItemRack.GetWeaponBindingMacro("Weapons")=="","saved item text must not inject macro commands")
+ItemRackUser.Sets.Weapons.equip[17]="456"
+ItemRackUser.Sets.Weapons.AssociatedSpec=2
+assert(ItemRack.GetWeaponBindingMacro("Weapons")=="","specialization changes must use the planner")
+ItemRackUser.Sets.Weapons.AssociatedSpec=nil
+ItemRackUser.Sets.Weapons.equip[1]="789"
+ItemRackSettings.CombatSetWeapons="ON"
+combat=false
+ItemRack.ConfigureSetBindingButton(button,"Weapons")
+assert(attributes.macrotext:find("/equipslot 16 item:123",1,true) and not attributes.macrotext:find("/equipslot 1 ",1,true),
+ "opt-in full sets must include only weapons in the protected macro")
+ItemRack.IsSetEquipped=function() return false end
+local equips=0
+ItemRack.EquipSet=function(name) assert(name=="Weapons"); equips=equips+1 end
+combat=true
+scripts.PreClick(); scripts.PostClick()
+assert(equips==0 and ItemRack.PendingSetBindingRequest.intent=="equip",
+ "full set combat click must defer remaining gear with explicit equip intent")
+scripts.PreClick(); scripts.PostClick()
+assert(ItemRack.PendingSetBindingRequest.intent=="equip","repeated combat weapon presses must not schedule unequip")
+combat=false
+ItemRack.ProcessPendingSetBinding("regen")
+assert(equips==1 and ItemRack.PendingSetBindingRequest==nil,"combat exit must finish the full set once")
+ItemRackSettings.CombatSetWeapons="OFF"
+ItemRack.ConfigureSetBindingButton(button,"Weapons")
+assert(attributes.macrotext=="","turning the setting off must remove full-set weapon macros")
+ItemRackUser.Sets.Weapons.equip[1]=nil
+ItemRack.ConfigureSetBindingButton(button,"Weapons")
+combat=true
+scripts.PreClick(); scripts.PostClick()
+assert(ItemRack.PendingSetBindingRequest.intent=="equip","rejected or wrong-copy weapon actions must retain an after-combat repair request")
+`);
+checks += 13;
 
 console.log(`[SET BINDING LUA] ${checks} intent, containment, and reconciliation checks passed.`);

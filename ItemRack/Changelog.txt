@@ -1,4 +1,6 @@
 __ Development __
+- Restored secure weapon-only combat set hotkeys. Added the default-off Swap set weapons during combat setting for full sets; remaining gear and failed weapon requests finish after combat. Combat presses equip instead of toggling. Rune-specific and empty-slot weapon requests remain deferred.
+- Hardened Forever icon loading with private icon lists and guarded API fallbacks; cooldown notices fall back safely when floating combat text is unavailable.
 - Added ItemRack.NormalizeItemFields so empty colon fields from TBC Anniversary item links match zero-filled stored fields symmetrically.
 - UpdateCurrentSet now scans saved sets to auto-detect worn sets when CurrentSet is unequipped or undefined, restoring the active set and minimap icon when all items are equipped manually or via macros.
 - IsSetEquipped now allows single-slot ring/trinket cross checks and only gates queue readiness on slots with an active AutoQueue.

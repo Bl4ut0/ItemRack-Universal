@@ -35,6 +35,7 @@ ItemRack detects the APIs exposed by the running client. Legacy globals, modern 
 
 - Save and equip full or partial gear sets.
 - Bind sets and individual equipment slots to keys.
+- Weapon-only set hotkeys equip during combat. Enable **Swap set weapons during combat** in Global Settings to also equip the weapon portion of full sets immediately and finish the remaining gear after combat. Combat presses equip rather than toggle; empty-slot and rune-specific weapon requests remain deferred.
 - Add movable quick-access buttons from the character sheet.
 - Open flyout menus containing compatible carried and banked items.
 - Automatically equip sets for specializations, stances, mounting, movement, zones, buffs, drinking, and other events.

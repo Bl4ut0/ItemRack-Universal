@@ -2,6 +2,24 @@ const fs = require('fs');
 const { extractFunction, runLua } = require('./lib/lua_harness');
 
 const coreFile = 'ItemRack/ItemRack.lua';
+// Cross-fork review: Forever may omit floating combat text's legacy function.
+runLua(`
+ItemRack={}
+ItemRackSettings={NotifyChatAlso="ON"}
+SOUNDKIT={IG_CHARACTER_INFO_OPEN=1}
+function PlaySound() end
+SHOW_COMBAT_TEXT="1"
+local errorMessages,chatMessages=0,0
+UIErrorsFrame={AddMessage=function(_,message) assert(message=="ready"); errorMessages=errorMessages+1 end}
+DEFAULT_CHAT_FRAME={AddMessage=function() chatMessages=chatMessages+1 end}
+${extractFunction(coreFile, 'ItemRack.Notify')}
+ItemRack.Notify("ready")
+assert(errorMessages==1 and chatMessages==1,"missing combat text must fall back and preserve chat notifications")
+local combatMessages=0
+function CombatText_AddMessage() combatMessages=combatMessages+1 end
+ItemRack.Notify("ready")
+assert(combatMessages==1 and errorMessages==1 and chatMessages==2,"legacy combat text must remain preferred when present")
+`, 'Forever notification API fallback');
 const buttonsFile = 'ItemRack/ItemRackButtons.lua';
 const queueFile = 'ItemRack/ItemRackQueue.lua';
 const cooldownState = fs.readFileSync('ItemRack/ItemRackCooldownState.lua', 'utf8');

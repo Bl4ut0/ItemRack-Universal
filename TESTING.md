@@ -58,6 +58,19 @@ standard suite before its fix is considered complete:
 
 ### Report coverage in the standard gate
 
+The October 4, 2026 comparison review and user clarification about weapon-only
+saved sets are covered by `weapon-only combat binding is secure and never replayed`
+in `.tools/test_set_bindings_lua.js`. It checks weapon-only and opt-in full-set
+macro configuration, preserved item fields, repeated combat equip intent,
+deferred completion, wrong-copy repair, setting disablement, and unsafe input
+rejection. The pre-change empty secure carrier fails the macro assertion.
+No affected live-client build or specific weapon identities were supplied;
+these are production-Lua contract regressions, not verified protected actions.
+The same review's missing/incomplete icon APIs and missing combat-text function
+failed before correction in `.tools/test_set_icon_picker_lua.js` and the named
+`Forever notification API fallback` case in `.tools/test_cooldown_integration_lua.js`.
+Shared-provider taint and actual client rendering remain client acceptance checks.
+
 | Report or failure | Permanent focused coverage |
 |---|---|
 | CurseForge baniro_: Mounted movement restores gear but loses the set and queues | `.tools/test_event_integration_lua.js` verifies final base-set and queue-context restoration. |
