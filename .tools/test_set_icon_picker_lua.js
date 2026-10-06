@@ -177,7 +177,10 @@ const itemFunctions = [
     'GetQueues','GetQueuesEnabled'].map(n => extractFunction(core, 'ItemRack.'+n)),
   extractFunction('ItemRack/ItemRackButtons.lua','ItemRack.RefreshCustomItemIcons'),
   ...['NormalizeSetIcon','GetQualityColor','GetQueueItemLocation','IsQueueItemCarried','UpdateQueueIconButton','ApplyQueueItemIcon',
-    'QueueIconPickerUpdate','OpenQueueIconPicker','SortListScrollFrameUpdate','SortListOnEnter','SaveSet']
+    'QueueIconPickerUpdate','OpenQueueIconPicker','SortListScrollFrameUpdate','SortListOnEnter','SaveSet','RefreshQueueIconPage']
+    .map(n => extractFunction(options,'ItemRackOpt.'+n)),
+  ...['GetSearchSpellIcon','NormalizeIconSearch','BuildQueueIconCatalog','FilterQueueIcons']
+    .filter(n => require('fs').readFileSync(options,'utf8').includes('function ItemRackOpt.'+n+'('))
     .map(n => extractFunction(options,'ItemRackOpt.'+n)),
 ].join('\n');
 runLua(String.raw`
@@ -225,13 +228,16 @@ function CreateFrame(kind,name,parent,template)
   frame.SetChecked=function(self,v) self.checked=v end
   frame.GetChecked=function(self) return self.checked end
   frame.GetText=function(self) return self.text end
+  frame.SetAutoFocus=function(self,v) self.autoFocus=v end
+  frame.SetMaxLetters=function(self,v) self.maxLetters=v end
+  frame.ClearFocus=function(self) self.focused=false end
   frame.SetScript=function(self,k,fn) self.scripts[k]=fn end
   frame.HookScript=frame.SetScript
   frame.GetName=function(self) return self.name end
   frame.GetID=function(self) return self.id end
   frame.SetID=function(self,v) self.id=v end
   frame.CreateFontString=region; frame.CreateTexture=region
-  frame.SetText=function(self,v) self.text=v end
+  frame.SetText=function(self,v) self.text=v; if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end end
   frame.SetNormalTexture=function(self,v) self.texture=v end
   frame.SetAlpha=function(self,v) self.alpha=v end
   frame.Enable=function(self) self.enabled=true end; frame.Disable=function(self) self.enabled=false end
@@ -667,5 +673,139 @@ check(not panel:IsVisible() and not ItemRackOpt.QueueIconButton:IsVisible() and 
 ItemRackOptSubFrame7:Show(); ItemRackOpt.ValidateSortButtons()
 check(panel:IsVisible() and stats.visible and ItemRackOptItemStatsDelay.text==19,
   "reopening Queue must reuse the panel and restore the selected entry settings")
+
+-- October 6 picker screenshot/request: typing a partial spell name should
+-- shrink choices. No target spell or exact client build was supplied.
+ItemRackOpt.OpenQueueIconPicker()
+check(picker.search and picker.search.scripts.OnTextChanged,
+  "queue-icon-spell-search: item icon picker must offer a live search field")
+check(not picker.search.autoFocus and picker.search.maxLetters==80,
+  "opening search must not steal keyboard focus and input length must be bounded")
+local sourceIcons=ItemRackOpt.Icons
+local sourceCount=#sourceIcons
+local originalItemInfo=ItemRack.GetInfoByID
+ItemRack.GetInfoByID=function(id)
+  if id==wanted then return "Synthetic Trinket",1005,nil,3 end
+  return originalItemInfo(id)
+end
+local legacyScans=0
+GetNumSpellTabs=function() legacyScans=legacyScans+1; return 1 end
+GetSpellTabInfo=function() return "Rogue","tab",0,34 end
+GetSpellBookItemName=function(index,bank)
+  assert(bank=="spell","legacy spellbook must use the Classic book token")
+  return index==1 and "Stealth" or index==2 and "Shadowmeld" or index==3 and "Ward [%]" or ("Search Spell "..index)
+end
+GetSpellTexture=function(index,bank) return index<=2 and 1001 or 2000+index end
+ItemRackOpt.OpenQueueIconPicker()
+picker.search:SetText("trinket")
+check(#picker.filteredIcons==1 and picker.buttons[1].iconValue==1005,
+  "queue-icon-spells-and-items: item names and icons must coexist with spell choices in one picker")
+picker.search:SetText("STE")
+check(#picker.filteredIcons==1 and picker.buttons[1].iconValue==1001 and not picker.buttons[2].visible,
+  "queue-icon-spell-search: partial spell names must narrow the grid case-insensitively")
+picker.search:SetText("shadowm")
+check(#picker.filteredIcons==1 and picker.buttons[1].iconValue==1001
+  and picker.buttons[1].iconLabel:find("Stealth",1,true) and picker.buttons[1].iconLabel:find("Shadowmeld",1,true),
+  "spells sharing one texture must retain all searchable aliases without duplicate filtered cells")
+picker.search:SetText("Search Spell")
+check(#picker.filteredIcons==31 and picker.scroll.max==2,"filtered pagination must use result count")
+picker.scroll:SetValue(2)
+check(picker.buttons[21].visible and not picker.buttons[22].visible and not picker.buttons[22].iconValue,
+  "partial filtered pages must clear hidden cells and stale selection values")
+picker.search:SetText("stealth")
+check(picker.scroll.value==0 and picker.buttons[1].iconValue==1001,
+  "shrinking search must reset a previously distant scroll position")
+picker.search:SetText("[%]")
+check(#picker.filteredIcons==1 and picker.buttons[1].iconValue==2003,
+  "search must treat pattern characters as literal text")
+local oldCustomIcon=inactive.customIcon
+picker.search:SetText("no such spell")
+check(#picker.filteredIcons==0 and picker.empty.text=="No matching icons" and not picker.buttons[1].visible,
+  "zero matches must clearly explain the empty grid")
+picker.buttons[1].scripts.OnClick(picker.buttons[1])
+check(inactive.customIcon==oldCustomIcon and picker.context,
+  "hidden empty cells must not reset an icon or write a stale choice")
+picker.search:SetText("")
+check(#picker.filteredIcons==#picker.catalog and picker.buttons[25].visible
+  and sourceIcons==ItemRackOpt.Icons and #sourceIcons==sourceCount,
+  "clearing search must restore all choices without modifying the set-icon catalog")
+local hasSpell,hasItem=false,false
+for _,choice in ipairs(picker.filteredIcons) do
+  hasSpell=hasSpell or choice.icon==2004
+  hasItem=hasItem or (choice.icon==1005 and choice.label=="Synthetic Trinket")
+end
+check(hasSpell and hasItem,
+  "queue-icon-spells-and-items: clearing search must browse both item icons and spells absent from the macro icon list")
+picker.search:SetText("stealth"); picker.buttons[1].scripts.OnClick(picker.buttons[1])
+check(inactive.customIcon==1001 and inactive.delay==19 and first.customIcon==101 and first.delay==13
+  and ItemRackUser.CurrentSet=="Stealth" and equipment[9]==originalGear and not picker.context,
+  "filtered selection must persist only to the inactive edited set, retaining policies and terminal gear")
+ItemRackOpt.OpenQueueIconPicker()
+check(picker.search.text=="" and picker.scroll.value==0,"reopening must clear the previous search")
+picker.search:SetText("no such spell"); reset.scripts.OnClick(reset)
+check(inactive.customIcon==nil and inactive.delay==19 and not picker.context,
+  "Reset to original must work even when the filtered list is empty")
+
+-- Modern-only spellbook, partial namespace and failing-provider neighbors.
+GetNumSpellTabs=nil; GetSpellTabInfo=nil; GetSpellBookItemName=nil; GetSpellTexture=nil
+Enum={SpellBookSpellBank={Player=7}}
+C_SpellBook={GetNumSpellBookSkillLines=function() return 1 end,
+  GetSpellBookSkillLineInfo=function() return {itemIndexOffset=4,numSpellBookItems=1} end,
+  GetSpellBookItemName=function(index,bank) assert(index==5 and bank==7); return "Polymorph" end,
+  GetSpellBookItemTexture=function(index,bank) assert(index==5 and bank==7); return 1002 end}
+ItemRackOpt.OpenQueueIconPicker(); picker.search:SetText("polym")
+check(#picker.filteredIcons==1 and picker.buttons[1].iconValue==1002,
+  "modern-only spellbook must filter localized names with correct skill-line offsets and enum bank")
+C_SpellBook.GetSpellBookItemTexture=nil
+GetNumSpellTabs=function() legacyScans=legacyScans+1; return 1 end
+GetSpellTabInfo=function() return "Rogue","tab",0,1 end
+GetSpellBookItemName=function() return "Vanish" end
+GetSpellTexture=function() return 1003 end
+ItemRackOpt.OpenQueueIconPicker(); picker.search:SetText("van")
+check(#picker.filteredIcons==1 and picker.buttons[1].iconValue==1003,
+  "incomplete modern provider must retain the complete legacy fallback")
+C_SpellBook=nil; GetNumSpellTabs=function() error("provider unavailable") end
+GetSpellInfo=function(query) if query=="Frost Nova" then return "Frost Nova",nil,"Interface\\Icons\\Spell_Frost_FrostNova" end end
+ItemRackOpt.OpenQueueIconPicker(); picker.search:SetText("Frost Nova")
+check(#picker.filteredIcons==1 and picker.buttons[1].iconValue=="Interface\\Icons\\Spell_Frost_FrostNova",
+  "legacy exact spell-name lookup must supply an icon despite failing spellbook enumeration")
+C_Spell={GetSpellInfo=function(query)
+  if query=="Other Class Spell" or query==12345 then return {name="Other Class Spell",iconID=9009} end
+  error("unsupported query")
+end}
+picker.search:SetText("Other Class Spell")
+check(#picker.filteredIcons==1 and picker.buttons[1].iconValue==9009,
+  "modern exact lookup must include a client-resolved spell outside the indexed book")
+picker.search:SetText("12345")
+check(#picker.filteredIcons==1 and picker.buttons[1].iconValue==9009,
+  "numeric queries must resolve spell IDs, without interpreting existing texture IDs as spell IDs")
+picker.buttons[1].scripts.OnClick(picker.buttons[1])
+check(inactive.customIcon==9009 and inactive.delay==19 and first.customIcon==101 and equipment[9]==originalGear,
+  "direct spell resolution must preserve scope and non-icon state")
+ItemRackOpt.Icons[#ItemRackOpt.Icons+1]="Interface\\Icons\\Spell_Frost_FrostNova"
+ItemRackOpt.OpenQueueIconPicker(); picker.search:SetText("frost nova")
+check(#picker.filteredIcons==1 and picker.buttons[1].iconValue=="Interface\\Icons\\Spell_Frost_FrostNova",
+  "legacy texture names must support spaces between words when spell metadata is unavailable")
+picker.search:SetText("no such spell"); picker.search.focused=true
+picker.search.scripts.OnEscapePressed(picker.search)
+check(not picker.context and not picker.visible and not picker.search.focused,
+  "Escape must dismiss search, clear focus and clean the captured queue context")
+ItemRackOpt.OpenQueueIconPicker(); picker.search:SetText("late")
+GetNumSpellTabs=function() return 1 end; GetSpellBookItemName=function() return "Late Spell" end
+ItemRackOpt.RefreshQueueIconPage()
+check(picker.search.text=="late" and #picker.filteredIcons==1 and picker.buttons[1].iconValue==1003,
+  "live data refresh must update name matches while retaining the search text")
+picker.search.scripts.OnEnterPressed(picker.search)
+check(picker.visible and not picker.search.focused,"Enter must release search focus without applying an arbitrary first icon")
+GetNumSpellTabs=nil; GetSpellTabInfo=nil; GetSpellBookItemName=nil; GetSpellTexture=nil; GetSpellInfo=nil; C_Spell=nil
+ItemRack.GetInfoByID=originalItemInfo
+ItemRackOpt.OpenQueueIconPicker(); picker.search:SetText("unknown")
+check(#picker.filteredIcons==0 and picker.scroll.max==0,
+  "missing spell APIs must keep a working searchable texture catalog without errors")
+ItemRackOptSubFrame7:Hide()
+check(not picker.context and not picker.search.focused and inactive.customIcon==9009 and inactive.delay==19
+  and first.customIcon==101 and equipment[9]==originalGear and ItemRackOpt.selectedIcon==456
+  and ItemRackOpt.selectedIconIndex==8 and ItemRackOpt.QueueEditingSet=="PvP",
+  "search must clean up while retaining saved policies, queue owner, set-icon selection and final equipment")
 print(string.format("[QUEUE ITEM ICON LUA] %d scope, picker, persistence and presentation checks passed.",checks))
 `, 'queue-item-icons');

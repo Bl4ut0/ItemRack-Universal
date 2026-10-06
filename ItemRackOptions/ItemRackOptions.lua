@@ -137,7 +137,7 @@ function ItemRackOpt.OnEvent(self, event, ...)
 		-- choices when the cache completes; never disturb the set being edited.
 		ItemRackOpt.PopulateInvIcons()
 		ItemRackOpt.RefreshQueueIconPage()
-	elseif (event == "BAG_UPDATE" or event == "BANKFRAME_OPENED" or event == "BANKFRAME_CLOSED") and ItemRackOptFrame:IsVisible() then
+	elseif (event == "BAG_UPDATE" or event == "BANKFRAME_OPENED" or event == "BANKFRAME_CLOSED" or event == "SPELLS_CHANGED") and ItemRackOptFrame:IsVisible() then
 		ItemRackOpt.RefreshQueueIconPage()
 	end
 end
@@ -206,6 +206,7 @@ function ItemRackOpt.OnLoad(self)
 	self:RegisterEvent("BAG_UPDATE")
 	self:RegisterEvent("BANKFRAME_OPENED")
 	self:RegisterEvent("BANKFRAME_CLOSED")
+	self:RegisterEvent("SPELLS_CHANGED")
 	self:SetScript("OnEvent", ItemRackOpt.OnEvent)
 
 	self:SetClampedToScreen(true)
@@ -1892,7 +1893,11 @@ function ItemRackOpt.RefreshQueueIconPage()
 		ItemRackOpt.SortListScrollFrameUpdate()
 		local list = ItemRack.GetQueues(ItemRackOpt.QueueEditingSet)[ItemRackOpt.SelectedSlot]
 		ItemRackOpt.UpdateQueueIconButton(list and list[ItemRackOpt.SortSelected or 0])
-		ItemRackOpt.QueueIconPickerUpdate()
+		local picker = ItemRackOpt.QueueIconPicker
+		if picker and picker.context then
+			picker.catalog = ItemRackOpt.BuildQueueIconCatalog()
+			ItemRackOpt.FilterQueueIcons()
+		end
 	end
 end
 
@@ -1955,16 +1960,128 @@ function ItemRackOpt.QueueIconPickerUpdate()
 	local offset = math.floor(picker.scroll:GetValue())*5
 	local matched = false
 	for i,button in ipairs(picker.buttons) do
-		local icon = ItemRackOpt.Icons[offset+i]
-		if icon then
-			button.iconValue = ItemRackOpt.NormalizeSetIcon(icon)
+		local choice = picker.filteredIcons and picker.filteredIcons[offset+i]
+		if choice then
+			button.iconValue = choice.icon
+			button.iconLabel = choice.label
 			_G[button:GetName().."Icon"]:SetTexture(button.iconValue)
 			if not matched and picker.context.entry.customIcon == button.iconValue then
 				button:LockHighlight(); matched = true
 			else button:UnlockHighlight() end
 			button:Show()
-		else button:Hide() end
+		else
+			button.iconValue = nil; button.iconLabel = nil
+			button:UnlockHighlight(); button:Hide()
+		end
 	end
+end
+
+function ItemRackOpt.GetSearchSpellIcon(query)
+	if C_Spell and type(C_Spell.GetSpellInfo) == "function" then
+		local ok,info = pcall(C_Spell.GetSpellInfo,tonumber(query) or query)
+		if ok and type(info) == "table" and type(info.name) == "string" and ItemRack.IsValidItemIcon(info.iconID) then
+			return info.name,info.iconID
+		end
+	end
+	if type(GetSpellInfo) == "function" then
+		local ok,name,_,icon = pcall(GetSpellInfo,tonumber(query) or query)
+		if ok then return name,icon end
+	end
+end
+
+function ItemRackOpt.NormalizeIconSearch(text)
+	return tostring(text or ""):lower():gsub("[%s_]","")
+end
+
+function ItemRackOpt.BuildQueueIconCatalog()
+	local catalog,byIcon = {},{}
+	local function add(icon,name,keepDuplicate)
+		if not ItemRack.IsValidItemIcon(icon) then return end
+		local key = tostring(icon):lower()
+		local choice = byIcon[key]
+		if not choice then
+			local label = tostring(icon):match("([^\\/]+)$") or tostring(icon)
+			choice = {icon=icon,label=label,search=ItemRackOpt.NormalizeIconSearch(label),names={}}
+			byIcon[key] = choice
+			table.insert(catalog,choice)
+		elseif keepDuplicate then table.insert(catalog,choice) end
+		if type(name) == "string" and name ~= "" and not choice.names[name] then
+			choice.label = next(choice.names) and (choice.label..", "..name) or name
+			choice.names[name] = true
+			choice.search = choice.search.."|"..ItemRackOpt.NormalizeIconSearch(name)
+		end
+	end
+	for _,icon in ipairs(ItemRackOpt.Icons) do add(icon,nil,true) end
+	for i=0,19 do
+		local id = ItemRackOpt.Inv[i] and ItemRackOpt.Inv[i].id
+		if id and id ~= 0 then
+			local name,icon = ItemRack.GetInfoByID(id)
+			if byIcon[tostring(icon):lower()] then add(icon,name) end
+		end
+	end
+	local function call(api,...)
+		if type(api) ~= "function" then return end
+		local ok,a,b,c,d = pcall(api,...)
+		if ok then return a,b,c,d end
+	end
+	-- Localized spellbook names use the client's own API, without initializing
+	-- Blizzard's shared macro icon provider. Both Classic and modern APIs are
+	-- supported; see Blizzard_Deprecated/11_0_0_SpellBookAPITransitionGuide.lua.
+	local modern = C_SpellBook and Enum and Enum.SpellBookSpellBank
+		and Enum.SpellBookSpellBank.Player ~= nil
+		and type(C_SpellBook.GetNumSpellBookSkillLines) == "function"
+		and type(C_SpellBook.GetSpellBookSkillLineInfo) == "function"
+		and type(C_SpellBook.GetSpellBookItemName) == "function"
+		and type(C_SpellBook.GetSpellBookItemTexture) == "function"
+	local count = modern and call(C_SpellBook.GetNumSpellBookSkillLines)
+	if type(count) ~= "number" then modern=nil; count=call(GetNumSpellTabs) end
+	if type(count) == "number" and count >= 0 and count <= 100 then
+		for tab=1,count do
+			local offset,total
+			if modern then
+				local info = call(C_SpellBook.GetSpellBookSkillLineInfo,tab)
+				if type(info) == "table" then offset,total=info.itemIndexOffset,info.numSpellBookItems end
+			else
+				local _,_,start,length = call(GetSpellTabInfo,tab)
+				offset,total=start,length
+			end
+			if type(offset) == "number" and type(total) == "number" and offset >= 0 and total >= 0 and offset+total <= 10000 then
+				for index=offset+1,offset+total do
+					local bank = modern and Enum.SpellBookSpellBank.Player or (BOOKTYPE_SPELL or "spell")
+					local name = call(modern and C_SpellBook.GetSpellBookItemName or (GetSpellBookItemName or GetSpellName),index,bank)
+					local icon = call(modern and C_SpellBook.GetSpellBookItemTexture or (GetSpellBookItemTexture or GetSpellTexture),index,bank)
+					add(icon,name)
+				end
+			end
+		end
+	end
+	return catalog
+end
+
+function ItemRackOpt.FilterQueueIcons()
+	local picker = ItemRackOpt.QueueIconPicker
+	if not picker or not picker.context then return end
+	local query = picker.search:GetText() or ""
+	local normalized = ItemRackOpt.NormalizeIconSearch(query)
+	local filtered,seen = {},{}
+	local function include(choice)
+		local key = tostring(choice.icon):lower()
+		if not seen[key] then table.insert(filtered,choice); seen[key]=true end
+	end
+	if normalized == "" then
+		for _,choice in ipairs(picker.catalog) do table.insert(filtered,choice) end
+	else
+		for _,choice in ipairs(picker.catalog) do
+			if choice.search:find(normalized,1,true) then include(choice) end
+		end
+		local name,icon = ItemRackOpt.GetSearchSpellIcon(query:match("^%s*(.-)%s*$"))
+		if type(name) == "string" and ItemRack.IsValidItemIcon(icon) then include({icon=icon,label=name}) end
+	end
+	picker.filteredIcons = filtered
+	picker.empty:SetText(#filtered == 0 and "No matching icons" or "")
+	picker.scroll:SetMinMaxValues(0,math.max(0,math.ceil(#filtered/5)-5))
+	picker.scroll:SetValue(0)
+	ItemRackOpt.QueueIconPickerUpdate()
 end
 
 function ItemRackOpt.OpenQueueIconPicker()
@@ -1974,30 +2091,48 @@ function ItemRackOpt.OpenQueueIconPicker()
 	local picker = ItemRackOpt.QueueIconPicker
 	if not picker then
 		picker = CreateFrame("Frame",nil,ItemRackOptSubFrame7,BackdropTemplateMixin and "BackdropTemplate" or nil)
-		picker:SetSize(202,222)
+		picker:SetSize(202,252)
 		picker:SetPoint("TOPLEFT",ItemRackOpt.QueueControls or ItemRackOptSubFrame7,"TOPRIGHT",6,-20)
 		picker:SetFrameStrata("DIALOG")
 		picker:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
 		picker:SetBackdropColor(0,0,0,1)
-		picker:SetScript("OnHide",function(self) self.context=nil end)
+		picker:SetScript("OnHide",function(self) self.context=nil; self.search:ClearFocus() end)
 		local title = picker:CreateFontString(nil,"OVERLAY","GameFontNormal")
 		title:SetPoint("TOPLEFT",12,-12); title:SetText("Item icon")
 		local close = CreateFrame("Button",nil,picker,"UIPanelCloseButton")
 		close:SetPoint("TOPRIGHT",0,0)
 		close:SetScript("OnClick",function() picker:Hide() end)
+		local searchLabel = picker:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+		searchLabel:SetPoint("TOPLEFT",12,-36); searchLabel:SetText("Search")
+		picker.search = CreateFrame("EditBox",nil,picker,"InputBoxTemplate")
+		picker.search:SetSize(132,20); picker.search:SetPoint("TOPLEFT",58,-30)
+		picker.search:SetAutoFocus(false); picker.search:SetMaxLetters(80)
+		picker.search:SetScript("OnTextChanged",ItemRackOpt.FilterQueueIcons)
+		picker.search:SetScript("OnEscapePressed",function(self) self:ClearFocus(); picker:Hide() end)
+		picker.search:SetScript("OnEnterPressed",function(self) self:ClearFocus() end)
+		picker.search:SetScript("OnEnter",function(self)
+			ItemRack.OnTooltip(self,"Search icons","Search known spell names, item names, or icon texture names. You can also enter a full spell name or spell ID.")
+		end)
+		picker.search:SetScript("OnLeave",ItemRack.ClearTooltip)
+		picker.empty = picker:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+		picker.empty:SetPoint("TOP",0,-116)
 		local reset = CreateFrame("Button",nil,picker,"UIPanelButtonTemplate")
 		reset:SetSize(170,24); reset:SetPoint("BOTTOM",0,12); reset:SetText("Reset to original")
 		reset:SetScript("OnClick",function() ItemRackOpt.ApplyQueueItemIcon(nil) end)
 		picker.buttons = {}
 		for i=1,25 do
 			local button = CreateFrame("Button","ItemRackOptQueueIcon"..i,picker,"ItemRackOptIconTemplate")
-			button:SetPoint("TOPLEFT",12+((i-1)%5)*28,-38-math.floor((i-1)/5)*28)
-			button:SetScript("OnClick",function(self) ItemRackOpt.ApplyQueueItemIcon(self.iconValue) end)
+			button:SetPoint("TOPLEFT",12+((i-1)%5)*28,-68-math.floor((i-1)/5)*28)
+			button:SetScript("OnClick",function(self)
+				if self.iconValue then ItemRackOpt.ApplyQueueItemIcon(self.iconValue) end
+			end)
+			button:SetScript("OnEnter",function(self) ItemRack.OnTooltip(self,self.iconLabel or "Item icon") end)
+			button:SetScript("OnLeave",ItemRack.ClearTooltip)
 			picker.buttons[i] = button
 		end
 		picker.scroll = CreateFrame("Slider",nil,picker)
 		picker.scroll:SetOrientation("VERTICAL"); picker.scroll:SetSize(16,140)
-		picker.scroll:SetPoint("TOPRIGHT",-15,-38); picker.scroll:SetValueStep(1)
+		picker.scroll:SetPoint("TOPRIGHT",-15,-68); picker.scroll:SetValueStep(1)
 		picker.scroll:SetThumbTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
 		local track = picker.scroll:CreateTexture(nil,"BACKGROUND")
 		track:SetAllPoints(); track:SetTexture("Interface\\Buttons\\WHITE8X8")
@@ -2012,10 +2147,10 @@ function ItemRackOpt.OpenQueueIconPicker()
 	end
 	picker.context = {entry=entry,list=list,slot=ItemRackOpt.SelectedSlot,
 		setname=ItemRackOpt.QueueEditingSet,perSet=ItemRackUser.EnablePerSetQueues}
-	picker.scroll:SetMinMaxValues(0,math.max(0,math.ceil(#ItemRackOpt.Icons/5)-5))
-	picker.scroll:SetValue(0)
+	picker.catalog = ItemRackOpt.BuildQueueIconCatalog()
+	picker.search:SetText("")
 	picker:Show()
-	ItemRackOpt.QueueIconPickerUpdate()
+	ItemRackOpt.FilterQueueIcons()
 end
 
 function ItemRackOpt.AddToSortList(sortList,id)
