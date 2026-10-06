@@ -8,6 +8,7 @@ const functions = [
   extractFunction(options, 'ItemRackOpt.PopulateInvIcons'),
   extractFunction(options, 'ItemRackOpt.PopulateInitialIcons'),
   extractFunction(options, 'ItemRackOpt.OnEvent'),
+  extractFunction(options, 'ItemRackOpt.RefreshQueueIconPage'),
 ].join('\n');
 
 runLua(String.raw`
@@ -127,3 +128,207 @@ check(itemRefreshes == 1,"hidden options must not do unnecessary item-cache work
 
 print(string.format("[SET ICON PICKER LUA] %d blank-icon and refresh checks passed.",checks))
 `, 'set-icon-picker');
+
+// Queue item styling belongs to the existing picker suite. Run production
+// owner resolution, picker callbacks, render paths, and SaveSet persistence.
+const core = 'ItemRack/ItemRack.lua';
+const itemFunctions = [
+  extractFunction(core, 'QueueFieldProxy'),
+  ...['SameID','GetRuneID','HasRuneID','IsBareItemID','NormalizeItemFields',
+    'SameItemFields','SameExactID','MatchesStoredItemFields','GetQueueContext',
+    'IsValidItemIcon','GetCustomItemIcon','GetTextureBySlot','CreateMenuButton',
+    'GetQueues','GetQueuesEnabled'].map(n => extractFunction(core, 'ItemRack.'+n)),
+  extractFunction('ItemRack/ItemRackButtons.lua','ItemRack.RefreshCustomItemIcons'),
+  ...['NormalizeSetIcon','GetQueueItemLocation','IsQueueItemCarried','UpdateQueueIconButton','ApplyQueueItemIcon',
+    'QueueIconPickerUpdate','OpenQueueIconPicker','SortListScrollFrameUpdate','SortListOnEnter','SaveSet']
+    .map(n => extractFunction(options,'ItemRackOpt.'+n)),
+].join('\n');
+runLua(String.raw`
+local wanted="33881:2648:24028:0:0:0:0:0:70:0"
+local other="33881:2647:24028:0:0:0:0:0:70:0"
+local missing="99999:0:0:0:0:0:0:0"
+local equipment={[9]=wanted}
+local bags={[0]={[1]=other}}
+ItemRack={SlotInfo={}, iSPatternBaseIDFromIR="^(%-?%d+)",
+  iSPatternItemFieldsFromIR="^(%-?%d+:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*)",
+  iSPatternRuneIDFromIR=":runeid:(%d+)$"}
+ItemRackOpt={Icons={},Inv={},FallbackSetIcon="fallback",selectedIcon=456,selectedIconIndex=8}
+local global={id=wanted,customIcon=101,priority=true,delay="7"}
+local stealth={id=wanted,customIcon=202,priority=true,keep=true,delay="9",swapIn=30,swapInEnabled=true}
+ItemRackUser={EnablePerSetQueues="OFF",EnableQueueContextCheck="ON",CurrentSet="Stealth",
+  Queues={[9]={global}},QueuesEnabled={[9]=false},Buttons={[9]={}},Events={Set={}},
+  Sets={Stealth={Queues={[9]={stealth,{id=other},{id=missing},{id=0}}},QueuesEnabled={[9]=false},equip={[9]=wanted}},
+    PvP={Queues={[9]={{id=wanted,customIcon=303}}},equip={[9]=wanted}}, Mount={equip={[8]="boots"}}}}
+ItemRack.GetID=function(bag,slot) if slot then return bags[bag] and bags[bag][slot] or 0 end return equipment[bag] or 0 end
+ItemRack.GetIRString=function(id,base) return base and tostring(id):match("^(%-?%d+)") or id end
+ItemRack.GetInfoByID=function(id) return id~=missing and "Shared name" or nil, id~=missing and "original" or nil, nil,1 end
+function GetContainerNumSlots(bag) return bags[bag] and 1 or 0 end
+function GetInventoryItemTexture(unit,slot) return equipment[slot] and "original" end
+function GetInventorySlotInfo(name) return 1,"empty-slot" end
+function GetItemQualityColor() return 1,1,1 end
+local created={}
+local function region()
+  return {SetText=function(self,v) self.text=v end,SetTexture=function(self,v) self.texture=v end,
+    SetAllPoints=function(self,v) self.anchor=v end,SetTexCoord=function(self,...) self.uv={...} end,
+    GetTexCoord=function() return 0,1,0,1 end,SetPoint=function() end,SetTextColor=function() end,
+    SetVertexColor=function() end,Show=function(self) self.visible=true end,Hide=function(self) self.visible=false end}
+end
+function CreateFrame(kind,name,parent,template)
+  assert(not template or not template:match("Secure") and not template:match("ActionButton"),"presentation must be unprotected")
+  local frame={name=name,kind=kind,parent=parent,template=template,scripts={},visible=true,value=0}
+  for _,method in ipairs({"SetSize","SetPoint","SetFrameStrata","SetBackdrop","SetBackdropColor",
+    "SetHighlightTexture","SetOrientation","SetValueStep","SetThumbTexture","EnableMouseWheel","RegisterForClicks"}) do frame[method]=function() end end
+  frame.SetScript=function(self,k,fn) self.scripts[k]=fn end
+  frame.HookScript=frame.SetScript
+  frame.GetName=function(self) return self.name end
+  frame.GetID=function(self) return self.id end
+  frame.SetID=function(self,v) self.id=v end
+  frame.CreateFontString=region; frame.CreateTexture=region
+  frame.SetText=function(self,v) self.text=v end
+  frame.SetNormalTexture=function(self,v) self.texture=v end
+  frame.SetAlpha=function(self,v) self.alpha=v end
+  frame.Enable=function(self) self.enabled=true end; frame.Disable=function(self) self.enabled=false end
+  frame.SetMinMaxValues=function(self,a,b) self.min=a; self.max=b end
+  frame.GetMinMaxValues=function(self) return self.min,self.max end
+  frame.SetValue=function(self,v) self.value=v; if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self,v) end end
+  frame.GetValue=function(self) return self.value end
+  frame.IsVisible=function(self) return self.visible and (not self.parent or self.parent:IsVisible()) end
+  frame.Show=function(self) self.visible=true end
+  frame.Hide=function(self) self.visible=false; if self.scripts.OnHide then self.scripts.OnHide(self) end end
+  frame.LockHighlight=function(self) self.highlight=true end; frame.UnlockHighlight=function(self) self.highlight=false end
+  if name then _G[name]=frame; _G[name.."Icon"]=region() end
+  table.insert(created,frame); return frame
+end
+for i=0,19 do ItemRack.SlotInfo[i]={name="Slot"..i}; ItemRackOpt.Inv[i]={} end
+ItemRackOpt.Inv[9]={id=wanted,selected=true}
+for i=1,80 do ItemRackOpt.Icons[i]=1000+i end
+ItemRackOptSubFrame7=CreateFrame("Frame")
+ItemRackOptSortMoveDelete=CreateFrame("Button")
+ItemRackOptSortListScrollFrame={}
+ItemRackMenuFrame=CreateFrame("Frame")
+ItemRackMenuFrame.visible=false
+for i=1,10 do
+  local row=CreateFrame("Button","ItemRackOptSortList"..i); row:SetID(i)
+  _G["ItemRackOptSortList"..i.."Name"]=region(); _G["ItemRackOptSortList"..i.."Highlight"]=region()
+end
+function FauxScrollFrame_GetOffset() return 0 end
+function FauxScrollFrame_Update() end
+ItemRack.SetRuneIconOverlay=function() end
+ItemRack.SetFont=function() end
+ItemRackOpt.LockHighlight=function() end; ItemRackOpt.UnlockHighlight=function() end
+ItemRackOpt.ValidateSortButtons=function() end
+ItemRackOpt.QueueEditingSet="Stealth"; ItemRackOpt.SelectedSlot=9; ItemRackOpt.SortSelected=1
+ItemRackButton9ItemRackIcon=region()
+CharacterSlot9=CreateFrame("Button","CharacterSlot9")
+CharacterSlot9.icon=region(); CharacterSlot9.icon.texture="original"
+${require('fs').readFileSync('ItemRack/ItemRackQueuePolicy.lua','utf8')}
+${itemFunctions}
+local checks=0
+local function check(value,message) assert(value,message); checks=checks+1 end
+check(ItemRack.GetTextureBySlot(9)==101,"global custom icon must work with auto queue disabled")
+check(ItemRack.GetInfoByID(wanted)=="Shared name","item info must retain original presentation")
+ItemRack.RefreshCustomItemIcons()
+check(ItemRackButton9ItemRackIcon.texture==101 and not CharacterSlot9.ItemRackCustomIcon,
+  "default must style quick access and retain native character icons")
+ItemRackUser.EnablePerSetQueues="ON"
+check(ItemRack.GetTextureBySlot(9)==202,"per-set icon must follow current queue owner")
+ItemRackUser.CurrentSet="PvP"
+check(ItemRack.GetTextureBySlot(9)==303 and ItemRack.GetCustomItemIcon(9,wanted,"Stealth")==202,
+  "active set and explicit editing set must resolve independently")
+ItemRackUser.CurrentSet="Mount"; ItemRackUser.EventStack={"Stealth event"}; ItemRackUser.Events.Set["Stealth event"]="Stealth"
+check(ItemRack.GetTextureBySlot(9)==202,"partial event set must inherit styling from the owning queue")
+ItemRackUser.Sets.Mount.equip[9]=wanted
+check(ItemRack.GetTextureBySlot(9)=="original","explicit set boundary must suppress inherited icons")
+ItemRackUser.CurrentSet="Stealth"
+local list=ItemRackUser.Sets.Stealth.Queues[9]
+table.insert(list,{id=wanted..":runeid:7",customIcon=707})
+check(ItemRack.GetCustomItemIcon(9,wanted..":runeid:7")==707,
+  "exact rune styling must win over a legacy physical match, including after the stop marker")
+check(ItemRack.GetCustomItemIcon(9,other)==nil,"different enchant must not borrow an icon")
+local bare={id="33881",customIcon=999}
+table.insert(list,1,bare)
+check(ItemRack.GetCustomItemIcon(9,wanted)==202,"bare seed must not shadow explicit item styling")
+table.remove(list,1)
+ItemRackOpt.UpdateQueueIconButton(stealth)
+ItemRackOpt.OpenQueueIconPicker()
+local picker=ItemRackOpt.QueueIconPicker
+check(picker.context.entry==stealth and picker.buttons[1].iconValue==1001,"picker must capture selected entry and render private choices")
+picker.scroll:SetValue(1)
+check(picker.buttons[1].iconValue==1006,"picker scrolling must use independent row offset")
+picker.buttons[1].scripts.OnClick(picker.buttons[1])
+check(stealth.customIcon==1006 and global.customIcon==101 and not picker.context and not picker.visible,
+  "click must persist only the edited set icon and clean picker context")
+check(ItemRackOpt.selectedIcon==456 and ItemRackOpt.selectedIconIndex==8 and equipment[9]==wanted,
+  "item picker must leave set icon selection and equipment unchanged")
+ItemRackOpt.OpenQueueIconPicker()
+local reset
+for _,frame in ipairs(created) do if frame.text=="Reset to original" then reset=frame end end
+check(reset and reset.parent==picker,"Reset must be inside item icon popup")
+reset.scripts.OnClick(reset)
+check(stealth.customIcon==nil and ItemRack.GetTextureBySlot(9)=="original" and stealth.priority and stealth.keep and stealth.delay=="9",
+  "reset must restore native icon while preserving all queue policy fields")
+ItemRackOpt.OpenQueueIconPicker(); ItemRackOpt.SortSelected=2
+check(not ItemRackOpt.ApplyQueueItemIcon(900) and not list[2].customIcon,"stale selected-entry click must be rejected")
+ItemRackOpt.UpdateQueueIconButton(list[2])
+check(not picker.context,"changing selection must cancel the popup")
+ItemRackOpt.SortSelected=1; ItemRackOpt.OpenQueueIconPicker(); ItemRackUser.EnablePerSetQueues="OFF"
+check(not ItemRackOpt.ApplyQueueItemIcon(900) and global.customIcon==101,"scope toggle must reject stale write")
+ItemRackUser.EnablePerSetQueues="ON"; ItemRackOpt.OpenQueueIconPicker(); ItemRackOpt.QueueEditingSet="PvP"
+check(not ItemRackOpt.ApplyQueueItemIcon(900),"editing-set switch must reject stale write")
+ItemRackOpt.QueueEditingSet="Stealth"; ItemRackOpt.OpenQueueIconPicker(); ItemRackOptSubFrame7:Hide()
+check(not picker.context and not ItemRackOpt.ApplyQueueItemIcon(900),"closing queue page must cancel pending selection")
+ItemRackOptSubFrame7:Show(); ItemRackOpt.SortSelected=4; ItemRackOpt.UpdateQueueIconButton(list[4]); ItemRackOpt.OpenQueueIconPicker()
+check(not ItemRackOpt.QueueIconButton.enabled and not picker.context,"stop marker cannot be styled")
+ItemRackOpt.SortSelected=1; ItemRackOpt.OpenQueueIconPicker()
+check(not ItemRackOpt.ApplyQueueItemIcon(0) and not ItemRackOpt.ApplyQueueItemIcon(""),"invalid textures must be rejected")
+ItemRackOpt.ApplyQueueItemIcon(808)
+ItemRackUser.CustomCharacterIcons="ON"; ItemRack.RefreshCustomItemIcons()
+check(CharacterSlot9.ItemRackCustomIcon.texture==808 and CharacterSlot9.icon.texture=="original",
+  "character opt-in must use own overlay and preserve original texture")
+ItemRackUser.CustomCharacterIcons="OFF"; ItemRack.RefreshCustomItemIcons()
+check(not CharacterSlot9.ItemRackCustomIcon.visible,"disabling character styling must immediately remove overlay")
+ItemRack.menuOpen=9
+local menu=ItemRack.CreateMenuButton(1,wanted)
+check(menu.icon.texture=="original","flyout default must retain original texture")
+ItemRackUser.CustomMenuIcons="ON"; ItemRack.CreateMenuButton(1,wanted)
+check(menu.icon.texture==808,"flyout opt-in must style item icon")
+ItemRack.menuInclude=1; ItemRack.CreateMenuButton(1,wanted)
+check(menu.icon.texture=="original","set editing item menu must retain original icons")
+check(ItemRackOpt.IsQueueItemCarried(wanted) and ItemRackOpt.IsQueueItemCarried(other)
+  and not ItemRackOpt.IsQueueItemCarried(missing),"availability must check equipped and carried exact identities")
+ItemRackOpt.SortListScrollFrameUpdate()
+check(ItemRackOptSortList1Icon.texture==808 and ItemRackOptSortList3Name.text=="Item 99999 (not carried)",
+  "queue rows must show custom icons and label unavailable uncached items")
+local tooltipShows=0
+GameTooltip={AddLine=function(self,line) self.line=line end,Show=function() tooltipShows=tooltipShows+1 end}
+ItemRackSettings={ShowTooltips="ON"}
+ItemRack.IDTooltip=function(self,id,exact) check(id==missing and exact==true,"queue hover must request exact saved identity") end
+ItemRackOpt.SortListOnEnter(ItemRackOptSortList3)
+check(tooltipShows==1 and GameTooltip.line:match("Not carried"),"queue hover must explain unavailable saved entry")
+ItemRackSettings.ShowTooltips="OFF"; ItemRackOpt.SortListOnEnter(ItemRackOptSortList3)
+check(tooltipShows==1,"unavailable-entry tooltip must respect disabled tooltips")
+bags[0][1]=nil
+check(not ItemRackOpt.IsQueueItemCarried(other),"another enchant of the same item must not count as carried")
+-- Report screenshot: Era 4.51 Head global queue with bank open. These use
+-- synthetic identities until the reporter supplies full saved/live links.
+ItemRack.BankOpen=true; ItemRack.BankSlots={-1}; bags[-1]={[1]=missing}
+check(ItemRackOpt.GetQueueItemLocation(missing)=="bank" and not ItemRackOpt.IsQueueItemCarried(missing),
+  "open-bank exact entry must be labeled bank without pretending it is carried")
+ItemRackOpt.SortListScrollFrameUpdate()
+check(ItemRackOptSortList3Name.text=="Item 99999 (in bank)","open-bank queue row must explain saved location")
+ItemRack.BankOpen=false
+check(ItemRackOpt.GetQueueItemLocation(missing)=="missing", "closed-bank cache must not prove current ownership")
+ItemRackOptSetsName={ClearFocus=function() end,GetText=function() return "Stealth" end}
+ItemRackOptSpec1={GetChecked=function() return false end}; ItemRackOptSpec2=ItemRackOptSpec1
+ItemRack.RegisterEvents=function() end; ItemRackOpt.PopulateEventList=function() end
+ItemRackOpt.ReconcileSetBindings=function() end; ItemRackOpt.ValidateSetButtons=function() end
+ItemRack.UpdateCurrentSet=function() end; ItemRack.FireItemRackEvent=function() end
+ItemRackOpt.SaveSet()
+local saved=ItemRackUser.Sets.Stealth.Queues[9]
+check(saved~=list and saved[1]~=stealth and saved[1].customIcon==808 and saved[1].priority and saved[1].delay=="9"
+  and saved[1].swapInEnabled and saved[1].swapIn==30 and saved[3].id==missing,
+  "saving set must snapshot styling and policy, retaining unavailable saved entries")
+check(ItemRackUser.CurrentSet=="Stealth" and equipment[9]==wanted and global.customIcon==101,
+  "terminal gear, logical context and unrelated scope must remain unchanged")
+print(string.format("[QUEUE ITEM ICON LUA] %d scope, picker, persistence and presentation checks passed.",checks))
+`, 'queue-item-icons');

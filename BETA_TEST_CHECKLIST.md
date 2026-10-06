@@ -15,6 +15,16 @@ Use the same universal archive for every row; do not build or test separate Fore
 
 ## 1. Tooltip safety and layout
 
+### Next dev build: queue item icons and duplicate rows
+
+- On Era, record the full saved and live item links/IDs for both Mind Control Cap and Catseye Goggles rows from the reported 4.51 global Head queue. Open the same profile in the dev build. Equivalent empty/zero identities should coalesce, preserving the first entry's position/settings. Different enchants/runes must remain distinct. This reporter-specific check is pending those identities.
+- Open and close the bank, move an exact queued item between bags and bank, and remove it from carried storage. Confirm the Queue page distinguishes **in bank** while open and **not carried** otherwise; missing saved rows remain editable. Check long-name status tooltips, newly cached item names and correct refresh timing. A closed bank does not establish that an item was deleted.
+- Select an item row, press the left-side **Icon** button and choose an icon; verify the Queue row and worn quick-access button use it. Check picker scrolling, partial final pages and layout at every Options scale. Select the stop marker and confirm Icon is disabled.
+- Reopen the picker and press **Reset to original**. Confirm native artwork returns while priority, pause, delay, swap-in and queue order persist. Close the picker or Queue page, change selections, edit another set, save the set, and toggle per-set queues; a stale picker must never write to the new entry/scope.
+- Give the same item different icons in two sets, switch between them, test global mode and a partial event set's inherited queue, and disable auto queues. Confirm styling follows queue ownership without changing swap policy. Save the sets and reload/relog to verify icon persistence.
+- Leave both custom display settings off: character-sheet slots, item flyouts and set-editing inventory menus keep original artwork. Enable **Custom icons on character sheet** and **Custom icons in item flyouts** individually; verify each target and immediate return to native icons when disabled. Inspect exact enchant/rune copies, empty slots, native tooltip links, cooldown/count overlays and Masque skins.
+- Repeat icon edits and character-sheet updates during combat, then use weapon-only hotkeys, full sets, priority queues and manual swaps. Watch for Lua errors or blocked actions. On Forever, open Blizzard's Advanced options afterward and check for shared-icon-provider taint. These live-client checks have not been run by the agent.
+
 - Enable **Show set info in tooltips** and place one item in multiple saved sets.
 - Hover that item in equipped slots, bags, the bank, and an ItemRack flyout.
 - Confirm every expected set name appears, the tooltip backdrop contains the lines, and character-sheet flyouts do not overlap the tooltip.

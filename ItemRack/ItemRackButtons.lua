@@ -64,6 +64,10 @@ end
 
 function ItemRack.InitButtons()
 	ItemRackUser.Buttons = ItemRackUser.Buttons or {}
+	if hooksecurefunc and PaperDollItemSlotButton_Update and not ItemRack.CustomIconHooked then
+		hooksecurefunc("PaperDollItemSlotButton_Update",ItemRack.RefreshCustomItemIcons)
+		ItemRack.CustomIconHooked = true
+	end
 
 	ItemRack.oldPaperDollItemSlotButton_OnModifiedClick = PaperDollItemSlotButton_OnModifiedClick
 	PaperDollItemSlotButton_OnModifiedClick = ItemRack.newPaperDollItemSlotButton_OnModifiedClick
@@ -471,6 +475,37 @@ function ItemRack.UpdateButtons()
 end
 
 --[[ Menu ]]
+
+function ItemRack.RefreshCustomItemIcons()
+	if not ItemRackUser then return end
+	for slot=0,19 do
+		local buttonIcon = _G["ItemRackButton"..slot.."ItemRackIcon"]
+		if buttonIcon and ItemRackUser.Buttons and ItemRackUser.Buttons[slot] then
+			buttonIcon:SetTexture(ItemRack.GetTextureBySlot(slot))
+		end
+		local info = ItemRack.SlotInfo[slot]
+		local button = info and _G["Character"..info.name]
+		local custom = ItemRackUser.CustomCharacterIcons == "ON"
+			and ItemRack.GetCustomItemIcon(slot,ItemRack.GetID(slot))
+		if button then
+			local overlay = button.ItemRackCustomIcon
+			if custom and not overlay then
+				-- Own texture only; never replace Blizzard's icon or secure methods.
+				local original = button.icon or button.Icon or _G[button:GetName().."IconTexture"]
+				if original then
+					overlay = button:CreateTexture(nil,"ARTWORK",nil,1)
+					overlay:SetAllPoints(original)
+					overlay:SetTexCoord(original:GetTexCoord())
+					button.ItemRackCustomIcon = overlay
+				end
+			end
+			if overlay then
+				if custom then overlay:SetTexture(custom); overlay:Show()
+				else overlay:Hide() end
+			end
+		end
+	end
+end
 
 function ItemRack.DockMenuToButton(button)
 	if (button==13 or button==14) and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then
