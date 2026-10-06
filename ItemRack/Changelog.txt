@@ -1,4 +1,5 @@
 __ Development __
+- Fixed Queue availability checks calling a missing legacy GetContainerNumSlots global. Resolve namespaced/legacy bag APIs for bags and bank; retain saved entries and show unknown availability when neither provider exists. Added the supplied item-6256 regression with both legacy container and color globals absent.
 - Options header uses compact IRU branding (IRU-B for beta builds), with the full Universal name and version in a hover tooltip above it. Bounded title/hover regions preserve tab spacing; added permanent label, tooltip and layout regressions.
 - Fixed Queue-page crashes when the legacy GetItemQualityColor global is absent. Use the namespaced item API, native quality constants, or white fallback without altering queue policies; added a permanent Hunting Boots trace regression and neighboring compatibility cases.
 - Queue items support custom icons in the left-side icon picker, with Reset to original inside the popup. Icons follow global/per-set queue ownership and survive set saves. Character-sheet and item-flyout styling have separate default-off options; item identities, tooltips and swap policy remain unchanged.

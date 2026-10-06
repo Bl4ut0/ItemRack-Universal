@@ -482,5 +482,55 @@ check(ItemRackOptSortList1Name.text=="Stonesplinter Axe" and ItemRackOptSortList
 check(equipment[16]==reportAxe and ItemRackUser.CurrentSet=="Stealth" and ItemRackUser.Queues[16]==axeQueue
   and axeEntry.priority and axeEntry.delay==3 and ItemRackOpt.QueueEditingSet==nil and not picker.context,
   "axe renderer must preserve terminal gear, global queue context, settings and cleanup")
+
+-- October 5 user trace at GetQueueItemLocation:1830: the supplied identity
+-- reaches the first bag scan with the legacy global container API absent.
+local reportedContainerID="6256::::::::16:1485::14:::::::"
+local containerEntry={id=reportedContainerID,priority=true,delay=5}
+local containerQueue={containerEntry,{id=0}}
+ItemRackUser.Queues[16]=containerQueue
+bags[0]={[1]=reportedContainerID}
+local legacyContainerSlots=GetContainerNumSlots
+GetContainerNumSlots=nil
+C_Container={GetContainerNumSlots=legacyContainerSlots}
+local located,location=pcall(ItemRackOpt.GetQueueItemLocation,reportedContainerID)
+check(located and location=="carried",
+  "reported-queue-container-api-missing-global: supplied identity must resolve through C_Container: "..tostring(location))
+ItemRackOpt.SortListScrollFrameUpdate()
+check(ItemRackOptSortList1.visible and ItemRackOptSortList2.visible
+  and not ItemRackOptSortList1Name.text:match("not carried"),
+  "queue renderer must retain carried status with both legacy container and quality globals absent")
+bags[0][1]=nil; bags[-1]={[1]=reportedContainerID}; ItemRack.BankOpen=true
+check(ItemRackOpt.GetQueueItemLocation(reportedContainerID)=="bank",
+  "namespaced container API must also resolve exact open-bank contents")
+ItemRackOpt.SortListScrollFrameUpdate()
+check(ItemRackOptSortList1Name.text:match("in bank"),"namespaced bank result must reach the Queue row label")
+ItemRack.BankOpen=false
+check(ItemRackOpt.GetQueueItemLocation(reportedContainerID)=="missing",
+  "closed bank must not manufacture carried ownership with modern container APIs")
+check(equipment[16]==reportAxe and ItemRackUser.CurrentSet=="Stealth" and ItemRackUser.Queues[16]==containerQueue
+  and containerEntry.id==reportedContainerID and containerEntry.priority and containerEntry.delay==5
+  and not picker.context,"container compatibility must leave equipment, scope, entry policy and popup cleanup intact")
+C_Container=nil; GetContainerNumSlots=legacyContainerSlots; bags[0][1]=reportedContainerID
+check(ItemRackOpt.GetQueueItemLocation(reportedContainerID)=="carried",
+  "legacy-only-container-api: older clients must retain carried item discovery")
+GetContainerNumSlots=function() error("namespaced container API must take precedence when both exist") end
+C_Container={GetContainerNumSlots=legacyContainerSlots}
+check(ItemRackOpt.GetQueueItemLocation(reportedContainerID)=="carried",
+  "namespaced-container-precedence: use the same API preference as core discovery")
+GetContainerNumSlots=nil; C_Container=nil
+check(ItemRackOpt.GetQueueItemLocation(reportedContainerID)=="unknown",
+  "absent-container-api: unknown availability must not become a false missing-item assertion")
+ItemRackOpt.SortListScrollFrameUpdate()
+check(ItemRackOptSortList1Name.text:match("availability unknown") and ItemRackOptSortList1.visible,
+  "no container provider must still render saved entries with an honest unknown status")
+check(ItemRackOpt.GetQueueItemLocation(reportAxe)=="carried",
+  "equipped identity must remain known even when no bag provider is available")
+C_Container={GetContainerNumSlots=function() return nil end}
+check(ItemRackOpt.GetQueueItemLocation(reportedContainerID)=="missing",
+  "nil slot-count results must not cause a numeric loop error")
+check(containerEntry.id==reportedContainerID and containerEntry.priority and containerEntry.delay==5
+  and ItemRackUser.Queues[16]==containerQueue and equipment[16]==reportAxe and not picker.context,
+  "all container provider variants must retain saved data, gear and popup cleanup")
 print(string.format("[QUEUE ITEM ICON LUA] %d scope, picker, persistence and presentation checks passed.",checks))
 `, 'queue-item-icons');

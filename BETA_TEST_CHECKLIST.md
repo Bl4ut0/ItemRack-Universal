@@ -17,6 +17,7 @@ Use the same universal archive for every row; do not build or test separate Fore
 
 ### Next dev build: queue item icons and duplicate rows
 
+- Reload the container compatibility fix and reopen the Queue that included `6256::::::::16:1485::14:::::::`. Check the item's exact carried/open-bank status and confirm there is no GetQueueItemLocation nil call. On clients with deprecated API globals disabled, test bag and bank status alongside row quality colors. Capture exact build and fresh dump if it recurs.
 - Inspect the upper-left Options corner at all three Options scales: Dev/stable show **IRU**, beta shows **IRU-B**, and neither overlaps Queue. Hover for the full Universal name and installed version above the badge; leave to dismiss, drag the window by the badge, and verify tab clicks and close/escape still work.
 - After reloading the fixed dev build, open the Main Hand queue with Stonesplinter Axe (reported texture 132410, quality 2, six rows). Confirm uncommon row coloring and no nil color-API call. If it recurs, clear prior errors and capture a fresh trace, `/itemrack dump`, exact client build and the hovered version.
 - Reload after installing the color API fix, then open the Feet queue from quick access with Hunting Boots (reported icon 132592, quality 1). Confirm both rows appear without the former SortListScrollFrameUpdate nil-call error. Capture the exact client build and boot link if it recurs. Older loaded code reports this call at line 2023; the dev build's line numbers differ.

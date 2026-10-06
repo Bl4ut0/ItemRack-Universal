@@ -1826,8 +1826,11 @@ function ItemRackOpt.GetQueueItemLocation(id)
 		if ItemRack.MatchesStoredItemFields(id,current)
 		or (ItemRack.IsBareItemID(id) and ItemRack.SameID(id,current)) then return "carried" end
 	end
+	local getSlots = C_Container and C_Container.GetContainerNumSlots
+	if type(getSlots) ~= "function" then getSlots = GetContainerNumSlots end
+	if type(getSlots) ~= "function" then return "unknown" end
 	for bag=0,4 do
-		for slot=1,GetContainerNumSlots(bag) do
+		for slot=1,(getSlots(bag) or 0) do
 			local current = ItemRack.GetID(bag,slot)
 			if ItemRack.MatchesStoredItemFields(id,current)
 			or (ItemRack.IsBareItemID(id) and ItemRack.SameID(id,current)) then return "carried" end
@@ -1835,7 +1838,7 @@ function ItemRackOpt.GetQueueItemLocation(id)
 	end
 	if ItemRack.BankOpen then
 		for _,bag in pairs(ItemRack.BankSlots or {}) do
-			for slot=1,GetContainerNumSlots(bag) do
+			for slot=1,(getSlots(bag) or 0) do
 				local current = ItemRack.GetID(bag,slot)
 				if ItemRack.MatchesStoredItemFields(id,current)
 				or (ItemRack.IsBareItemID(id) and ItemRack.SameID(id,current)) then return "bank" end
@@ -2223,7 +2226,8 @@ function ItemRackOpt.SortListScrollFrameUpdate()
 				name = name or ("Item "..tostring(ItemRack.GetIRString(sortList[idx].id,true)))
 				local location = ItemRackOpt.GetQueueItemLocation(sortList[idx].id)
 				if location == "bank" then name = name.." (in bank)"
-				elseif location == "missing" then name = name.." (not carried)" end
+				elseif location == "missing" then name = name.." (not carried)"
+				elseif location == "unknown" then name = name.." (availability unknown)" end
 				if ItemRack.IsValidItemIcon(sortList[idx].customIcon) then texture = sortList[idx].customIcon end
 				texture = ItemRackOpt.NormalizeSetIcon(texture)
 			end
@@ -2373,7 +2377,10 @@ function ItemRackOpt.SortListOnEnter(self)
 			ItemRack.IDTooltip(self,list[idx].id,true)
 			local location = ItemRackOpt.GetQueueItemLocation(list[idx].id)
 			if ItemRackSettings.ShowTooltips == "ON" and location ~= "carried" then
-				GameTooltip:AddLine(location == "bank" and "In bank; saved in this queue." or "Not carried; saved in this queue. Bank contents are checked while open.",1,.82,0,true)
+				local status = location == "bank" and "In bank; saved in this queue."
+					or (location == "unknown" and "Item availability cannot be checked on this client; saved in this queue.")
+					or "Not carried; saved in this queue. Bank contents are checked while open."
+				GameTooltip:AddLine(status,1,.82,0,true)
 				GameTooltip:Show()
 			end
 		end
