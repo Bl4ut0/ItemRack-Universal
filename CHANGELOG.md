@@ -5,6 +5,7 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 ## [Development]
 
 ### Bug Fixes & Improvements
+- **Quick-Access Icon Coverage**: Default item icons now fill their button bounds instead of leaving a two-pixel inset that grows with scale. Cooldown overlays cover the same area. Decorative borders and Masque ownership are preserved; added permanent geometry checks at 0.5x, 1x, 1.5x and 2x scale. Live client rendering remains an acceptance check.
 - **Universal Product Naming**: The addon list, Options title and keybinding category now identify ItemRack Universal. GitHub and CurseForge release posts share one Universal title renderer, and documentation uses the current project links. Stable `ItemRack` and `ItemRackOptions` folder/module identifiers remain unchanged for compatibility. Added permanent naming regressions; existing published beta metadata is unchanged.
 
 

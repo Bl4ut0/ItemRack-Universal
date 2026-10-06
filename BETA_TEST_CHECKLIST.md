@@ -86,6 +86,8 @@ Use the same universal archive for every row; do not build or test separate Fore
 
 ## Report data
 
+- For quick-access icon coverage, test default buttons at 0.5x, 1x, 1.5x and 2x: item and set artwork should fill the button inside its decorative bezel, with no growing inset. Check active cooldown coverage, pressed/hover/checked states, quality borders, queue indicators, counts and hotkeys. Repeat with Masque disabled and with the user's active skin, including reskinning and reload. Automated checks verify default geometry, not live texture rendering.
+
 - For the three-rogue boot queue complaint, compare one affected and one working character on the same build: record exact saved/worn boots, queue entries and their keep/delay/priority flags, per-set/global enablement, toggle setting, and whether menu equip differs from the bound key. Enable debug before reproducing and collect the dump afterward. Check actual gear separately from the minimap, broker and set-button icon; record the last icon that stays visible. Capture the icon/button size and active UI skins. This report is not reproduced by the automated suite.
 - For Universal naming, confirm the addon list shows ItemRack Universal and ItemRack Universal Options, and the Options title and keybinding category display correctly at the chosen scale. Both folders must remain ItemRack and ItemRackOptions; verify load-on-demand Options and saved keybindings survive reload.
 

@@ -34,8 +34,8 @@
 			<Layer level="ARTWORK">
 				<Texture name="$parentItemRackIcon">
 					<Anchors>
-						<Anchor point="TOPLEFT"><Offset x="2" y="-2"/></Anchor>
-						<Anchor point="BOTTOMRIGHT"><Offset x="-2" y="2"/></Anchor>
+						<Anchor point="TOPLEFT"/>
+						<Anchor point="BOTTOMRIGHT"/>
 					</Anchors>
 					<TexCoords left="0.07" right="0.93" top="0.07" bottom="0.93"/>
 				</Texture>
@@ -66,8 +66,8 @@
 		<Frames>
 			<Cooldown name="$parentCooldown" inherits="CooldownFrameTemplate">
 				<Anchors>
-					<Anchor point="TOPLEFT"><Offset x="2" y="-2"/></Anchor>
-					<Anchor point="BOTTOMRIGHT"><Offset x="-2" y="2"/></Anchor>
+					<Anchor point="TOPLEFT"/>
+					<Anchor point="BOTTOMRIGHT"/>
 				</Anchors>
 			</Cooldown>
 		</Frames>
