@@ -1700,7 +1700,7 @@ end
 function ItemRackOpt.LayoutQueueControls()
 	if ItemRackOpt.QueueControls then return end
 	local panel = CreateFrame("Frame",nil,ItemRackOptSubFrame7,BackdropTemplateMixin and "BackdropTemplate" or nil)
-	panel:SetSize(176,308)
+	panel:SetSize(176,324)
 	panel:SetPoint("TOPLEFT",ItemRackOptSubFrame7,"TOPRIGHT",12,-4)
 	panel:SetBackdrop({bgFile="Interface\\ChatFrame\\ChatFrameBackground",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
 	panel:SetBackdropColor(.08,.08,.08,.95)
@@ -1714,7 +1714,16 @@ function ItemRackOpt.LayoutQueueControls()
 	local moves = {ItemRackOptSortMoveTop,ItemRackOptSortMoveUp,ItemRackOptSortMoveDown,ItemRackOptSortMoveBottom}
 	for i,button in ipairs(moves) do place(button,panel,10+(i-1)*38,-46) end
 	place(ItemRackOptSortMoveDelete,panel,10,-88)
-	place(ItemRackOptItemStatsFrame,panel,10,-140)
+	local addStop = CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
+	addStop:SetSize(156,22); addStop:SetPoint("TOPLEFT",panel,"TOPLEFT",10,-124)
+	addStop:SetText("Add stop marker")
+	addStop:SetScript("OnClick",ItemRackOpt.AddQueueStopMarker)
+	addStop:SetScript("OnEnter",function(self)
+		ItemRack.OnTooltip(self,"Add stop marker","Add 'stop queue here' to the end of this queue, then use the arrows to move it. Only one stop marker is needed.")
+	end)
+	addStop:SetScript("OnLeave",ItemRack.ClearTooltip)
+	ItemRackOpt.QueueStopButton = addStop
+	place(ItemRackOptItemStatsFrame,panel,10,-156)
 	ItemRackOptItemStatsFrame:SetSize(156,156)
 	place(ItemRackOptItemStatsDelay,ItemRackOptItemStatsFrame,52,-4)
 	place(ItemRackOptItemStatsPriority,ItemRackOptItemStatsFrame,0,-32)
@@ -2446,9 +2455,34 @@ function ItemRackOpt.SortListOnClick(self)
 	ItemRackOpt.ValidateSortButtons()
 end
 
+function ItemRackOpt.GetEditableQueueList()
+	if ItemRack.QueueSchemaUnsupported or type(ItemRackOpt.SelectedSlot) ~= "number" then return end
+	if ItemRackUser.EnablePerSetQueues == "ON"
+		and not (ItemRackOpt.QueueEditingSet and ItemRackUser.Sets[ItemRackOpt.QueueEditingSet]) then return end
+	local list = ItemRack.GetQueues(ItemRackOpt.QueueEditingSet)[ItemRackOpt.SelectedSlot]
+	if type(list) == "table" then return list end
+end
+
+function ItemRackOpt.AddQueueStopMarker()
+	if not ItemRackOptSubFrame7:IsVisible() then return false end
+	local list = ItemRackOpt.GetEditableQueueList()
+	if not list then return false end
+	for _,entry in ipairs(list) do if entry.id == 0 then return false end end
+	table.insert(list,{id=0})
+	ItemRackOpt.SortSelected = #list
+	ItemRackOpt.SortListScrollFrameUpdate()
+	ItemRackOpt.ValidateSortButtons()
+	return true
+end
+
 function ItemRackOpt.ValidateSortButtons()
 	local selected = ItemRackOpt.SortSelected
 	local list = ItemRack.GetQueues(ItemRackOpt.QueueEditingSet)[ItemRackOpt.SelectedSlot]
+	local editableList = ItemRackOpt.GetEditableQueueList()
+	local hasStop = false
+	for _,entry in ipairs(editableList or {}) do if entry.id == 0 then hasStop=true; break end end
+	if editableList and not hasStop then ItemRackOpt.QueueStopButton:Enable()
+	else ItemRackOpt.QueueStopButton:Disable() end
 	ItemRackOptSortMoveTop:Enable()
 	ItemRackOptSortMoveUp:Enable()
 	ItemRackOptSortMoveDown:Enable()

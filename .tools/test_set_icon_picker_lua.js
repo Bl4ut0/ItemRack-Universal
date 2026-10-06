@@ -179,7 +179,7 @@ const itemFunctions = [
   ...['NormalizeSetIcon','GetQualityColor','GetQueueItemLocation','IsQueueItemCarried','UpdateQueueIconButton','ApplyQueueItemIcon',
     'QueueIconPickerUpdate','OpenQueueIconPicker','SortListScrollFrameUpdate','SortListOnEnter','SaveSet','RefreshQueueIconPage']
     .map(n => extractFunction(options,'ItemRackOpt.'+n)),
-  ...['GetSearchSpellIcon','NormalizeIconSearch','BuildQueueIconCatalog','FilterQueueIcons']
+  ...['GetSearchSpellIcon','NormalizeIconSearch','BuildQueueIconCatalog','FilterQueueIcons','GetEditableQueueList','AddQueueStopMarker']
     .filter(n => require('fs').readFileSync(options,'utf8').includes('function ItemRackOpt.'+n+'('))
     .map(n => extractFunction(options,'ItemRackOpt.'+n)),
 ].join('\n');
@@ -628,6 +628,10 @@ local controls={ItemRackOptQueueEnable,ItemRackOptSortMoveTop,ItemRackOptSortMov
   ItemRackOptSortMoveBottom,ItemRackOptSortMoveDelete,ItemRackOpt.QueueIconButton,
   ItemRackOptItemStatsDelay,ItemRackOptItemStatsPriority,ItemRackOptItemStatsKeepEquipped,
   ItemRackOptItemStatsSwapOnUse,ItemRackOptItemStatsSwapInEnable,ItemRackOptItemStatsSwapInDelay}
+if ItemRackOpt.QueueStopButton then
+  table.insert(controls,ItemRackOpt.QueueStopButton)
+  check(inside(ItemRackOpt.QueueStopButton,panel),"restore-stop control must fit the panel without crowding item settings")
+end
 for i,control in ipairs(controls) do
   check(not overlaps(control,ItemRackOptQueueSetInfo) and not overlaps(control,ItemRackOptQueueListFrame),
     "Queue controls must not cover the item list or scope footer")
@@ -807,5 +811,122 @@ check(not picker.context and not picker.search.focused and inactive.customIcon==
   and first.customIcon==101 and equipment[9]==originalGear and ItemRackOpt.selectedIcon==456
   and ItemRackOpt.selectedIconIndex==8 and ItemRackOpt.QueueEditingSet=="PvP",
   "search must clean up while retaining saved policies, queue owner, set-icon selection and final equipment")
+
+-- October 6 request: recover a deleted stop marker using the Queue UI.
+-- No specific client, item identities or profile were supplied for this flow.
+ItemRackOptSubFrame7:Show()
+ItemRackUser.EnablePerSetQueues="OFF"; ItemRackOpt.QueueEditingSet=nil; ItemRackOpt.SelectedSlot=9
+local recoverList={first,second,{id=0}}
+ItemRackUser.Queues[9]=recoverList; ItemRackOpt.SortSelected=3
+ItemRackOpt.ValidateSortButtons(); ItemRackOpt.SortMove(ItemRackOptSortMoveDelete)
+local addStop=ItemRackOpt.QueueStopButton
+check(addStop and addStop.scripts.OnClick and addStop.enabled,
+  "queue-restore-deleted-stop-marker: deleting the stop row must expose an enabled restore control")
+${extractFunction('ItemRack/ItemRackQueue.lua','ItemRack.GetNextItemInQueue')}
+function IsInventoryItemLocked() return false end
+function GetInventoryItemLink() return wanted end
+ItemRack.IsEquippedSlotStateReady=function() return true end
+ItemRack.FindQueueEntryIndex=function(list,id)
+  for i,entry in ipairs(list) do if entry.id==id then return i end end
+end
+ItemRack.IsQueueEntryUnambiguous=function() return true end
+ItemRack.FindItemInBags=function(id) if id==other then return 0,1 end end
+check(ItemRack.GetNextItemInQueue(9)==other,"without a marker the next carried candidate remains reachable")
+ItemRackOpt.SortSelected=1; ItemRackOpt.ValidateSortButtons(); ItemRackOpt.OpenQueueIconPicker()
+addStop.scripts.OnClick(addStop)
+local restored=recoverList[3]
+check(#recoverList==3 and recoverList[1]==first and recoverList[2]==second and restored.id==0
+  and ItemRackOpt.SortSelected==3 and not addStop.enabled,
+  "restore must append exactly one marker, preserving item order and selecting it for relocation")
+check(not stats.visible and not ItemRackOpt.QueueIconButton.enabled and not picker.context
+  and ItemRackOptSortMoveDelete.enabled and ItemRackOptSortMoveUp.enabled,
+  "restored stop selection must close the icon popup and retain move/delete controls without item settings")
+check(ItemRackOptSortList3Name.text=="-- stop queue here --"
+  and ItemRackOptSortList3Icon.texture=="Interface\\Buttons\\UI-GroupLoot-Pass-Up",
+  "restored marker must render as the existing stop row")
+ItemRackOpt.SortMove(ItemRackOptSortMoveUp)
+check(recoverList[1]==first and recoverList[2]==restored and recoverList[3]==second
+  and ItemRackOpt.SortSelected==2 and ItemRack.GetNextItemInQueue(9)==nil,
+  "moving the restored marker before the next item must enforce the existing runtime stop boundary")
+ItemRackOpt.SortSelected=1; ItemRackOpt.ValidateSortButtons()
+check(not ItemRackOpt.AddQueueStopMarker() and #recoverList==3 and recoverList[2]==restored
+  and ItemRackOpt.SortSelected==1,
+  "a repeated restore callback must neither duplicate nor relocate an existing marker or selection")
+check(first.delay==13 and first.swapIn==42 and first.priority and first.keep and first.swapOnUse
+  and first.swapInEnabled and first.customIcon==101 and second.keep and ItemRackUser.QueuesEnabled[9]
+  and equipment[9]==originalGear and ItemRackUser.CurrentSet=="Stealth",
+  "restoring/moving a marker must retain item policies, enabled state, current set and terminal equipment")
+
+-- Newly restored markers beyond the first page must actually become visible.
+local originalOffsetGetter=FauxScrollFrame_GetOffset
+local originalScrollBar=ItemRackOptSortListScrollFrameScrollBar
+local scrollOffset=0
+function FauxScrollFrame_GetOffset() return scrollOffset end
+ItemRackOptSortListScrollFrameScrollBar=CreateFrame("Slider")
+ItemRackOptSortListScrollFrameScrollBar.GetHeight=function() return 240 end
+ItemRackOptSortListScrollFrameScrollBar:SetScript("OnValueChanged",function(self,value)
+  scrollOffset=math.floor(value/24); ItemRackOpt.SortListScrollFrameUpdate()
+end)
+ItemRackOptSortListScrollFrame.GetVerticalScrollRange=function()
+  return math.max(0,(#ItemRackUser.Queues[9]-10)*24)
+end
+local longQueue={}
+for i=1,12 do longQueue[i]={id=tostring(40000+i),delay=i} end
+ItemRackUser.Queues[9]=longQueue; ItemRackOpt.SortSelected=nil
+function IsShiftKeyDown() return false end
+SOUNDKIT={U_CHAT_SCROLL_BUTTON=1}
+function PlaySound() end
+ItemRackOpt.ValidateSortButtons(); addStop.scripts.OnClick(addStop)
+check(#longQueue==13 and longQueue[13].id==0 and ItemRackOpt.SortSelected==13 and scrollOffset==3
+  and ItemRackOptSortList10Name.text=="-- stop queue here --" and ItemRackOptSortList10.visible,
+  "restore beyond the first page must scroll the selected stop row into view")
+check(longQueue[1].delay==1 and longQueue[12].delay==12 and equipment[9]==originalGear,
+  "restoring into a long queue must preserve item order, policy and equipment")
+ItemRackUser.Queues[9]=recoverList; FauxScrollFrame_GetOffset=originalOffsetGetter
+ItemRackOptSortListScrollFrameScrollBar=originalScrollBar
+function IsShiftKeyDown() return true end
+
+-- Empty queue and explicit inactive-set ownership, including SaveSet snapshot.
+ItemRackUser.EnablePerSetQueues="ON"; ItemRackOpt.QueueEditingSet="PvP"; ItemRackOpt.SelectedSlot=8
+ItemRackUser.Sets.PvP.Queues[8]={}; ItemRackUser.Sets.PvP.QueuesEnabled[8]=false
+ItemRackOpt.SortSelected=nil; ItemRackOpt.ValidateSortButtons()
+check(addStop.enabled and ItemRackOpt.AddQueueStopMarker() and ItemRackUser.Sets.PvP.Queues[8][1].id==0
+  and ItemRackOpt.SortSelected==1 and not addStop.enabled and not ItemRackUser.Sets.PvP.QueuesEnabled[8],
+  "an empty disabled per-set queue must accept one marker without enabling auto-queue")
+ItemRackOpt.SelectedSlot=9; ItemRackOpt.SortSelected=nil; ItemRackOpt.ValidateSortButtons()
+local inactiveList=ItemRackUser.Sets.PvP.Queues[9]
+check(addStop.enabled and ItemRackOpt.AddQueueStopMarker() and inactiveList[2].id==0
+  and inactiveList[1]==inactive and #recoverList==3 and recoverList[2]==restored,
+  "restore in an inactive set must leave active/global queues untouched")
+local previousSetText=ItemRackOptSetsName.GetText
+ItemRackOptSetsName.GetText=function() return "PvP" end
+ItemRackOpt.SaveSet()
+ItemRackOptSetsName.GetText=previousSetText
+local savedInactive=ItemRackUser.Sets.PvP.Queues[9]
+check(savedInactive~=inactiveList and #savedInactive==2 and savedInactive[2].id==0
+  and savedInactive[1].customIcon==9009 and savedInactive[1].delay==19
+  and ItemRackUser.CurrentSet=="Stealth" and equipment[9]==originalGear and ItemRackOpt.QueueEditingSet=="PvP",
+  "saving must snapshot the restored marker and scoped policies without equipping the inactive set")
+ItemRackOpt.ValidateSortButtons()
+check(not addStop.enabled and not ItemRackOpt.AddQueueStopMarker(),
+  "reopening a saved queue containing a marker must keep restore disabled")
+
+-- Refuse missing slot/list/set, future schema and a closed editor.
+ItemRackOpt.QueueEditingSet="Deleted set"; ItemRackOpt.ValidateSortButtons()
+check(not addStop.enabled and not ItemRackOpt.AddQueueStopMarker() and #recoverList==3,
+  "missing explicit per-set owner must not restore into global or active queues")
+ItemRackOpt.QueueEditingSet="PvP"; ItemRackOpt.SelectedSlot=13; ItemRackOpt.SortSelected=nil
+ItemRackOpt.ValidateSortButtons()
+check(not addStop.enabled and not ItemRackOpt.AddQueueStopMarker() and not ItemRackUser.Sets.PvP.Queues[13],
+  "missing queue data must not manufacture a list or inherit another owner's queue")
+ItemRackOpt.SelectedSlot=nil
+check(not ItemRackOpt.AddQueueStopMarker(),"missing slot must safely reject restoration")
+ItemRackOpt.SelectedSlot=8; ItemRack.QueueSchemaUnsupported=true
+ItemRackOpt.ValidateSortButtons()
+check(not addStop.enabled and not ItemRackOpt.AddQueueStopMarker(),"unsupported persisted schema must remain read-only")
+ItemRack.QueueSchemaUnsupported=nil; ItemRackOptSubFrame7:Hide()
+check(not ItemRackOpt.AddQueueStopMarker() and not addStop:IsVisible() and not picker.context
+  and #savedInactive==2 and first.delay==13 and inactive.customIcon==9009 and equipment[9]==originalGear,
+  "closed Queue must hide restoration and reject stale clicks without changing saved policies or equipment")
 print(string.format("[QUEUE ITEM ICON LUA] %d scope, picker, persistence and presentation checks passed.",checks))
 `, 'queue-item-icons');
