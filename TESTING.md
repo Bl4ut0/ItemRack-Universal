@@ -12,6 +12,22 @@ Run only the deterministic many-set workloads:
 node tests/test_large_profiles_lua.js
 ```
 
+Run the focused Queue editor validation group with:
+
+```powershell
+npm run test:queue-editor
+```
+
+This executes the existing picker, item-identity and queue-migration suites;
+all three also run in `npm test`. Named icon cases cover global edit/reset,
+editing and saving an inactive set, rejecting a picker opened before a queue
+snapshot was replaced, partial final pages, and unchanged final equipment and
+queue scopes. `queue-icon-legacy-migration` checks both scopes and independent
+recovery backups; `queue-icon-savedvariables-load` loads a representative saved
+Lua chunk in a fresh environment and checks migration idempotence. The saved
+chunk models persisted values; it does not exercise WoW's SavedVariables writer
+or replace the reload/relog acceptance checks in `BETA_TEST_CHECKLIST.md`.
+
 The focused script-event trust test can be run independently with:
 
 ```powershell

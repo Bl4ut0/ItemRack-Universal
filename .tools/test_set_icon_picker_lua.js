@@ -330,5 +330,52 @@ check(saved~=list and saved[1]~=stealth and saved[1].customIcon==808 and saved[1
   "saving set must snapshot styling and policy, retaining unavailable saved entries")
 check(ItemRackUser.CurrentSet=="Stealth" and equipment[9]==wanted and global.customIcon==101,
   "terminal gear, logical context and unrelated scope must remain unchanged")
+
+-- Validate editing a different set while PvP remains the active set. SaveSet
+-- must use the editor's explicit owner rather than snapshotting CurrentSet.
+ItemRackUser.CurrentSet="PvP"
+ItemRackOpt.OpenQueueIconPicker()
+check(ItemRackOpt.QueueIconPicker.context.entry==saved[1],"picker must target editor set while a different set is active")
+ItemRackOpt.SaveSet()
+local resaved=ItemRackUser.Sets.Stealth.Queues[9]
+check(resaved[1].customIcon==808 and ItemRackUser.Sets.PvP.Queues[9][1].customIcon==303
+  and ItemRack.GetTextureBySlot(9)==303 and ItemRackUser.CurrentSet=="PvP",
+  "queue-icon-save-inactive-set: saving Stealth must preserve active PvP icon and owner")
+check(not ItemRackOpt.ApplyQueueItemIcon(909) and resaved[1].customIcon==808,
+  "a picker opened before a save must not write through a replaced queue snapshot")
+picker:Hide()
+
+-- Global writes and reset must not leak into either per-set queue, including
+-- when QueueEditingSet is non-nil and a different CurrentSet is active.
+ItemRackUser.EnablePerSetQueues="OFF"
+ItemRackOpt.OpenQueueIconPicker()
+local globalPath="Interface\\Icons\\Spell_Shadow_ShadowWard"
+check(ItemRackOpt.ApplyQueueItemIcon(globalPath),"global picker must accept legacy texture-path icons")
+check(global.customIcon==globalPath and resaved[1].customIcon==808
+  and ItemRackUser.Sets.PvP.Queues[9][1].customIcon==303 and ItemRack.GetTextureBySlot(9)==globalPath,
+  "queue-icon-global-edit: only global scope must change, regardless of editing/active set")
+ItemRackOpt.OpenQueueIconPicker(); reset.scripts.OnClick(reset)
+check(global.customIcon==nil and global.priority and global.delay=="7" and ItemRack.GetTextureBySlot(9)=="original",
+  "global reset must restore native artwork without changing priority or delay")
+ItemRackOpt.OpenQueueIconPicker(); ItemRackOpt.ApplyQueueItemIcon(101)
+
+-- A final page whose count is not a multiple of five must hide stale cells,
+-- and scrolling back must restore the entire grid without changing set icons.
+ItemRackOpt.Icons[81]=1081; ItemRackOpt.Icons[82]=1082
+ItemRackOpt.OpenQueueIconPicker(); picker.scroll:SetValue(12)
+check(picker.buttons[1].iconValue==1061 and picker.buttons[22].iconValue==1082
+  and picker.buttons[22].visible and not picker.buttons[23].visible
+  and not picker.buttons[24].visible and not picker.buttons[25].visible,
+  "queue-icon-partial-page: unused final-page cells must be hidden")
+picker.scroll:SetValue(0)
+check(picker.buttons[25].visible and picker.buttons[25].iconValue==1025
+  and ItemRackOpt.selectedIcon==456 and ItemRackOpt.selectedIconIndex==8,
+  "scrolling back must restore visible cells without altering the set-icon picker")
+picker:Hide()
+ItemRackUser.EnablePerSetQueues="ON"
+ItemRackUser.CurrentSet="Stealth"
+check(equipment[9]==wanted and ItemRack.GetTextureBySlot(9)==808 and global.customIcon==101
+  and ItemRackUser.Sets.PvP.Queues[9][1].customIcon==303 and not picker.context and not picker.visible,
+  "terminal icon-edit state must retain gear, scopes and cleaned popup state")
 print(string.format("[QUEUE ITEM ICON LUA] %d scope, picker, persistence and presentation checks passed.",checks))
 `, 'queue-item-icons');

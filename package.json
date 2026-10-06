@@ -8,6 +8,7 @@
     "test:regressions": "node .tools/check_regressions.js",
     "test:events": "node .tools/check_events_runtime.js",
     "test:identity": "node .tools/check_identity_regressions.js",
+    "test:queue-editor": "node .tools/test_set_icon_picker_lua.js && node .tools/test_identity_matching_lua.js && node .tools/test_queue_migration_lua.js",
     "test:queue-watchdog": "node .tools/check_queue_watchdog_regressions.js",
     "test:release": "node .tools/check_release_flow.js",
     "test": "npm run validate:lua && npm run test:lua-runtime && npm run validate:structure && npm run test:secure-templates && npm run test:regressions && npm run test:events && npm run test:identity && npm run test:queue-watchdog && npm run test:release"
