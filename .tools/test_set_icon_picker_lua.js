@@ -4,6 +4,8 @@ const options = 'ItemRackOptions/ItemRackOptions.lua';
 const functions = [
   extractFunction(options, 'ItemRackOpt.NormalizeSetIcon'),
   extractFunction(options, 'ItemRackOpt.AppendSetIcon'),
+  ...['ResolveIconTexture'].filter(n => require('fs').readFileSync(options,'utf8').includes('function ItemRackOpt.'+n+'('))
+    .map(n => extractFunction(options,'ItemRackOpt.'+n)),
   extractFunction(options, 'ItemRackOpt.ShouldHighlightSetIcon'),
   extractFunction(options, 'ItemRackOpt.PopulateInvIcons'),
   extractFunction(options, 'ItemRackOpt.PopulateInitialIcons'),
@@ -152,6 +154,15 @@ check(ItemRackOptFrameTitle.text=="IRU" and GameTooltip.version=="Version: Dev",
   "missing metadata must retain compact development branding and a visible version")
 check(ItemRackOpt.selectedIconIndex==nil and ItemRackOpt.Icons[before+1]==456,
   "branding must not change icon selection or private choices")
+local stringIconCount=#ItemRackOpt.Icons
+ItemRackOpt.AppendSetIcon("136048",true)
+check(ItemRackOpt.Icons[stringIconCount+1]==136048,
+  "reported-lightning-numeric-string-icon: client file IDs returned as strings must remain numeric textures")
+ItemRackOpt.AppendSetIcon("Interface\\Icons\\Spell_Nature_Lightning",true)
+check(ItemRackOpt.Icons[stringIconCount+2]=="Interface\\Icons\\Spell_Nature_Lightning",
+  "already qualified texture paths must not receive a second icon prefix")
+ItemRackOpt.AppendSetIcon("0",true)
+check(#ItemRackOpt.Icons==stringIconCount+2,"zero string file IDs must not become nonexistent icon filenames")
 print(string.format("[SET ICON PICKER LUA] %d blank-icon, refresh and version-badge checks passed.",checks))
 `, 'set-icon-picker');
 
@@ -179,7 +190,7 @@ const itemFunctions = [
   ...['NormalizeSetIcon','GetQualityColor','GetQueueItemLocation','IsQueueItemCarried','UpdateQueueIconButton','ApplyQueueItemIcon',
     'QueueIconPickerUpdate','OpenQueueIconPicker','SortListScrollFrameUpdate','SortListOnEnter','SaveSet','RefreshQueueIconPage']
     .map(n => extractFunction(options,'ItemRackOpt.'+n)),
-  ...['GetSearchSpellIcon','NormalizeIconSearch','BuildQueueIconCatalog','FilterQueueIcons','GetEditableQueueList','AddQueueStopMarker']
+  ...['GetSearchSpellIcon','NormalizeIconSearch','BuildQueueIconCatalog','FilterQueueIcons','GetEditableQueueList','AddQueueStopMarker','ResolveIconTexture']
     .filter(n => require('fs').readFileSync(options,'utf8').includes('function ItemRackOpt.'+n+'('))
     .map(n => extractFunction(options,'ItemRackOpt.'+n)),
 ].join('\n');
@@ -283,6 +294,7 @@ CharacterSlot9=CreateFrame("Button","CharacterSlot9")
 CharacterSlot9.icon=region(); CharacterSlot9.icon.texture="original"
 ${require('fs').readFileSync('ItemRack/ItemRackQueuePolicy.lua','utf8')}
 ${itemFunctions}
+${require('fs').readFileSync('ItemRackOptions/ItemRackIconNames.lua','utf8')}
 ${require('fs').readFileSync(options,'utf8').includes('function ItemRackOpt.LayoutQueueControls(')
   ? extractFunction(options,'ItemRackOpt.LayoutQueueControls') : ''}
 if ItemRackOpt.LayoutQueueControls then ItemRackOpt.LayoutQueueControls() end
@@ -709,8 +721,8 @@ check(#picker.filteredIcons==1 and picker.buttons[1].iconValue==1001 and not pic
   "queue-icon-spell-search: partial spell names must narrow the grid case-insensitively")
 picker.search:SetText("shadowm")
 check(#picker.filteredIcons==1 and picker.buttons[1].iconValue==1001
-  and picker.buttons[1].iconLabel:find("Stealth",1,true) and picker.buttons[1].iconLabel:find("Shadowmeld",1,true),
-  "spells sharing one texture must retain all searchable aliases without duplicate filtered cells")
+  and picker.buttons[1].iconLabel:find("Shadowmeld",1,true),
+  "spells sharing one texture must retain searchable aliases and show the matching name without duplicate cells")
 picker.search:SetText("Search Spell")
 check(#picker.filteredIcons==31 and picker.scroll.max==2,"filtered pagination must use result count")
 picker.scroll:SetValue(2)
@@ -811,6 +823,76 @@ check(not picker.context and not picker.search.focused and inactive.customIcon==
   and first.customIcon==101 and equipment[9]==originalGear and ItemRackOpt.selectedIcon==456
   and ItemRackOpt.selectedIconIndex==8 and ItemRackOpt.QueueEditingSet=="PvP",
   "search must clean up while retaining saved policies, queue owner, set-icon selection and final equipment")
+
+-- October 6 screenshot: search text "lightning" has no matching spell icons.
+-- A non-shaman must still see cross-class artwork. The client's class/build
+-- were not supplied; the direct reply is pending, so these are modeled paths.
+ItemRackOptSubFrame7:Show()
+GetBuildInfo=function() return "1.15.9","fixture","date",11509 end
+GetNumSpellTabs=function() return 1 end
+GetSpellTabInfo=function() return "Rogue","tab",0,1 end
+GetSpellBookItemName=function(_,bank)
+  assert(bank=="player","this Classic API shape requires the player spellbook token")
+  return "Vanish"
+end
+GetSpellBookItemTexture=function(_,bank) assert(bank=="player"); return 1003 end
+GetMacroIcons=function(icons) icons[1]="136048" end
+GetMacroItemIcons=function(icons) icons[1]="1005" end
+ItemRackOpt.OpenQueueIconPicker(); picker.search:SetText("lightning")
+local function iconIn(choices,id)
+  for _,choice in ipairs(choices) do if choice.icon==id then return choice end end
+end
+check(iconIn(picker.filteredIcons,136048) and iconIn(picker.filteredIcons,136015),
+  "reported-lightning-cross-class-search: Lightning Bolt and Chain Lightning artwork must be searchable on a rogue")
+check(picker.empty.text=="" and picker.buttons[1].visible and #picker.filteredIcons>0,
+  "reported lightning search must display populated icon cells rather than No matching icons")
+picker.search:SetText("lightning bolt")
+check(iconIn(picker.filteredIcons,136048) and iconIn(picker.filteredIcons,136048).label=="Lightning Bolt",
+  "filtered tooltip labels must identify the matched spell instead of unrelated aliases sharing its artwork")
+local filteredLightningIndex
+for i,button in ipairs(picker.buttons) do if button.iconValue==136048 then filteredLightningIndex=i end end
+check(filteredLightningIndex,"Lightning Bolt must be available in the filtered visible page")
+picker.buttons[filteredLightningIndex].scripts.OnClick(picker.buttons[filteredLightningIndex])
+check(inactive.customIcon==136048 and inactive.delay==19 and first.customIcon==101
+  and equipment[9]==originalGear and ItemRackUser.CurrentSet=="Stealth" and ItemRackOpt.QueueEditingSet=="PvP"
+  and not picker.context and sourceIcons==ItemRackOpt.Icons,
+  "cross-class icon selection must persist to the edited inactive set without changing gear, policies or set-icon catalog")
+ItemRackOpt.OpenQueueIconPicker(); reset.scripts.OnClick(reset)
+check(inactive.customIcon==nil and inactive.delay==19 and not picker.context,
+  "Reset after cross-class selection must restore native artwork without policy changes")
+GetMacroIcons=nil; GetMacroItemIcons=nil
+ItemRackOpt.OpenQueueIconPicker(); picker.search:SetText("lightning")
+check(iconIn(picker.filteredIcons,136048) and iconIn(picker.filteredIcons,136015),
+  "matching client game-data artwork must remain available when macro icon enumeration is absent")
+local eraIcons={}
+for _,icon in ipairs(ItemRackOpt.SpellIconClients.era) do eraIcons[icon]=true end
+local foreverOnly
+for _,icon in ipairs(ItemRackOpt.SpellIconClients.forever) do if not eraIcons[icon] then foreverOnly=icon; break end end
+check(foreverOnly and not iconIn(picker.catalog,foreverOnly),
+  "Era browsing must not add Forever-only artwork from the union name index")
+GetBuildInfo=function() return "1.60.1","fixture","date",16001 end
+ItemRackOpt.OpenQueueIconPicker()
+check(iconIn(picker.catalog,foreverOnly) and iconIn(picker.catalog,136048),
+  "Forever browsing must include its own spell artwork and common class icons")
+GetBuildInfo=function() return "1.16.1","fixture","date",11601 end
+ItemRackOpt.OpenQueueIconPicker()
+check(iconIn(picker.catalog,foreverOnly),"the supported 1.16 Forever interface alias must use the same artwork family")
+GetBuildInfo=function() return "2.5.6","fixture","date",20506 end
+ItemRackOpt.OpenQueueIconPicker()
+local tbcSample=ItemRackOpt.SpellIconClients.tbc[#ItemRackOpt.SpellIconClients.tbc]
+check(iconIn(picker.catalog,tbcSample) and iconIn(picker.catalog,136048),
+  "TBC browsing must include its own spell data without changing shared queue ownership")
+
+-- Isolate the Classic token defect without a cross-class metadata fallback.
+GetBuildInfo=nil
+ItemRackOpt.OpenQueueIconPicker(); picker.search:SetText("vanish")
+check(iconIn(picker.filteredIcons,1003),
+  "reported-classic-player-token: live spellbook names must survive clients that reject the old spell token")
+GetSpellBookItemTexture=nil; GetSpellBookItemName=nil; GetSpellTabInfo=nil; GetNumSpellTabs=nil
+ItemRackOpt.OpenQueueIconPicker(); ItemRackOpt.ApplyQueueItemIcon(9009)
+check(inactive.customIcon==9009 and inactive.delay==19 and not picker.context
+  and ItemRackOpt.selectedIcon==456 and ItemRackOpt.selectedIconIndex==8 and equipment[9]==originalGear,
+  "spell catalog compatibility must clean picker context and preserve the pre-existing saved policy and equipment")
 
 -- October 6 request: recover a deleted stop marker using the Queue UI.
 -- No specific client, item identities or profile were supplied for this flow.

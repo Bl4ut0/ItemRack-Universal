@@ -56,12 +56,20 @@ function ItemRackOpt.VersionBadgeOnEnter(self)
 	GameTooltip:Show()
 end
 
-function ItemRackOpt.AppendSetIcon(texture, prefixIconPath)
-	if type(texture) == "number" and texture > 0 then
-		table.insert(ItemRackOpt.Icons,texture)
-	elseif type(texture) == "string" and texture ~= "" then
-		table.insert(ItemRackOpt.Icons,(prefixIconPath and "Interface\\Icons\\" or "")..texture)
+function ItemRackOpt.ResolveIconTexture(texture, prefixIconPath)
+	local fileID = (type(texture) == "number" or type(texture) == "string") and tonumber(texture)
+	if fileID then return fileID > 0 and fileID or nil end
+	if type(texture) == "string" and texture ~= "" then
+		if prefixIconPath and not texture:find("\\",1,true) and not texture:find("/",1,true) then
+			return "Interface\\Icons\\"..texture
+		end
+		return texture
 	end
+end
+
+function ItemRackOpt.AppendSetIcon(texture, prefixIconPath)
+	local icon = ItemRackOpt.ResolveIconTexture(texture,prefixIconPath)
+	if icon then table.insert(ItemRackOpt.Icons,icon) end
 end
 
 function ItemRackOpt.ShouldHighlightSetIcon(index, texture, alreadyMatched)
@@ -2015,12 +2023,33 @@ function ItemRackOpt.BuildQueueIconCatalog()
 			table.insert(catalog,choice)
 		elseif keepDuplicate then table.insert(catalog,choice) end
 		if type(name) == "string" and name ~= "" and not choice.names[name] then
-			choice.label = next(choice.names) and (choice.label..", "..name) or name
+			if not next(choice.names) then choice.label=name
+			elseif #choice.label+#name < 80 then choice.label=choice.label..", "..name end
 			choice.names[name] = true
 			choice.search = choice.search.."|"..ItemRackOpt.NormalizeIconSearch(name)
 		end
 	end
-	for _,icon in ipairs(ItemRackOpt.Icons) do add(icon,nil,true) end
+	for _,icon in ipairs(ItemRackOpt.Icons) do add(ItemRackOpt.ResolveIconTexture(icon,false),nil,true) end
+	-- Read fresh private arrays: some clients expose macro textures only after
+	-- Options loads, and numeric file IDs may be returned as strings.
+	for _,apiName in ipairs({"GetMacroIcons","GetLooseMacroIcons","GetMacroItemIcons","GetLooseMacroItemIcons"}) do
+		local api = _G[apiName]
+		if type(api) == "function" then
+			local icons = {}
+			local ok,result = pcall(api,icons)
+			if ok then
+				if #icons == 0 and type(result) == "table" then
+					if type(GetSpellorMacroIconInfo) == "function" then
+						for i=1,#result do
+							local resolved,icon = pcall(GetSpellorMacroIconInfo,i)
+							if resolved then add(ItemRackOpt.ResolveIconTexture(icon,true)) end
+						end
+					else icons=result end
+				end
+				for _,icon in ipairs(icons) do add(ItemRackOpt.ResolveIconTexture(icon,true)) end
+			end
+		end
+	end
 	for i=0,19 do
 		local id = ItemRackOpt.Inv[i] and ItemRackOpt.Inv[i].id
 		if id and id ~= 0 then
@@ -2056,13 +2085,36 @@ function ItemRackOpt.BuildQueueIconCatalog()
 			end
 			if type(offset) == "number" and type(total) == "number" and offset >= 0 and total >= 0 and offset+total <= 10000 then
 				for index=offset+1,offset+total do
-					local bank = modern and Enum.SpellBookSpellBank.Player or (BOOKTYPE_SPELL or "spell")
-					local name = call(modern and C_SpellBook.GetSpellBookItemName or (GetSpellBookItemName or GetSpellName),index,bank)
-					local icon = call(modern and C_SpellBook.GetSpellBookItemTexture or (GetSpellBookItemTexture or GetSpellTexture),index,bank)
-					add(icon,name)
+					if modern then
+						local bank = Enum.SpellBookSpellBank.Player
+						local icon = call(C_SpellBook.GetSpellBookItemTexture,index,bank)
+						local name = call(C_SpellBook.GetSpellBookItemName,index,bank)
+						add(icon,name)
+					else
+						-- New Classic wrappers use "player"; older clients use "spell".
+						for _,bank in ipairs({BOOKTYPE_SPELL or "spell","player"}) do
+							local name = call(GetSpellBookItemName or GetSpellName,index,bank)
+							local icon = call(GetSpellBookItemTexture or GetSpellTexture,index,bank)
+							if type(name) == "string" and ItemRack.IsValidItemIcon(icon) then add(icon,name); break end
+						end
+					end
 				end
 			end
 		end
+	end
+	-- Include the matching client's player/profession artwork even when macro
+	-- icon enumeration is missing or only supplies the character's own icons.
+	local version = call(GetBuildInfo)
+	local flavor = type(version) == "string" and (version:match("^2%.") and "tbc"
+		or (version:match("^1%.60%.") or version:match("^1%.16%.")) and "forever"
+		or version:match("^1%.1[345]%.") and "era")
+	local clientIcons = ItemRackOpt.SpellIconClients and ItemRackOpt.SpellIconClients[flavor]
+	for _,icon in ipairs(clientIcons or {}) do add(icon) end
+	-- English game-data aliases make available spell artwork searchable even
+	-- when it belongs to another class. Live localized names remain searchable.
+	for _,choice in ipairs(catalog) do
+		local aliases = ItemRackOpt.SpellIconNames and ItemRackOpt.SpellIconNames[tonumber(choice.icon)]
+		for _,name in ipairs(aliases or {}) do add(choice.icon,name) end
 	end
 	return catalog
 end
@@ -2081,7 +2133,14 @@ function ItemRackOpt.FilterQueueIcons()
 		for _,choice in ipairs(picker.catalog) do table.insert(filtered,choice) end
 	else
 		for _,choice in ipairs(picker.catalog) do
-			if choice.search:find(normalized,1,true) then include(choice) end
+			if choice.search:find(normalized,1,true) then
+				local label = choice.label
+				for name in pairs(choice.names) do
+					if ItemRackOpt.NormalizeIconSearch(name):find(normalized,1,true)
+						and (not ItemRackOpt.NormalizeIconSearch(label):find(normalized,1,true) or #name < #label) then label=name end
+				end
+				include({icon=choice.icon,label=label})
+			end
 		end
 		local name,icon = ItemRackOpt.GetSearchSpellIcon(query:match("^%s*(.-)%s*$"))
 		if type(name) == "string" and ItemRack.IsValidItemIcon(icon) then include({icon=icon,label=name}) end
@@ -2120,7 +2179,7 @@ function ItemRackOpt.OpenQueueIconPicker()
 		picker.search:SetScript("OnEscapePressed",function(self) self:ClearFocus(); picker:Hide() end)
 		picker.search:SetScript("OnEnterPressed",function(self) self:ClearFocus() end)
 		picker.search:SetScript("OnEnter",function(self)
-			ItemRack.OnTooltip(self,"Search icons","Search known spell names, item names, or icon texture names. You can also enter a full spell name or spell ID.")
+			ItemRack.OnTooltip(self,"Search icons","Search spell names from any class, item names, or icon texture names. You can also enter a full spell name or spell ID. Names from other classes also have English search aliases.")
 		end)
 		picker.search:SetScript("OnLeave",ItemRack.ClearTooltip)
 		picker.empty = picker:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")

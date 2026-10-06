@@ -12,4 +12,5 @@
 Libs\Libs.xml
 
 ItemRackOptions.lua
+ItemRackIconNames.lua
 ItemRackOptions.xml
