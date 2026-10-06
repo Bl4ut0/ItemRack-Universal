@@ -17,6 +17,7 @@ Use the same universal archive for every row; do not build or test separate Fore
 
 ### Next dev build: queue item icons and duplicate rows
 
+- Reload after installing the color API fix, then open the Feet queue from quick access with Hunting Boots (reported icon 132592, quality 1). Confirm both rows appear without the former SortListScrollFrameUpdate nil-call error. Capture the exact client build and boot link if it recurs. Older loaded code reports this call at line 2023; the dev build's line numbers differ.
 - On Era, record the full saved and live item links/IDs for both Mind Control Cap and Catseye Goggles rows from the reported 4.51 global Head queue. Open the same profile in the dev build. Equivalent empty/zero identities should coalesce, preserving the first entry's position/settings. Different enchants/runes must remain distinct. This reporter-specific check is pending those identities.
 - Open and close the bank, move an exact queued item between bags and bank, and remove it from carried storage. Confirm the Queue page distinguishes **in bank** while open and **not carried** otherwise; missing saved rows remain editable. Check long-name status tooltips, newly cached item names and correct refresh timing. A closed bank does not establish that an item was deleted.
 - Select an item row, press the left-side **Icon** button and choose an icon; verify the Queue row and worn quick-access button use it. Check picker scrolling, partial final pages and layout at every Options scale. Select the stop marker and confirm Icon is disabled.

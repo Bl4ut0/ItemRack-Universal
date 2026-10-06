@@ -26,6 +26,21 @@ function ItemRackOpt.NormalizeSetIcon(texture)
 	return ItemRackOpt.FallbackSetIcon
 end
 
+function ItemRackOpt.GetQualityColor(quality)
+	quality = quality or 1
+	local getter = type(GetItemQualityColor) == "function" and GetItemQualityColor
+		or (C_Item and C_Item.GetItemQualityColor)
+	if type(getter) == "function" then
+		local r,g,b = getter(quality)
+		if r ~= nil and g ~= nil and b ~= nil then return r,g,b end
+	end
+	local color = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
+	if color and color.r ~= nil and color.g ~= nil and color.b ~= nil then
+		return color.r,color.g,color.b
+	end
+	return 1,1,1
+end
+
 function ItemRackOpt.AppendSetIcon(texture, prefixIconPath)
 	if type(texture) == "number" and texture > 0 then
 		table.insert(ItemRackOpt.Icons,texture)
@@ -2201,7 +2216,7 @@ function ItemRackOpt.SortListScrollFrameUpdate()
 			_G["ItemRackOptSortList"..i.."Name"]:SetText(name)
 			_G["ItemRackOptSortList"..i.."Icon"]:SetTexture(texture)
 			ItemRack.SetRuneIconOverlay(item,sortList[idx].id,_G["ItemRackOptSortList"..i.."Icon"],11)
-			local r,g,b = GetItemQualityColor(quality or 1)
+			local r,g,b = ItemRackOpt.GetQualityColor(quality)
 			_G["ItemRackOptSortList"..i.."Name"]:SetTextColor(r,g,b,1)
 			item:Show()
 			if idx==ItemRackOpt.SortSelected then

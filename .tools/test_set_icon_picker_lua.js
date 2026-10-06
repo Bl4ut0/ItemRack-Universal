@@ -139,7 +139,7 @@ const itemFunctions = [
     'IsValidItemIcon','GetCustomItemIcon','GetTextureBySlot','CreateMenuButton',
     'GetQueues','GetQueuesEnabled'].map(n => extractFunction(core, 'ItemRack.'+n)),
   extractFunction('ItemRack/ItemRackButtons.lua','ItemRack.RefreshCustomItemIcons'),
-  ...['NormalizeSetIcon','GetQueueItemLocation','IsQueueItemCarried','UpdateQueueIconButton','ApplyQueueItemIcon',
+  ...['NormalizeSetIcon','GetQualityColor','GetQueueItemLocation','IsQueueItemCarried','UpdateQueueIconButton','ApplyQueueItemIcon',
     'QueueIconPickerUpdate','OpenQueueIconPicker','SortListScrollFrameUpdate','SortListOnEnter','SaveSet']
     .map(n => extractFunction(options,'ItemRackOpt.'+n)),
 ].join('\n');
@@ -170,7 +170,8 @@ local created={}
 local function region()
   return {SetText=function(self,v) self.text=v end,SetTexture=function(self,v) self.texture=v end,
     SetAllPoints=function(self,v) self.anchor=v end,SetTexCoord=function(self,...) self.uv={...} end,
-    GetTexCoord=function() return 0,1,0,1 end,SetPoint=function() end,SetTextColor=function() end,
+    GetTexCoord=function() return 0,1,0,1 end,SetPoint=function() end,
+    SetTextColor=function(self,...) self.color={...} end,
     SetVertexColor=function() end,Show=function(self) self.visible=true end,Hide=function(self) self.visible=false end}
 end
 function CreateFrame(kind,name,parent,template)
@@ -377,5 +378,55 @@ ItemRackUser.CurrentSet="Stealth"
 check(equipment[9]==wanted and ItemRack.GetTextureBySlot(9)==808 and global.customIcon==101
   and ItemRackUser.Sets.PvP.Queues[9][1].customIcon==303 and not picker.context and not picker.visible,
   "terminal icon-edit state must retain gear, scopes and cleaned popup state")
+
+-- October 5 local report: SortListScrollFrameUpdate line 2023 in the earlier
+-- loaded build calls a nil global GetItemQualityColor. Reported locals identify
+-- Hunting Boots, texture 132592, quality 1, slot 8 and a two-entry queue.
+-- The full boot ID/client build were not supplied; identity is synthetic here.
+local reportBoots="900001:0:0:0:0:0:0:0"
+local bootsEntry={id=reportBoots,priority=true,keep=false,delay=7,customIcon=132592}
+local bootsQueue={bootsEntry,{id=0}}
+ItemRackUser.Queues[8]=bootsQueue; ItemRackUser.QueuesEnabled[8]=true
+ItemRackUser.EnablePerSetQueues="OFF"
+ItemRackOpt.SelectedSlot=8; ItemRackOpt.SortSelected=1; ItemRackOpt.QueueEditingSet=nil
+equipment[8]=reportBoots
+local originalItemInfo=ItemRack.GetInfoByID
+ItemRack.GetInfoByID=function(id)
+  if id==reportBoots then return "Hunting Boots",132592,"INVTYPE_FEET",1 end
+  return originalItemInfo(id)
+end
+GetItemQualityColor=nil
+local qualityCalls=0
+C_Item={GetItemQualityColor=function(quality) assert(quality==1); qualityCalls=qualityCalls+1; return 1,1,1 end}
+local rendered,error=pcall(ItemRackOpt.SortListScrollFrameUpdate)
+check(rendered,"reported-queue-quality-api-missing-global: boots queue must render with namespaced API: "..tostring(error))
+check(ItemRackOptSortList1Name.text=="Hunting Boots" and ItemRackOptSortList1Icon.texture==132592
+  and ItemRackOptSortList1.visible and ItemRackOptSortList2.visible and qualityCalls==2
+  and ItemRackOptSortList1Name.color[1]==1 and ItemRackOptSortList1Name.color[4]==1,
+  "reported boots row and stop marker must remain visible after quality fallback")
+check(equipment[8]==reportBoots and ItemRackUser.CurrentSet=="Stealth" and ItemRackUser.Queues[8]==bootsQueue
+  and bootsEntry.priority and bootsEntry.delay==7 and bootsEntry.customIcon==132592
+  and ItemRackOpt.SortSelected==1 and not picker.context,
+  "quality fallback must preserve final gear, queue scope, saved settings and popup cleanup")
+GetItemQualityColor=function() return .1,.2,.3 end
+C_Item.GetItemQualityColor=function() error("legacy API must take precedence when present") end
+ItemRackOpt.SortListScrollFrameUpdate()
+check(ItemRackOptSortList1Name.color[1]==.1 and ItemRackOptSortList1Name.color[3]==.3,
+  "legacy-quality-api: existing clients must retain their native row colors")
+GetItemQualityColor=nil; C_Item=nil
+ITEM_QUALITY_COLORS={[1]={r=.2,g=.3,b=.4}}
+ItemRackOpt.SortListScrollFrameUpdate()
+check(ItemRackOptSortList1Name.color[1]==.2 and ItemRackOptSortList1Name.color[3]==.4,
+  "quality-color-table-fallback: clients without either API must use native quality constants")
+ITEM_QUALITY_COLORS=nil
+ItemRackOpt.SortListScrollFrameUpdate()
+check(ItemRackOptSortList1Name.color[1]==1 and ItemRackOptSortList1Name.color[3]==1
+  and ItemRackOptSortList1.visible,"quality-color-white-fallback: no color provider must still render the queue")
+C_Item={GetItemQualityColor=function() return nil end}
+ItemRackOpt.SortListScrollFrameUpdate()
+check(ItemRackOptSortList1Name.color[1]==1,"an incomplete namespaced provider must retain safe fallback colors")
+check(bootsEntry.priority and bootsEntry.delay==7 and equipment[8]==reportBoots
+  and ItemRackUser.Queues[8]==bootsQueue and ItemRackUser.CurrentSet=="Stealth" and not picker.context,
+  "all provider variants must preserve final equipment, saved policies and cleanup")
 print(string.format("[QUEUE ITEM ICON LUA] %d scope, picker, persistence and presentation checks passed.",checks))
 `, 'queue-item-icons');
