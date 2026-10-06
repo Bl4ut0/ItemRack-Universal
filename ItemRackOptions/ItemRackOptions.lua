@@ -1694,7 +1694,41 @@ function ItemRackOpt.QueuesFrameOnHide()
 	ItemRackOpt.StopMarquee()
 end
 
+-- Keep editing controls outside the list and its scope footer. Reuse the XML
+-- controls so their existing callbacks still edit the same selected entry.
+function ItemRackOpt.LayoutQueueControls()
+	if ItemRackOpt.QueueControls then return end
+	local panel = CreateFrame("Frame",nil,ItemRackOptSubFrame7,BackdropTemplateMixin and "BackdropTemplate" or nil)
+	panel:SetSize(176,308)
+	panel:SetPoint("TOPLEFT",ItemRackOptSubFrame7,"TOPRIGHT",12,-4)
+	panel:SetBackdrop({bgFile="Interface\\ChatFrame\\ChatFrameBackground",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
+	panel:SetBackdropColor(.08,.08,.08,.95)
+	ItemRackOpt.QueueControls = panel
+	local function place(frame,parent,x,y)
+		frame:SetParent(parent)
+		frame:ClearAllPoints()
+		frame:SetPoint("TOPLEFT",parent,"TOPLEFT",x,y)
+	end
+	place(ItemRackOptQueueEnable,panel,8,-10)
+	local moves = {ItemRackOptSortMoveTop,ItemRackOptSortMoveUp,ItemRackOptSortMoveDown,ItemRackOptSortMoveBottom}
+	for i,button in ipairs(moves) do place(button,panel,10+(i-1)*38,-46) end
+	place(ItemRackOptSortMoveDelete,panel,10,-88)
+	place(ItemRackOptItemStatsFrame,panel,10,-140)
+	ItemRackOptItemStatsFrame:SetSize(156,156)
+	place(ItemRackOptItemStatsDelay,ItemRackOptItemStatsFrame,52,-4)
+	place(ItemRackOptItemStatsPriority,ItemRackOptItemStatsFrame,0,-32)
+	place(ItemRackOptItemStatsKeepEquipped,ItemRackOptItemStatsFrame,0,-60)
+	place(ItemRackOptItemStatsSwapOnUse,ItemRackOptItemStatsFrame,0,-88)
+	place(ItemRackOptItemStatsSwapInEnable,ItemRackOptItemStatsFrame,0,-116)
+	place(ItemRackOptItemStatsSwapInDelay,ItemRackOptItemStatsFrame,76,-118)
+	ItemRackOptQueueListFrame:ClearAllPoints()
+	ItemRackOptQueueListFrame:SetSize(260,256)
+	ItemRackOptQueueListFrame:SetPoint("TOPLEFT",ItemRackOptSubFrame7,"TOPLEFT",8,-36)
+	for i=1,10 do _G["ItemRackOptSortList"..i]:SetWidth(224) end
+end
+
 function ItemRackOpt.SlotQueueFrameOnShow()
+	ItemRackOpt.LayoutQueueControls()
 	ItemRackOpt.MakeEscable("ItemRackOptSubFrame7","add")
 	ItemRackOpt.MakeEscable("ItemRackOptFrame","remove")
 	ItemRackOpt.HideCurrentSubFrame(7)
@@ -1716,6 +1750,7 @@ function ItemRackOpt.SlotQueueFrameOnHide()
 end
 
 function ItemRackOpt.SetupQueue(id)
+	ItemRackOpt.LayoutQueueControls()
 	-- Always ensure the global queue table exists for this slot
 	if not ItemRackUser.Queues[id] then
 		ItemRackUser.Queues[id] = {}
@@ -1864,9 +1899,9 @@ end
 function ItemRackOpt.UpdateQueueIconButton(entry)
 	local button = ItemRackOpt.QueueIconButton
 	if not button then
-		button = CreateFrame("Button",nil,ItemRackOptSubFrame7)
+		button = CreateFrame("Button",nil,ItemRackOpt.QueueControls or ItemRackOptSubFrame7)
 		button:SetSize(32,32)
-		button:SetPoint("TOPLEFT",ItemRackOptSortMoveDelete,"BOTTOMLEFT",0,-18)
+		button:SetPoint("TOPLEFT",ItemRackOptSortMoveDelete,"TOPRIGHT",14,0)
 		button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
 		button:SetScript("OnClick",ItemRackOpt.OpenQueueIconPicker)
 		button:SetScript("OnEnter",function(self)
@@ -1874,7 +1909,7 @@ function ItemRackOpt.UpdateQueueIconButton(entry)
 		end)
 		button:SetScript("OnLeave",ItemRack.ClearTooltip)
 		local label = button:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-		label:SetPoint("TOP",button,"BOTTOM",0,-2)
+		label:SetPoint("LEFT",button,"RIGHT",6,0)
 		label:SetText("Icon")
 		ItemRackOpt.QueueIconButton = button
 		ItemRackOptSubFrame7:HookScript("OnHide",function()
@@ -1940,7 +1975,7 @@ function ItemRackOpt.OpenQueueIconPicker()
 	if not picker then
 		picker = CreateFrame("Frame",nil,ItemRackOptSubFrame7,BackdropTemplateMixin and "BackdropTemplate" or nil)
 		picker:SetSize(202,222)
-		picker:SetPoint("TOPLEFT",ItemRackOptSubFrame7,"TOPRIGHT",6,-20)
+		picker:SetPoint("TOPLEFT",ItemRackOpt.QueueControls or ItemRackOptSubFrame7,"TOPRIGHT",6,-20)
 		picker:SetFrameStrata("DIALOG")
 		picker:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
 		picker:SetBackdropColor(0,0,0,1)
@@ -2298,13 +2333,13 @@ function ItemRackOpt.ValidateSortButtons()
 	local idx = FauxScrollFrame_GetOffset(ItemRackOptSortListScrollFrame)
 	local selectedEntry = selected and list and list[selected]
 	ItemRackOpt.UpdateQueueIconButton(selectedEntry)
+	ItemRackOptSlotQueueName:Show()
+	ItemRackOptQueueEnable:Show()
 	if selectedEntry then
 		ItemRackOptSortMoveDelete:Enable()
 		if selectedEntry.id ~= 0 then
 			-- display delay/priority/etc for item entries only
 			ItemRackOptItemStatsFrame:Show()
-			ItemRackOptSlotQueueName:Hide()
-			ItemRackOptQueueEnable:Hide()
 			ItemRackOptItemStatsPriority:SetChecked(selectedEntry.priority or false)
 			ItemRackOptItemStatsKeepEquipped:SetChecked(selectedEntry.keep or false)
 			ItemRackOptItemStatsSwapOnUse:SetChecked(selectedEntry.swapOnUse or false)

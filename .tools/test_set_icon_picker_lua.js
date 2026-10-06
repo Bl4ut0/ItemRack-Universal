@@ -158,6 +158,17 @@ print(string.format("[SET ICON PICKER LUA] %d blank-icon, refresh and version-ba
 // Queue item styling belongs to the existing picker suite. Run production
 // owner resolution, picker callbacks, render paths, and SaveSet persistence.
 const core = 'ItemRack/ItemRack.lua';
+const optionsXml = require('fs').readFileSync('ItemRackOptions/ItemRackOptions.xml','utf8');
+function queueXmlSize(name, template) {
+  const match = optionsXml.match(new RegExp(`name="${name}"[^>]*>\\s*<Size>\\s*<AbsDimension x="(\\d+)" y="(\\d+)"`));
+  if (!match && template) return queueXmlSize(template).replace(template,name);
+  if (!match) throw new Error(`Missing Queue XML dimensions for ${name}`);
+  return `${name}:SetSize(${match[1]},${match[2]})`;
+}
+const controlDimensions = ['SubFrame7','QueueSetInfo','QueueEnable','ItemStatsDelay','ItemStatsPriority',
+  'ItemStatsKeepEquipped','ItemStatsSwapOnUse','ItemStatsSwapInEnable','ItemStatsSwapInDelay',
+  'SortMoveTop','SortMoveUp','SortMoveDown','SortMoveBottom','SortMoveDelete']
+  .map(n => queueXmlSize('ItemRackOpt'+n,'ItemRackOptSortMoveButtonTemplate')).join('\n');
 const itemFunctions = [
   extractFunction(core, 'QueueFieldProxy'),
   ...['SameID','GetRuneID','HasRuneID','IsBareItemID','NormalizeItemFields',
@@ -203,8 +214,17 @@ end
 function CreateFrame(kind,name,parent,template)
   assert(not template or not template:match("Secure") and not template:match("ActionButton"),"presentation must be unprotected")
   local frame={name=name,kind=kind,parent=parent,template=template,scripts={},visible=true,value=0}
-  for _,method in ipairs({"SetSize","SetPoint","SetFrameStrata","SetBackdrop","SetBackdropColor",
+  for _,method in ipairs({"SetFrameStrata","SetBackdrop","SetBackdropColor",
     "SetHighlightTexture","SetOrientation","SetValueStep","SetThumbTexture","EnableMouseWheel","RegisterForClicks"}) do frame[method]=function() end end
+
+  frame.SetSize=function(self,w,h) self.width=w; self.height=h end
+  frame.SetWidth=function(self,w) self.width=w end
+  frame.SetPoint=function(self,...) self.point={...} end
+  frame.ClearAllPoints=function(self) self.point=nil end
+  frame.SetParent=function(self,parent) self.parent=parent end
+  frame.SetChecked=function(self,v) self.checked=v end
+  frame.GetChecked=function(self) return self.checked end
+  frame.GetText=function(self) return self.text end
   frame.SetScript=function(self,k,fn) self.scripts[k]=fn end
   frame.HookScript=frame.SetScript
   frame.GetName=function(self) return self.name end
@@ -231,6 +251,13 @@ ItemRackOpt.Inv[9]={id=wanted,selected=true}
 for i=1,80 do ItemRackOpt.Icons[i]=1000+i end
 ItemRackOptSubFrame7=CreateFrame("Frame")
 ItemRackOptSortMoveDelete=CreateFrame("Button")
+for _,name in ipairs({"QueueListFrame","QueueSetInfo","SlotQueueName","QueueEnable","ItemStatsFrame",
+  "ItemStatsDelay","ItemStatsPriority","ItemStatsKeepEquipped","ItemStatsSwapOnUse",
+  "ItemStatsSwapInEnable","ItemStatsSwapInDelay","SortMoveTop","SortMoveUp","SortMoveDown","SortMoveBottom"}) do
+  CreateFrame("Frame","ItemRackOpt"..name,ItemRackOptSubFrame7)
+end
+${controlDimensions}
+ItemRackOptQueueSetInfo:SetPoint("BOTTOMLEFT",ItemRackOptSubFrame7,"BOTTOMLEFT",12,2)
 ItemRackOptSortListScrollFrame={}
 ItemRackMenuFrame=CreateFrame("Frame")
 ItemRackMenuFrame.visible=false
@@ -250,6 +277,9 @@ CharacterSlot9=CreateFrame("Button","CharacterSlot9")
 CharacterSlot9.icon=region(); CharacterSlot9.icon.texture="original"
 ${require('fs').readFileSync('ItemRack/ItemRackQueuePolicy.lua','utf8')}
 ${itemFunctions}
+${require('fs').readFileSync(options,'utf8').includes('function ItemRackOpt.LayoutQueueControls(')
+  ? extractFunction(options,'ItemRackOpt.LayoutQueueControls') : ''}
+if ItemRackOpt.LayoutQueueControls then ItemRackOpt.LayoutQueueControls() end
 local checks=0
 local function check(value,message) assert(value,message); checks=checks+1 end
 check(ItemRack.GetTextureBySlot(9)==101,"global custom icon must work with auto queue disabled")
@@ -532,5 +562,110 @@ check(ItemRackOpt.GetQueueItemLocation(reportedContainerID)=="missing",
 check(containerEntry.id==reportedContainerID and containerEntry.priority and containerEntry.delay==5
   and ItemRackUser.Queues[16]==containerQueue and equipment[16]==reportAxe and not picker.context,
   "all container provider variants must retain saved data, gear and popup cleanup")
+-- October 6 screenshot: selected trinket settings obscure the scope footer.
+-- Exercise the production selector and relocated controls, retaining both
+-- global and inactive-set ownership. Exact item links/build were not supplied.
+${['ValidateSortButtons','SortMove','ItemStatsDelayOnTextChanged','ItemStatsCheckOnClick',
+  'ItemStatsSwapInDelayOnTextChanged','QueueEnableSlotOnClick']
+  .map(n => extractFunction(options,'ItemRackOpt.'+n)).join('\n')}
+function IsShiftKeyDown() return true end -- avoid unrelated scrollbar API modeling
+ItemRack.UpdateCombatQueue=function() end
+ItemRackUser.EnablePerSetQueues="OFF"
+ItemRackOpt.SelectedSlot=9; ItemRackOpt.QueueEditingSet=nil; ItemRackOpt.SortSelected=1
+local originalGear=equipment[9]
+local first={id=wanted,priority=true,delay=7,customIcon=101}
+local second={id=other,keep=true}
+local stop={id=0}
+ItemRackUser.Queues[9]={first,second,stop}
+ItemRackOpt.ValidateSortButtons()
+check(ItemRackOptSlotQueueName.visible and ItemRackOptQueueEnable.visible,
+  "queue-controls-right-popout: selecting an item must retain the slot header and auto-queue control")
+local panel=ItemRackOpt.QueueControls
+check(panel and panel.parent==ItemRackOptSubFrame7 and panel.point[3]=="TOPRIGHT" and panel.point[4]>0,
+  "queue-controls-right-popout: editing controls must be docked outside the main Queue window")
+local stats=ItemRackOptItemStatsFrame
+check(stats.parent==panel and ItemRackOptQueueEnable.parent==panel
+  and ItemRackOpt.QueueIconButton.parent==panel and ItemRackOptSortMoveDelete.parent==panel,
+  "all Queue controls must belong to the panel while the scope footer stays in the main window")
+check(ItemRackOptQueueSetInfo.parent==ItemRackOptSubFrame7,
+  "the scope label must retain its separate main-window area")
+local function bounds(frame)
+  if frame==ItemRackOptSubFrame7 then return 0,0,frame.width,frame.height end
+  local p=frame.point
+  local x,y,w,h=bounds(p[2]); local width,height=frame.width,frame.height
+  if p[3]=="TOPRIGHT" then x=x+w elseif p[3]=="BOTTOMLEFT" then y=y+h end
+  x=x+p[4]; y=y-p[5]
+  if p[1]=="BOTTOMLEFT" then y=y-height end
+  return x,y,width,height
+end
+local function overlaps(a,b)
+  local x,y,w,h=bounds(a); local bx,by,bw,bh=bounds(b)
+  return x<bx+bw and bx<x+w and y<by+bh and by<y+h
+end
+local function inside(frame,parent)
+  local p=frame.point
+  return p and p[1]=="TOPLEFT" and p[2]==parent and p[3]=="TOPLEFT"
+    and p[4]>=0 and -p[5]>=0 and p[4]+(frame.width or 24)<=parent.width
+    and -p[5]+(frame.height or 24)<=parent.height
+end
+for _,scale in ipairs({1,1.3,1.6}) do
+  check((276+panel.point[4])*scale>276*scale and inside(stats,panel)
+    and inside(ItemRackOptQueueEnable,panel),"controls and footer must not overlap at Options scale "..scale)
+end
+for _,button in ipairs({ItemRackOptSortMoveTop,ItemRackOptSortMoveUp,ItemRackOptSortMoveDown,ItemRackOptSortMoveBottom,
+  ItemRackOptSortMoveDelete}) do check(inside(button,panel),"move/delete controls must fit their panel") end
+for _,control in ipairs({ItemRackOptItemStatsDelay,ItemRackOptItemStatsPriority,ItemRackOptItemStatsKeepEquipped,
+  ItemRackOptItemStatsSwapOnUse,ItemRackOptItemStatsSwapInEnable,ItemRackOptItemStatsSwapInDelay}) do
+  check(inside(control,stats),"item settings must fit below the action buttons")
+end
+local controls={ItemRackOptQueueEnable,ItemRackOptSortMoveTop,ItemRackOptSortMoveUp,ItemRackOptSortMoveDown,
+  ItemRackOptSortMoveBottom,ItemRackOptSortMoveDelete,ItemRackOpt.QueueIconButton,
+  ItemRackOptItemStatsDelay,ItemRackOptItemStatsPriority,ItemRackOptItemStatsKeepEquipped,
+  ItemRackOptItemStatsSwapOnUse,ItemRackOptItemStatsSwapInEnable,ItemRackOptItemStatsSwapInDelay}
+for i,control in ipairs(controls) do
+  check(not overlaps(control,ItemRackOptQueueSetInfo) and not overlaps(control,ItemRackOptQueueListFrame),
+    "Queue controls must not cover the item list or scope footer")
+  for j=i+1,#controls do check(not overlaps(control,controls[j]),"Queue control hit rectangles must not overlap") end
+end
+check(ItemRackOptQueueListFrame.width==260 and ItemRackOptSortList1.width==224
+  and ItemRackOptQueueListFrame.point[4]==8,
+  "the main item list must reclaim the former action column without losing ten-row pagination")
+check(ItemRackOpt.QueueIconPicker.point[2]==panel,
+  "the icon picker must open beside the control panel without covering its controls")
+ItemRackOpt.OpenQueueIconPicker()
+ItemRackOpt.SortMove(ItemRackOptSortMoveDown)
+check(ItemRackUser.Queues[9][2]==first and ItemRackOpt.SortSelected==2 and panel:IsVisible(),
+  "reordering must retain selected entry identity, policy and panel")
+ItemRackOptItemStatsDelay:SetText("13"); ItemRackOpt.ItemStatsDelayOnTextChanged(ItemRackOptItemStatsDelay)
+ItemRackOptItemStatsSwapInDelay:SetText("42"); ItemRackOpt.ItemStatsSwapInDelayOnTextChanged(ItemRackOptItemStatsSwapInDelay)
+for _,control in ipairs({ItemRackOptItemStatsPriority,ItemRackOptItemStatsKeepEquipped,
+  ItemRackOptItemStatsSwapOnUse,ItemRackOptItemStatsSwapInEnable}) do
+  control:SetChecked(true); ItemRackOpt.ItemStatsCheckOnClick(control)
+end
+ItemRackOptQueueEnable:SetChecked(true); ItemRackOpt.QueueEnableSlotOnClick(ItemRackOptQueueEnable)
+check(first.delay==13 and first.swapIn==42 and first.priority and first.keep and first.swapOnUse
+  and first.swapInEnabled and first.customIcon==101 and ItemRackUser.QueuesEnabled[9],
+  "relocated controls must persist policies and auto-queue enablement to the selected global entry")
+ItemRackOpt.SortSelected=3; ItemRackOpt.ValidateSortButtons()
+check(not stats.visible and not ItemRackOpt.QueueIconButton.enabled and ItemRackOptSortMoveDelete.enabled
+  and not picker.context and ItemRackOptQueueEnable.visible,
+  "a stop marker must retain move/delete/auto-queue controls, hide item settings and dismiss stale picker")
+ItemRackOpt.SortMove(ItemRackOptSortMoveDelete)
+check(#ItemRackUser.Queues[9]==2 and not ItemRackOpt.SortSelected and not stats.visible,
+  "deletion must clear selection and preserve the other entry policies")
+ItemRackUser.EnablePerSetQueues="ON"; ItemRackOpt.QueueEditingSet="PvP"; ItemRackOpt.SortSelected=1
+local inactive=ItemRackUser.Sets.PvP.Queues[9][1]
+ItemRackOpt.ValidateSortButtons()
+ItemRackOptItemStatsDelay:SetText("19"); ItemRackOpt.ItemStatsDelayOnTextChanged(ItemRackOptItemStatsDelay)
+ItemRackOptQueueEnable:SetChecked(true); ItemRackOpt.QueueEnableSlotOnClick(ItemRackOptQueueEnable)
+check(inactive.delay==19 and ItemRackUser.Sets.PvP.QueuesEnabled[9] and first.delay==13
+  and equipment[9]==originalGear and ItemRackUser.CurrentSet=="Stealth" and ItemRackOpt.QueueEditingSet=="PvP",
+  "inactive-set editing must preserve current equipment, active set, global policies and explicit queue owner")
+ItemRackOpt.OpenQueueIconPicker(); ItemRackOptSubFrame7:Hide()
+check(not panel:IsVisible() and not ItemRackOpt.QueueIconButton:IsVisible() and not picker.context,
+  "closing Queue must hide its popout and clear the icon picker context")
+ItemRackOptSubFrame7:Show(); ItemRackOpt.ValidateSortButtons()
+check(panel:IsVisible() and stats.visible and ItemRackOptItemStatsDelay.text==19,
+  "reopening Queue must reuse the panel and restore the selected entry settings")
 print(string.format("[QUEUE ITEM ICON LUA] %d scope, picker, persistence and presentation checks passed.",checks))
 `, 'queue-item-icons');

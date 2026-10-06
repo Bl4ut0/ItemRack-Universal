@@ -2289,7 +2289,7 @@
 							</OnClick>
 						</Scripts>
 					</CheckButton>
-					<Frame inherits="BackdropTemplate">
+					<Frame name="ItemRackOptQueueListFrame" inherits="BackdropTemplate">
 						<Size>
 							<AbsDimension x="228" y="268"/>
 						</Size>
