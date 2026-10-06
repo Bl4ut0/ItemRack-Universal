@@ -41,6 +41,21 @@ function ItemRackOpt.GetQualityColor(quality)
 	return 1,1,1
 end
 
+function ItemRackOpt.GetVersionBadge(version)
+	return tostring(version or "Dev"):lower():find("beta",1,true) and "IRU-B" or "IRU"
+end
+
+function ItemRackOpt.UpdateTitle()
+	ItemRackOptFrameTitle:SetText(ItemRackOpt.GetVersionBadge(ItemRack.Version))
+end
+
+function ItemRackOpt.VersionBadgeOnEnter(self)
+	GameTooltip:SetOwner(self,"ANCHOR_TOP")
+	GameTooltip:SetText(ItemRack.DisplayName or "ItemRack Universal",1,1,1)
+	GameTooltip:AddLine("Version: "..tostring(ItemRack.Version or "Dev"),1,.82,0)
+	GameTooltip:Show()
+end
+
 function ItemRackOpt.AppendSetIcon(texture, prefixIconPath)
 	if type(texture) == "number" and texture > 0 then
 		table.insert(ItemRackOpt.Icons,texture)
@@ -213,7 +228,7 @@ function ItemRackOpt.OnLoad(self)
 	ItemRackOpt.PopulateEventList()
 	ItemRackOptSetsCurrentSet:EnableMouse(false)
 
-	ItemRackOptFrameTitle:SetText(ItemRack.DisplayName.." "..ItemRack.Version)
+	ItemRackOpt.UpdateTitle()
 
 	-- OptInfo: this table drives the scrollable options. must be defined after xml defined (so buttons are non-nil)
 	-- type = "label", "check", "number", "slider", "button" : what type of option element

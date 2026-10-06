@@ -889,7 +889,8 @@
 		</Anchors>
 		<Layers>
 			<Layer level="BACKGROUND">
-				<FontString name="ItemRackOptFrameTitle" inherits="SubSpellFont">
+				<FontString name="ItemRackOptFrameTitle" inherits="SubSpellFont" justifyH="LEFT">
+					<Size><AbsDimension x="40" y="16"/></Size>
 					<Anchors>
 						<Anchor point="TOPLEFT">
 							<Offset>
@@ -902,6 +903,18 @@
 			</Layer>
 		</Layers>
 		<Frames>
+			<Frame name="ItemRackOptVersionBadge" enableMouse="true">
+				<Size><AbsDimension x="44" y="22"/></Size>
+				<Anchors>
+					<Anchor point="TOPLEFT"><Offset><AbsDimension x="4" y="-4"/></Offset></Anchor>
+				</Anchors>
+				<Scripts>
+					<OnEnter>ItemRackOpt.VersionBadgeOnEnter(self)</OnEnter>
+					<OnLeave>GameTooltip:Hide()</OnLeave>
+					<OnMouseDown>ItemRackOptFrame:StartMoving()</OnMouseDown>
+					<OnMouseUp>ItemRackOptFrame:StopMovingOrSizing()</OnMouseUp>
+				</Scripts>
+			</Frame>
 			<Button name="ItemRackOptTab1" inherits="ItemRackTabTemplate" id="1" text="Config">
 				<Anchors>
 					<Anchor point="TOPRIGHT">

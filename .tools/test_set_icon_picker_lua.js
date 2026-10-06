@@ -9,6 +9,9 @@ const functions = [
   extractFunction(options, 'ItemRackOpt.PopulateInitialIcons'),
   extractFunction(options, 'ItemRackOpt.OnEvent'),
   extractFunction(options, 'ItemRackOpt.RefreshQueueIconPage'),
+  extractFunction(options, 'ItemRackOpt.GetVersionBadge'),
+  extractFunction(options, 'ItemRackOpt.UpdateTitle'),
+  extractFunction(options, 'ItemRackOpt.VersionBadgeOnEnter'),
 ].join('\n');
 
 runLua(String.raw`
@@ -126,7 +129,30 @@ ItemRackOptFrame.IsVisible = function() return false end
 ItemRackOpt.OnEvent(nil,"GET_ITEM_INFO_RECEIVED")
 check(itemRefreshes == 1,"hidden options must not do unnecessary item-cache work")
 
-print(string.format("[SET ICON PICKER LUA] %d blank-icon and refresh checks passed.",checks))
+-- Header overlap screenshot: keep the visible label fixed while displaying
+-- the complete installed version in an owned, top-anchored hover tooltip.
+ItemRackOptFrameTitle={SetText=function(self,value) self.text=value end}
+ItemRack.DisplayName="ItemRack Universal"
+for _,version in ipairs({"Dev","4.53","4.99999.99999","4.53-beta1","4.53-beta12345"}) do
+  ItemRack.Version=version; ItemRackOpt.UpdateTitle()
+  local beta=version:find("beta",1,true)
+  check(ItemRackOptFrameTitle.text==(beta and "IRU-B" or "IRU"),
+    "compact-version-badge: release version length must not change the visible label")
+end
+local badge={}
+GameTooltip={SetOwner=function(self,owner,anchor) self.owner=owner;self.anchor=anchor end,
+  SetText=function(self,value) self.title=value end,AddLine=function(self,value) self.version=value end,
+  Show=function(self) self.visible=true end,Hide=function(self) self.visible=false end}
+ItemRackOpt.VersionBadgeOnEnter(badge)
+check(GameTooltip.owner==badge and GameTooltip.anchor=="ANCHOR_TOP" and GameTooltip.visible
+  and GameTooltip.title=="ItemRack Universal" and GameTooltip.version=="Version: 4.53-beta12345",
+  "version badge tooltip must display full beta version above its owner")
+ItemRack.Version=nil; ItemRackOpt.UpdateTitle(); ItemRackOpt.VersionBadgeOnEnter(badge)
+check(ItemRackOptFrameTitle.text=="IRU" and GameTooltip.version=="Version: Dev",
+  "missing metadata must retain compact development branding and a visible version")
+check(ItemRackOpt.selectedIconIndex==nil and ItemRackOpt.Icons[before+1]==456,
+  "branding must not change icon selection or private choices")
+print(string.format("[SET ICON PICKER LUA] %d blank-icon, refresh and version-badge checks passed.",checks))
 `, 'set-icon-picker');
 
 // Queue item styling belongs to the existing picker suite. Run production
@@ -428,5 +454,33 @@ check(ItemRackOptSortList1Name.color[1]==1,"an incomplete namespaced provider mu
 check(bootsEntry.priority and bootsEntry.delay==7 and equipment[8]==reportBoots
   and ItemRackUser.Queues[8]==bootsQueue and ItemRackUser.CurrentSet=="Stealth" and not picker.context,
   "all provider variants must preserve final equipment, saved policies and cleanup")
+
+-- Follow-up trace: Stonesplinter Axe, icon 132410, quality 2, main-hand slot
+-- and six queue entries. Line 2204 matches pre-fix dev's same global call.
+-- No full item identity/client build was supplied; identities are synthetic.
+local reportAxe="900002:0:0:0:0:0:0:0"
+local axeEntry={id=reportAxe,priority=true,delay=3,customIcon=132410}
+local axeQueue={axeEntry,{id=other},{id=missing},{id=wanted},
+  {id=wanted..":runeid:7"},{id=0}}
+ItemRackUser.Queues[16]=axeQueue; ItemRackUser.QueuesEnabled[16]=true
+ItemRackOpt.SelectedSlot=16; ItemRackOpt.SortSelected=nil; equipment[16]=reportAxe
+ItemRack.GetInfoByID=function(id)
+  if id==reportAxe then return "Stonesplinter Axe",132410,"INVTYPE_WEAPONMAINHAND",2 end
+  return originalItemInfo(id)
+end
+GetItemQualityColor=nil
+C_Item={GetItemQualityColor=function(quality)
+  if quality==2 then return .12,1,0 end
+  return 1,1,1
+end}
+rendered,error=pcall(ItemRackOpt.SortListScrollFrameUpdate)
+check(rendered,"reported-axe-quality-api-missing-global: six-row main-hand queue must render: "..tostring(error))
+check(ItemRackOptSortList1Name.text=="Stonesplinter Axe" and ItemRackOptSortList1Icon.texture==132410
+  and ItemRackOptSortList1Name.color[1]==.12 and ItemRackOptSortList1Name.color[2]==1
+  and ItemRackOptSortList6.visible and not ItemRackOptSortList7.visible,
+  "reported axe row must retain uncommon color and correct six-entry visibility")
+check(equipment[16]==reportAxe and ItemRackUser.CurrentSet=="Stealth" and ItemRackUser.Queues[16]==axeQueue
+  and axeEntry.priority and axeEntry.delay==3 and ItemRackOpt.QueueEditingSet==nil and not picker.context,
+  "axe renderer must preserve terminal gear, global queue context, settings and cleanup")
 print(string.format("[QUEUE ITEM ICON LUA] %d scope, picker, persistence and presentation checks passed.",checks))
 `, 'queue-item-icons');

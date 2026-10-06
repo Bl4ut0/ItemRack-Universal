@@ -31,6 +31,22 @@ function hasNamedRegion(body, suffix) {
 }
 
 try {
+  // Screenshot report: the full Universal/version title overlapped Queue.
+  // Reserve a bounded badge region inside the original header's free space.
+  const title = /<FontString\s+name="ItemRackOptFrameTitle"[^>]*>([\s\S]*?)<\/FontString>/.exec(optionsXml);
+  const titleSize = title && /<AbsDimension\s+x="(\d+)"\s+y="(\d+)"\s*\/>/.exec(title[1]);
+  check(titleSize && Number(titleSize[1]) <= 40 && Number(titleSize[2]) <= 16,
+    'compact-version-badge: title must have bounded dimensions to prevent tab overlap');
+  const badge = /<Frame\s+name="ItemRackOptVersionBadge"[^>]*>([\s\S]*?)<\/Frame>/.exec(optionsXml);
+  const badgeSize = badge && /<AbsDimension\s+x="(\d+)"\s+y="(\d+)"\s*\/>/.exec(badge[1]);
+  const badgeOffset = badge && /<Offset><AbsDimension\s+x="(\d+)"\s+y="(-?\d+)"\s*\/>/.exec(badge[1]);
+  const windowWidth = Number(/<Frame\s+name="ItemRackOptFrame"[^>]*>\s*<Size>\s*<AbsDimension\s+x="(\d+)"/.exec(optionsXml)?.[1]);
+  const tabWidth = Number(/<Button\s+name="ItemRackTabTemplate"[^>]*>\s*<Size>\s*<AbsDimension\s+x="(\d+)"/.exec(optionsXml)?.[1]);
+  const tabOffset = Number(/<Button\s+name="ItemRackOptTab1"[^>]*>[\s\S]*?<AbsDimension\s+x="(-?\d+)"/.exec(optionsXml)?.[1]);
+  check(badgeSize && badgeOffset && Number(badgeSize[1]) + Number(badgeOffset[1]) <= windowWidth + tabOffset - 4*tabWidth,
+    'compact-version-badge: hover region must fit before the Queue tab at default size');
+  contains(badge[1], 'ItemRackOpt.VersionBadgeOnEnter(self)', 'version badge must expose the version hover callback');
+  contains(badge[1], '<OnLeave>GameTooltip:Hide()</OnLeave>', 'version hover must clean up on leave');
   excludes(buttonsXml, /inherits=["'][^"']*\b(?:ActionBarButtonTemplate|ActionButtonTemplate)\b/,
     'quick-access XML must not inherit Blizzard action-bar presentation templates');
   excludes(optionsXml, /inherits=["'][^"']*\b(?:ActionBarButtonTemplate|ActionButtonTemplate|SecureActionButtonTemplate)\b/,
