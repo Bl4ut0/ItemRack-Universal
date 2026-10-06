@@ -889,12 +889,12 @@
 		</Anchors>
 		<Layers>
 			<Layer level="BACKGROUND">
-				<FontString name="ItemRackOptFrameTitle" inherits="SubSpellFont" justifyH="LEFT">
+				<FontString name="ItemRackOptFrameTitle" inherits="SubSpellFont" justifyH="CENTER" justifyV="MIDDLE">
 					<Size><AbsDimension x="40" y="16"/></Size>
 					<Anchors>
 						<Anchor point="TOPLEFT">
 							<Offset>
-								<AbsDimension x="8" y="-9"/>
+								<AbsDimension x="6" y="-10"/>
 							</Offset>
 						</Anchor>
 					</Anchors>
@@ -904,9 +904,9 @@
 		</Layers>
 		<Frames>
 			<Frame name="ItemRackOptVersionBadge" enableMouse="true">
-				<Size><AbsDimension x="44" y="22"/></Size>
+				<Size><AbsDimension x="44" y="24"/></Size>
 				<Anchors>
-					<Anchor point="TOPLEFT"><Offset><AbsDimension x="4" y="-4"/></Offset></Anchor>
+					<Anchor point="TOPLEFT"><Offset><AbsDimension x="4" y="-6"/></Offset></Anchor>
 				</Anchors>
 				<Scripts>
 					<OnEnter>ItemRackOpt.VersionBadgeOnEnter(self)</OnEnter>
