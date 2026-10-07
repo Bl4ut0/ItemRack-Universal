@@ -1,4 +1,4 @@
-# ItemRack — Universal Classic Edition
+# ItemRack Universal
 
 ItemRack is an equipment-set, quick-swap, event, and cooldown-queue addon for World of Warcraft Classic clients.
 
@@ -22,7 +22,7 @@ ItemRack detects the APIs exposed by the running client. Legacy globals, modern 
 
 ## Installation
 
-1. Download the newest ZIP from [GitHub Releases](https://github.com/Bl4ut0/ItemRack-Anniversary/releases) or [CurseForge](https://www.curseforge.com/wow/addons/itemrack-anniversary).
+1. Download the newest ZIP from [GitHub Releases](https://github.com/Bl4ut0/ItemRack-Universal/releases) or [CurseForge](https://www.curseforge.com/wow/addons/itemrack-universal).
 2. Extract it into the selected client's `Interface\AddOns` directory.
 3. Confirm these two folders exist directly under `AddOns`:
    - `ItemRack`
@@ -30,6 +30,8 @@ ItemRack detects the APIs exposed by the running client. Legacy globals, modern 
 4. Restart the client or run `/reload`.
 
 `ItemRackOptions` is ItemRack's load-on-demand configuration module. It is included in the same distribution and is not a separate addon download.
+
+The addon list displays **ItemRack Universal** and **ItemRack Universal Options**. Keep the folder names `ItemRack` and `ItemRackOptions`: these stable module identifiers are used by dependencies and asset paths. The product name and ZIP name do not require renaming those folders.
 
 ## Main features
 
@@ -89,7 +91,7 @@ Please include:
 - Full Lua error text
 - `/itemrack dump` output
 
-Report issues at [GitHub Issues](https://github.com/Bl4ut0/ItemRack-Anniversary/issues) or on the [CurseForge comments page](https://www.curseforge.com/wow/addons/itemrack-anniversary/comments).
+Report issues at [GitHub Issues](https://github.com/Bl4ut0/ItemRack-Universal/issues) or on the [CurseForge comments page](https://www.curseforge.com/wow/addons/itemrack-universal/comments).
 
 ## Development
 

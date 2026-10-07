@@ -52,6 +52,7 @@ OmniCC_Config/
 !.tools/test_batch_and_dualspec_lua.js
 !.tools/check_secure_templates.js
 !.tools/create_release.js
+!.tools/curseforge_upload.js
 !.tools/install_local.ps1
 node_modules/
 .release-audit/

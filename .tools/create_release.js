@@ -390,16 +390,22 @@ function requestedDate(args) {
   return value;
 }
 
-function generatePostData(mode, version, body, outputRoot = '.versions') {
+function renderReleasePosts(mode, version, body) {
   const isBeta = mode === 'beta';
-  const releaseDir = path.join(outputRoot, 'Release', `v${version}`);
-  fs.mkdirSync(releaseDir, { recursive: true });
   const channelText = isBeta
     ? '> Beta test build: please report Lua errors, incorrect swaps, or regressions with `/itemrack dump` output.'
     : 'This stable release consolidates the tested beta changes for this version.';
   const normalizedBody = body.trim();
-  const github = `# ItemRack Anniversary v${version}\n\n${channelText}\n\n## Changes\n\n${normalizedBody}\n`;
-  const curseForge = `# ItemRack Anniversary v${version}\n\n${isBeta ? '**Beta test release**' : '**Stable release**'}\n\n${normalizedBody}\n\nPlease include the output of \`/itemrack dump\` with any bug report.\n`;
+  const title = `# ItemRack Universal v${version}`;
+  const github = `${title}\n\n${channelText}\n\n## Changes\n\n${normalizedBody}\n`;
+  const curseForge = `${title}\n\n${isBeta ? '**Beta test release**' : '**Stable release**'}\n\n${normalizedBody}\n\nPlease include the output of \`/itemrack dump\` with any bug report.\n`;
+  return { github, curseForge };
+}
+
+function generatePostData(mode, version, body, outputRoot = '.versions') {
+  const releaseDir = path.join(outputRoot, 'Release', `v${version}`);
+  fs.mkdirSync(releaseDir, { recursive: true });
+  const { github, curseForge } = renderReleasePosts(mode, version, body);
   write(path.join(releaseDir, 'GITHUB_RELEASE.md'), github);
   write(path.join(releaseDir, 'CURSEFORGE_RELEASE.md'), curseForge);
 }
@@ -625,6 +631,7 @@ module.exports = {
   consolidateStableMarkdown,
   consolidateStableAddon,
   releasePostBody,
+  renderReleasePosts,
   runValidationSuite
 };
 

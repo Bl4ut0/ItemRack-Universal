@@ -1,6 +1,6 @@
 # CurseForge packaging rules
 # Retained for repository-packager compatibility. The canonical release flow
-# uploads the verified staged archive manually after stable approval.
+# uploads the verified GitHub release archive through the CurseForge workflow.
 
 # Ignore all non-addon directories and repository metadata
 ignore:

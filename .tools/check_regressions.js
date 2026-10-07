@@ -36,6 +36,11 @@ function between(source, start, end) {
 
 for (const [name, toc] of [['ItemRack', mainToc], ['ItemRackOptions', optionsToc]]) {
   check(
+    toc.includes(`## Title: ${name === 'ItemRack' ? 'ItemRack Universal' : 'ItemRack Universal Options'}\n`) ||
+      toc.includes(`## Title: ${name === 'ItemRack' ? 'ItemRack Universal' : 'ItemRack Universal Options'}\r\n`),
+    `Universal naming complaint: ${name} must display its Universal product title in the addon list.`
+  );
+  check(
     toc.includes('## Interface: 11601, 16001, 11509, 11508, 20505, 20506') &&
       toc.includes('## AllowLoadGameType: camelot'),
     `${name} TOC must advertise the shared official Classic and Forever/Camelot client matrix.`

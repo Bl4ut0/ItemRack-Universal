@@ -1161,6 +1161,20 @@ function ItemRack.IterateSwapList(setname, disableSound)
 				else
 					inv,bag,slot = ItemRack.FindItem(swap[k],1)
 				end
+				-- Lookup and exact-copy reservations describe the observed inventory,
+				-- not the state after the moves we have only planned. If this source
+				-- is about to be displaced, confirm the prefix and locate it again
+				-- on the next pass rather than moving a new occupant of that slot.
+				local sourceChangedByPlan = false
+				for _,planned in ipairs(batchSteps) do
+					for _,endpoint in ipairs({planned.from,planned.to}) do
+						if (inv and endpoint.bag == inv and endpoint.slot == nil)
+						or (bag and endpoint.bag == bag and endpoint.slot == slot) then
+							sourceChangedByPlan = true
+						end
+					end
+				end
+				if sourceChangedByPlan then break end
 				ItemRack.Debug("Equip", "IterateSwapList FindItem returned: inv=", inv, "bag=", bag, "slot=", slot, "for intended ID:", swap[k])
 				if bag then
 					if i==16 and ItemRack.HasTitansGrip then
@@ -1213,12 +1227,41 @@ function ItemRack.IterateSwapList(setname, disableSound)
 						if set.old[i] == nil then set.old[i] = ItemRack.GetID(i) end
 						if set.old[i+1] == nil then set.old[i+1] = ItemRack.GetID(i+1) end
 					end
-					table.insert(batchSteps, ItemRack.NewEquipmentMove(i,nil,i+1,nil))
+					local move = ItemRack.NewEquipmentMove(i,nil,i+1,nil)
+					move.expectedSource = ItemRack.GetID(i)
+					table.insert(batchSteps, move)
 					swappedSlots[k] = true
 					swappedSlots[k+1] = true
 					skip = 1
 				elseif inv then
-					table.insert(batchSteps, ItemRack.NewEquipmentMove(inv,nil,i,nil))
+					if set.old then
+						if set.old[inv] == nil then set.old[inv] = ItemRack.GetID(inv) end
+						if set.old[i] == nil then set.old[i] = ItemRack.GetID(i) end
+					end
+					-- A shield/off-hand-only item cannot return to main hand, and a
+					-- main-hand-only weapon cannot return to off hand. Park such a
+					-- destination first; legal reciprocal weapon exchanges above
+					-- still need no temporary bag space.
+					local displaced = ItemRack.GetID(i)
+					local displacedType = select(3,ItemRack.GetInfoByID(displaced))
+					local needsParking = (inv == 16 and i == 17 and
+						(displacedType == "INVTYPE_SHIELD" or displacedType == "INVTYPE_HOLDABLE"
+						or displacedType == "INVTYPE_WEAPONOFFHAND"))
+						or (inv == 17 and i == 16 and
+						(displacedType == "INVTYPE_WEAPONMAINHAND" or displacedType == "INVTYPE_2HWEAPON"))
+					if displaced ~= 0 and needsParking then
+						local freeBag,freeSlot = ItemRack.FindSpace()
+						if not freeBag then
+							ItemRack.FailSetSwap(setname,"no_space_for_weapon_displacement",1)
+							return "failed"
+						end
+						local park = ItemRack.NewEquipmentMove(i,nil,freeBag,freeSlot)
+						park.expectedSource = displaced
+						table.insert(batchSteps,park)
+					end
+					local move = ItemRack.NewEquipmentMove(inv,nil,i,nil)
+					move.expectedSource = ItemRack.GetID(inv)
+					table.insert(batchSteps,move)
 					swappedSlots[k] = true
 				else
 					ItemRack.FailSetSwap(setname, "source_missing", 4)
@@ -1253,6 +1296,7 @@ end
 
 function ItemRack.EndSetSwap(setname)
 	ItemRack.Debug("Equip", "EndSetSwap called for set:", setname or "nil")
+	ItemRack.ClearLockList()
 	ItemRack.SetSwapping = nil
 	ItemRack.SetSwappingDisableSound = nil
 	ItemRack.SetSwappingIsAutomatic = nil

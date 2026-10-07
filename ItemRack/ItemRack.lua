@@ -1,12 +1,13 @@
 local addonName, addon = ...
 _G[addonName] = addon
+addon.DisplayName = "ItemRack Universal"
 
 local _
 
 -- Blizzard Keybinding UI localization strings
 -- These globals provide the human-readable names displayed in ESC > Keybindings > AddOns > ItemRack
 -- CLICK bindings require _G["BINDING_NAME_<full action string>"] format (spaces/colons included)
-BINDING_HEADER_ITEMRACK = "ItemRack"
+BINDING_HEADER_ITEMRACK = addon.DisplayName
 _G["BINDING_NAME_CLICK ItemRackButton0:LeftButton"]  = "Ammo (Slot 0)"
 _G["BINDING_NAME_CLICK ItemRackButton1:LeftButton"]  = "Head (Slot 1)"
 _G["BINDING_NAME_CLICK ItemRackButton2:LeftButton"]  = "Neck (Slot 2)"
@@ -400,6 +401,8 @@ ItemRackUser = {
 	EnableEvents = "ON", -- whether all events enabled
 	EnableQueues = "ON", -- whether all auto queues enabled
 	EnablePerSetQueues = "OFF",
+	CustomCharacterIcons = "OFF",
+	CustomMenuIcons = "OFF",
 	EnableQueueContextCheck = "ON",
 	ButtonSpacing = 4, -- padding between docked buttons
 	Alpha = 1, -- alpha of buttons
@@ -703,6 +706,8 @@ function ItemRack.AuditSavedVariables(printToChat)
 		EnableEvents = "ON",
 		EnableQueues = "ON",
 		EnablePerSetQueues = "OFF",
+		CustomCharacterIcons = "OFF",
+		CustomMenuIcons = "OFF",
 		EnableQueueContextCheck = "ON",
 		ButtonSpacing = 4,
 		Alpha = 1,
@@ -2584,6 +2589,7 @@ function ItemRack.UpdateCurrentSet()
 		ItemRack.Broker.icon = texture
 		ItemRack.Broker.text = setname
 	end
+	if ItemRack.RefreshCustomItemIcons then ItemRack.RefreshCustomItemIcons() end
 end
 
 --[[ Item info gathering ]]
@@ -2598,12 +2604,41 @@ function ItemRack.GetTextureBySlot(slot)
 	else
 		local texture = GetInventoryItemTexture("player",slot)
 		if texture then
-			return texture
+			return ItemRack.GetCustomItemIcon(slot,ItemRack.GetID(slot)) or texture
 		else
 			_,texture = GetInventorySlotInfo(ItemRack.SlotInfo[slot].name)
 			return texture
 		end
 	end
+end
+
+function ItemRack.IsValidItemIcon(icon)
+	return (type(icon) == "number" and icon > 0 and icon < math.huge)
+		or (type(icon) == "string" and icon ~= "")
+end
+
+-- Presentation uses the same queue owner as swapping, even when auto queue is
+-- disabled. Include entries after the stop marker: it stops swaps, not styling.
+function ItemRack.GetCustomItemIcon(slot,id,setname)
+	if not id or id == 0 or not slot or slot >= 20 then return nil end
+	local list = ItemRack.GetQueueContext(slot,setname).list
+	if not list then return nil end
+	local physical, bare, explicit
+	for _,entry in ipairs(list) do
+		if entry.id ~= 0 then
+			if not ItemRack.IsBareItemID(entry.id) and ItemRack.SameExactID(entry.id,id) then
+				return ItemRack.IsValidItemIcon(entry.customIcon) and entry.customIcon or nil
+			elseif not ItemRack.IsBareItemID(entry.id) and ItemRack.MatchesStoredItemFields(entry.id,id) then
+				physical = physical or entry
+			end
+			if ItemRack.SameID(entry.id,id) then
+				if ItemRack.IsBareItemID(entry.id) then bare = bare or entry
+				else explicit = true end
+			end
+		end
+	end
+	local entry = physical or (not explicit and bare)
+	return entry and ItemRack.IsValidItemIcon(entry.customIcon) and entry.customIcon or nil
 end
 
 -- itemlink/itemstring converter.
@@ -3941,6 +3976,9 @@ function ItemRack.CreateMenuButton(idx,itemID)
 			_G["ItemRackMenu"..idx.."Icon"]:SetTexture(ItemRackUser.Sets[itemID].icon)
 		else
 			local _,texture = ItemRack.GetInfoByID(itemID)
+			if ItemRackUser.CustomMenuIcons == "ON" and not ItemRack.menuInclude then
+				texture = ItemRack.GetCustomItemIcon(ItemRack.menuOpen,itemID) or texture
+			end
 			_G["ItemRackMenu"..idx.."Icon"]:SetTexture(texture)
 		end
 	else
@@ -4902,19 +4940,20 @@ function ItemRack.MenuTooltip(self)
 end
 
 -- request a tooltip of a straight item id (called when hovering over items from the currently displayed set inside ItemRack's GUI)
-function ItemRack.IDTooltip(self,itemID) --itemID is an ItemRack-style ID
+function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style ID
 	if ItemRackSettings.ShowTooltips ~= "ON" then return end
+	exactOnly = exactOnly and not ItemRack.IsBareItemID(itemID)
 	-- Clear any stale character-sheet tooltip anchor so it doesn't interfere
 	ItemRack.pendingTooltipAnchor = nil
 	ItemRack.pendingTooltipOwner = nil
 	ItemRack.AnchorTooltip(self)
-	local inv,bag,slot = ItemRack.FindItem(itemID) --try to find the item in the player's equipment and inventory, first tries to find the exact item, then looks for any item with the same baseID
+	local inv,bag,slot = ItemRack.FindItem(itemID,nil,exactOnly) -- queue rows require the saved variant; other callers retain compatible fallback
 	if inv then -- item found in player's worn equipment
 		GameTooltip:SetInventoryItem("player",inv)
 	elseif bag then -- item found in player's bags
 		GameTooltip:SetBagItem(bag,slot)
 	else --cannot find the item in player's inventory or worn equipment!
-		bag,slot = ItemRack.FindInBank(itemID) --try to find the item in the player's bank IF they currently have the bank frame open
+		bag,slot = ItemRack.FindInBank(itemID,nil,exactOnly) --try to find the item in the player's bank IF they currently have the bank frame open
 		if bag then -- item found in player's bank
 			if bag == BANK_CONTAINER or bag == -1 then
 				GameTooltip:SetInventoryItem("player",BankButtonIDToInvSlotID(slot))

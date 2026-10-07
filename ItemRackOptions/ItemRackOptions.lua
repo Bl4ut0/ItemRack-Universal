@@ -26,12 +26,50 @@ function ItemRackOpt.NormalizeSetIcon(texture)
 	return ItemRackOpt.FallbackSetIcon
 end
 
-function ItemRackOpt.AppendSetIcon(texture, prefixIconPath)
-	if type(texture) == "number" and texture > 0 then
-		table.insert(ItemRackOpt.Icons,texture)
-	elseif type(texture) == "string" and texture ~= "" then
-		table.insert(ItemRackOpt.Icons,(prefixIconPath and "Interface\\Icons\\" or "")..texture)
+function ItemRackOpt.GetQualityColor(quality)
+	quality = quality or 1
+	local getter = type(GetItemQualityColor) == "function" and GetItemQualityColor
+		or (C_Item and C_Item.GetItemQualityColor)
+	if type(getter) == "function" then
+		local r,g,b = getter(quality)
+		if r ~= nil and g ~= nil and b ~= nil then return r,g,b end
 	end
+	local color = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
+	if color and color.r ~= nil and color.g ~= nil and color.b ~= nil then
+		return color.r,color.g,color.b
+	end
+	return 1,1,1
+end
+
+function ItemRackOpt.GetVersionBadge(version)
+	return tostring(version or "Dev"):lower():find("beta",1,true) and "IRU-B" or "IRU"
+end
+
+function ItemRackOpt.UpdateTitle()
+	ItemRackOptFrameTitle:SetText(ItemRackOpt.GetVersionBadge(ItemRack.Version))
+end
+
+function ItemRackOpt.VersionBadgeOnEnter(self)
+	GameTooltip:SetOwner(self,"ANCHOR_TOP")
+	GameTooltip:SetText(ItemRack.DisplayName or "ItemRack Universal",1,1,1)
+	GameTooltip:AddLine("Version: "..tostring(ItemRack.Version or "Dev"),1,.82,0)
+	GameTooltip:Show()
+end
+
+function ItemRackOpt.ResolveIconTexture(texture, prefixIconPath)
+	local fileID = (type(texture) == "number" or type(texture) == "string") and tonumber(texture)
+	if fileID then return fileID > 0 and fileID or nil end
+	if type(texture) == "string" and texture ~= "" then
+		if prefixIconPath and not texture:find("\\",1,true) and not texture:find("/",1,true) then
+			return "Interface\\Icons\\"..texture
+		end
+		return texture
+	end
+end
+
+function ItemRackOpt.AppendSetIcon(texture, prefixIconPath)
+	local icon = ItemRackOpt.ResolveIconTexture(texture,prefixIconPath)
+	if icon then table.insert(ItemRackOpt.Icons,icon) end
 end
 
 function ItemRackOpt.ShouldHighlightSetIcon(index, texture, alreadyMatched)
@@ -106,6 +144,9 @@ function ItemRackOpt.OnEvent(self, event, ...)
 		-- GetItemInfo may initially return no texture. Rebuild only the icon
 		-- choices when the cache completes; never disturb the set being edited.
 		ItemRackOpt.PopulateInvIcons()
+		ItemRackOpt.RefreshQueueIconPage()
+	elseif (event == "BAG_UPDATE" or event == "BANKFRAME_OPENED" or event == "BANKFRAME_CLOSED" or event == "SPELLS_CHANGED") and ItemRackOptFrame:IsVisible() then
+		ItemRackOpt.RefreshQueueIconPage()
 	end
 end
 
@@ -170,6 +211,10 @@ function ItemRackOpt.OnLoad(self)
 	self:RegisterEvent("PLAYER_TALENT_UPDATE")
 	self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 	self:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+	self:RegisterEvent("BAG_UPDATE")
+	self:RegisterEvent("BANKFRAME_OPENED")
+	self:RegisterEvent("BANKFRAME_CLOSED")
+	self:RegisterEvent("SPELLS_CHANGED")
 	self:SetScript("OnEvent", ItemRackOpt.OnEvent)
 
 	self:SetClampedToScreen(true)
@@ -192,7 +237,7 @@ function ItemRackOpt.OnLoad(self)
 	ItemRackOpt.PopulateEventList()
 	ItemRackOptSetsCurrentSet:EnableMouse(false)
 
-	ItemRackOptFrameTitle:SetText("IR "..ItemRack.Version)
+	ItemRackOpt.UpdateTitle()
 
 	-- OptInfo: this table drives the scrollable options. must be defined after xml defined (so buttons are non-nil)
 	-- type = "label", "check", "number", "slider", "button" : what type of option element
@@ -210,6 +255,8 @@ function ItemRackOpt.OnLoad(self)
 		{type="check",optset=ItemRackUser,variable="EnableQueues",label="Enable auto queues",tooltip="Enables auto queues to automatically swap gear."},
 		{type="check",optset=ItemRackUser,variable="EnablePerSetQueues",depend="EnableQueues",label="Enable per-set queues",tooltip="Enable individual auto queues per set."},
 		{type="check",optset=ItemRackUser,variable="EnableQueueContextCheck",label="Enable queue context check",tooltip="Inherit auto queues from previously active sets.\nWhen checked, sets that only swap a few slots (like a mount set) will preserve the queue states of the other slots."},
+		{type="check",optset=ItemRackUser,variable="CustomCharacterIcons",label="Custom icons on character sheet",tooltip="Show queue item icons on your character sheet. Original item links and tooltips are preserved."},
+		{type="check",optset=ItemRackUser,variable="CustomMenuIcons",label="Custom icons in item flyouts",tooltip="Show queue item icons in quick-access and character-sheet item flyouts. Set editing keeps original icons."},
 		{type="number",optset=ItemRackUser,variable="ButtonSpacing",button=ItemRackOptButtonSpacing,label="Button spacing",tooltip="Padding distance between buttons.",combatlock=1},
 		{type="slider",button=ItemRackOptButtonSpacingSlider,variable="ButtonSpacing",label="Button spacing",tooltip="Padding distance between buttons.", min=0, max=24, step=1, form="%d",combatlock=1},
 		{type="number",optset=ItemRackUser,variable="Alpha",button=ItemRackOptAlpha,label="Transparency",tooltip="Transparency (alpha) of the buttons and menu."},
@@ -696,6 +743,7 @@ function ItemRackOpt.SaveSet()
 						delay = v.delay,
 						swapOnUse = v.swapOnUse,
 						swapInEnabled = v.swapInEnabled,
+						customIcon = v.customIcon,
 						swapIn = v.swapIn
 					})
 				end
@@ -1330,6 +1378,10 @@ function ItemRackOpt.OptListCheckButtonOnClick(self,override)
 		ItemRack.ReflectLock()
 	elseif opt.variable=="EnableQueues" or opt.variable=="EnablePerSetQueues" or opt.variable=="EnableQueueContextCheck" then
 		ItemRack.UpdateCombatQueue()
+		ItemRack.RefreshCustomItemIcons()
+	elseif opt.variable=="CustomCharacterIcons" or opt.variable=="CustomMenuIcons" then
+		ItemRack.RefreshCustomItemIcons()
+		ItemRackMenuFrame:Hide()
 	elseif opt.variable=="TinyTooltips" then
 		if check=="ON" then
 			ItemRackSettings.TinyTooltipsQuickAccess = "OFF"
@@ -1651,7 +1703,50 @@ function ItemRackOpt.QueuesFrameOnHide()
 	ItemRackOpt.StopMarquee()
 end
 
+-- Keep editing controls outside the list and its scope footer. Reuse the XML
+-- controls so their existing callbacks still edit the same selected entry.
+function ItemRackOpt.LayoutQueueControls()
+	if ItemRackOpt.QueueControls then return end
+	local panel = CreateFrame("Frame",nil,ItemRackOptSubFrame7,BackdropTemplateMixin and "BackdropTemplate" or nil)
+	panel:SetSize(176,324)
+	panel:SetPoint("TOPLEFT",ItemRackOptSubFrame7,"TOPRIGHT",12,-4)
+	panel:SetBackdrop({bgFile="Interface\\ChatFrame\\ChatFrameBackground",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
+	panel:SetBackdropColor(.08,.08,.08,.95)
+	ItemRackOpt.QueueControls = panel
+	local function place(frame,parent,x,y)
+		frame:SetParent(parent)
+		frame:ClearAllPoints()
+		frame:SetPoint("TOPLEFT",parent,"TOPLEFT",x,y)
+	end
+	place(ItemRackOptQueueEnable,panel,8,-10)
+	local moves = {ItemRackOptSortMoveTop,ItemRackOptSortMoveUp,ItemRackOptSortMoveDown,ItemRackOptSortMoveBottom}
+	for i,button in ipairs(moves) do place(button,panel,10+(i-1)*38,-46) end
+	place(ItemRackOptSortMoveDelete,panel,10,-88)
+	local addStop = CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
+	addStop:SetSize(156,22); addStop:SetPoint("TOPLEFT",panel,"TOPLEFT",10,-124)
+	addStop:SetText("Add stop marker")
+	addStop:SetScript("OnClick",ItemRackOpt.AddQueueStopMarker)
+	addStop:SetScript("OnEnter",function(self)
+		ItemRack.OnTooltip(self,"Add stop marker","Add 'stop queue here' to the end of this queue, then use the arrows to move it. Only one stop marker is needed.")
+	end)
+	addStop:SetScript("OnLeave",ItemRack.ClearTooltip)
+	ItemRackOpt.QueueStopButton = addStop
+	place(ItemRackOptItemStatsFrame,panel,10,-156)
+	ItemRackOptItemStatsFrame:SetSize(156,156)
+	place(ItemRackOptItemStatsDelay,ItemRackOptItemStatsFrame,52,-4)
+	place(ItemRackOptItemStatsPriority,ItemRackOptItemStatsFrame,0,-32)
+	place(ItemRackOptItemStatsKeepEquipped,ItemRackOptItemStatsFrame,0,-60)
+	place(ItemRackOptItemStatsSwapOnUse,ItemRackOptItemStatsFrame,0,-88)
+	place(ItemRackOptItemStatsSwapInEnable,ItemRackOptItemStatsFrame,0,-116)
+	place(ItemRackOptItemStatsSwapInDelay,ItemRackOptItemStatsFrame,76,-118)
+	ItemRackOptQueueListFrame:ClearAllPoints()
+	ItemRackOptQueueListFrame:SetSize(260,256)
+	ItemRackOptQueueListFrame:SetPoint("TOPLEFT",ItemRackOptSubFrame7,"TOPLEFT",8,-36)
+	for i=1,10 do _G["ItemRackOptSortList"..i]:SetWidth(224) end
+end
+
 function ItemRackOpt.SlotQueueFrameOnShow()
+	ItemRackOpt.LayoutQueueControls()
 	ItemRackOpt.MakeEscable("ItemRackOptSubFrame7","add")
 	ItemRackOpt.MakeEscable("ItemRackOptFrame","remove")
 	ItemRackOpt.HideCurrentSubFrame(7)
@@ -1673,6 +1768,7 @@ function ItemRackOpt.SlotQueueFrameOnHide()
 end
 
 function ItemRackOpt.SetupQueue(id)
+	ItemRackOpt.LayoutQueueControls()
 	-- Always ensure the global queue table exists for this slot
 	if not ItemRackUser.Queues[id] then
 		ItemRackUser.Queues[id] = {}
@@ -1752,7 +1848,7 @@ function ItemRackOpt.PopulateSortList(slot)
 					duplicateKey = "base:"..tostring(ItemRack.GetIRString(entry.id,true))
 				else
 					local itemFields = tostring(entry.id):match(ItemRack.iSPatternItemFieldsFromIR) or tostring(entry.id)
-					duplicateKey = "exact:"..itemFields..":"..tostring(ItemRack.GetRuneID(entry.id) or "")
+					duplicateKey = "exact:"..ItemRack.NormalizeItemFields(itemFields)..":"..tostring(ItemRack.GetRuneID(entry.id) or "")
 				end
 				if seen[duplicateKey] then
 					-- Duplicate item found, remove it
@@ -1773,6 +1869,356 @@ function ItemRackOpt.PopulateSortList(slot)
 	end
 	ItemRackOptSortListScrollFrameScrollBar:SetValue(0)
 	ItemRackOpt.SortListScrollFrameUpdate()
+end
+
+-- Exact carried availability, without fallback to a different enchant/rune or
+-- a stale bank-cache location. Missing entries remain saved for future use.
+function ItemRackOpt.GetQueueItemLocation(id)
+	for slot=0,19 do
+		local current = ItemRack.GetID(slot)
+		if ItemRack.MatchesStoredItemFields(id,current)
+		or (ItemRack.IsBareItemID(id) and ItemRack.SameID(id,current)) then return "carried" end
+	end
+	local getSlots = C_Container and C_Container.GetContainerNumSlots
+	if type(getSlots) ~= "function" then getSlots = GetContainerNumSlots end
+	if type(getSlots) ~= "function" then return "unknown" end
+	for bag=0,4 do
+		for slot=1,(getSlots(bag) or 0) do
+			local current = ItemRack.GetID(bag,slot)
+			if ItemRack.MatchesStoredItemFields(id,current)
+			or (ItemRack.IsBareItemID(id) and ItemRack.SameID(id,current)) then return "carried" end
+		end
+	end
+	if ItemRack.BankOpen then
+		for _,bag in pairs(ItemRack.BankSlots or {}) do
+			for slot=1,(getSlots(bag) or 0) do
+				local current = ItemRack.GetID(bag,slot)
+				if ItemRack.MatchesStoredItemFields(id,current)
+				or (ItemRack.IsBareItemID(id) and ItemRack.SameID(id,current)) then return "bank" end
+			end
+		end
+	end
+	return "missing"
+end
+
+function ItemRackOpt.IsQueueItemCarried(id)
+	return ItemRackOpt.GetQueueItemLocation(id) == "carried"
+end
+
+function ItemRackOpt.RefreshQueueIconPage()
+	if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() then
+		ItemRackOpt.SortListScrollFrameUpdate()
+		local list = ItemRack.GetQueues(ItemRackOpt.QueueEditingSet)[ItemRackOpt.SelectedSlot]
+		ItemRackOpt.UpdateQueueIconButton(list and list[ItemRackOpt.SortSelected or 0])
+		local picker = ItemRackOpt.QueueIconPicker
+		if picker and picker.context then
+			picker.catalog = ItemRackOpt.BuildQueueIconCatalog()
+			ItemRackOpt.FilterQueueIcons()
+		end
+	end
+end
+
+function ItemRackOpt.UpdateQueueIconButton(entry)
+	local button = ItemRackOpt.QueueIconButton
+	if not button then
+		button = CreateFrame("Button",nil,ItemRackOpt.QueueControls or ItemRackOptSubFrame7)
+		button:SetSize(32,32)
+		button:SetPoint("TOPLEFT",ItemRackOptSortMoveDelete,"TOPRIGHT",14,0)
+		button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
+		button:SetScript("OnClick",ItemRackOpt.OpenQueueIconPicker)
+		button:SetScript("OnEnter",function(self)
+			ItemRack.OnTooltip(self,"Change item icon","Select a queue item, then choose its display icon. Reset is inside the picker.")
+		end)
+		button:SetScript("OnLeave",ItemRack.ClearTooltip)
+		local label = button:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+		label:SetPoint("LEFT",button,"RIGHT",6,0)
+		label:SetText("Icon")
+		ItemRackOpt.QueueIconButton = button
+		ItemRackOptSubFrame7:HookScript("OnHide",function()
+			if ItemRackOpt.QueueIconPicker then ItemRackOpt.QueueIconPicker:Hide() end
+		end)
+	end
+	local picker = ItemRackOpt.QueueIconPicker
+	if picker and picker.context and picker.context.entry ~= entry then picker:Hide() end
+	if entry and entry.id ~= 0 then
+		local _,original = ItemRack.GetInfoByID(entry.id)
+		button:SetNormalTexture(ItemRackOpt.NormalizeSetIcon(entry.customIcon or original))
+		button:Enable()
+		button:SetAlpha(1)
+	else
+		button:SetNormalTexture(ItemRackOpt.FallbackSetIcon)
+		button:Disable()
+		button:SetAlpha(.4)
+	end
+end
+
+function ItemRackOpt.ApplyQueueItemIcon(icon)
+	local picker = ItemRackOpt.QueueIconPicker
+	local context = picker and picker.context
+	if not context or not ItemRackOptSubFrame7:IsVisible()
+		or context.perSet ~= ItemRackUser.EnablePerSetQueues
+		or context.setname ~= ItemRackOpt.QueueEditingSet
+		or context.slot ~= ItemRackOpt.SelectedSlot then return false end
+	local list = ItemRack.GetQueues(context.setname)[context.slot]
+	if list ~= context.list or list[ItemRackOpt.SortSelected or 0] ~= context.entry
+		or context.entry.id == 0 or (icon ~= nil and not ItemRack.IsValidItemIcon(icon)) then return false end
+	context.entry.customIcon = icon -- nil restores the original, without a cached texture.
+	picker:Hide()
+	ItemRackOpt.SortListScrollFrameUpdate()
+	ItemRackOpt.ValidateSortButtons()
+	ItemRack.RefreshCustomItemIcons()
+	ItemRackMenuFrame:Hide()
+	return true
+end
+
+function ItemRackOpt.QueueIconPickerUpdate()
+	local picker = ItemRackOpt.QueueIconPicker
+	if not picker or not picker.context then return end
+	local offset = math.floor(picker.scroll:GetValue())*5
+	local matched = false
+	for i,button in ipairs(picker.buttons) do
+		local choice = picker.filteredIcons and picker.filteredIcons[offset+i]
+		if choice then
+			button.iconValue = choice.icon
+			button.iconLabel = choice.label
+			_G[button:GetName().."Icon"]:SetTexture(button.iconValue)
+			if not matched and picker.context.entry.customIcon == button.iconValue then
+				button:LockHighlight(); matched = true
+			else button:UnlockHighlight() end
+			button:Show()
+		else
+			button.iconValue = nil; button.iconLabel = nil
+			button:UnlockHighlight(); button:Hide()
+		end
+	end
+end
+
+function ItemRackOpt.GetSearchSpellIcon(query)
+	if C_Spell and type(C_Spell.GetSpellInfo) == "function" then
+		local ok,info = pcall(C_Spell.GetSpellInfo,tonumber(query) or query)
+		if ok and type(info) == "table" and type(info.name) == "string" and ItemRack.IsValidItemIcon(info.iconID) then
+			return info.name,info.iconID
+		end
+	end
+	if type(GetSpellInfo) == "function" then
+		local ok,name,_,icon = pcall(GetSpellInfo,tonumber(query) or query)
+		if ok then return name,icon end
+	end
+end
+
+function ItemRackOpt.NormalizeIconSearch(text)
+	return tostring(text or ""):lower():gsub("[%s_]","")
+end
+
+function ItemRackOpt.BuildQueueIconCatalog()
+	local catalog,byIcon = {},{}
+	local function add(icon,name,keepDuplicate)
+		if not ItemRack.IsValidItemIcon(icon) then return end
+		local key = tostring(icon):lower()
+		local choice = byIcon[key]
+		if not choice then
+			local label = tostring(icon):match("([^\\/]+)$") or tostring(icon)
+			choice = {icon=icon,label=label,search=ItemRackOpt.NormalizeIconSearch(label),names={}}
+			byIcon[key] = choice
+			table.insert(catalog,choice)
+		elseif keepDuplicate then table.insert(catalog,choice) end
+		if type(name) == "string" and name ~= "" and not choice.names[name] then
+			if not next(choice.names) then choice.label=name
+			elseif #choice.label+#name < 80 then choice.label=choice.label..", "..name end
+			choice.names[name] = true
+			choice.search = choice.search.."|"..ItemRackOpt.NormalizeIconSearch(name)
+		end
+	end
+	for _,icon in ipairs(ItemRackOpt.Icons) do add(ItemRackOpt.ResolveIconTexture(icon,false),nil,true) end
+	-- Read fresh private arrays: some clients expose macro textures only after
+	-- Options loads, and numeric file IDs may be returned as strings.
+	for _,apiName in ipairs({"GetMacroIcons","GetLooseMacroIcons","GetMacroItemIcons","GetLooseMacroItemIcons"}) do
+		local api = _G[apiName]
+		if type(api) == "function" then
+			local icons = {}
+			local ok,result = pcall(api,icons)
+			if ok then
+				if #icons == 0 and type(result) == "table" then
+					if type(GetSpellorMacroIconInfo) == "function" then
+						for i=1,#result do
+							local resolved,icon = pcall(GetSpellorMacroIconInfo,i)
+							if resolved then add(ItemRackOpt.ResolveIconTexture(icon,true)) end
+						end
+					else icons=result end
+				end
+				for _,icon in ipairs(icons) do add(ItemRackOpt.ResolveIconTexture(icon,true)) end
+			end
+		end
+	end
+	for i=0,19 do
+		local id = ItemRackOpt.Inv[i] and ItemRackOpt.Inv[i].id
+		if id and id ~= 0 then
+			local name,icon = ItemRack.GetInfoByID(id)
+			if byIcon[tostring(icon):lower()] then add(icon,name) end
+		end
+	end
+	local function call(api,...)
+		if type(api) ~= "function" then return end
+		local ok,a,b,c,d = pcall(api,...)
+		if ok then return a,b,c,d end
+	end
+	-- Localized spellbook names use the client's own API, without initializing
+	-- Blizzard's shared macro icon provider. Both Classic and modern APIs are
+	-- supported; see Blizzard_Deprecated/11_0_0_SpellBookAPITransitionGuide.lua.
+	local modern = C_SpellBook and Enum and Enum.SpellBookSpellBank
+		and Enum.SpellBookSpellBank.Player ~= nil
+		and type(C_SpellBook.GetNumSpellBookSkillLines) == "function"
+		and type(C_SpellBook.GetSpellBookSkillLineInfo) == "function"
+		and type(C_SpellBook.GetSpellBookItemName) == "function"
+		and type(C_SpellBook.GetSpellBookItemTexture) == "function"
+	local count = modern and call(C_SpellBook.GetNumSpellBookSkillLines)
+	if type(count) ~= "number" then modern=nil; count=call(GetNumSpellTabs) end
+	if type(count) == "number" and count >= 0 and count <= 100 then
+		for tab=1,count do
+			local offset,total
+			if modern then
+				local info = call(C_SpellBook.GetSpellBookSkillLineInfo,tab)
+				if type(info) == "table" then offset,total=info.itemIndexOffset,info.numSpellBookItems end
+			else
+				local _,_,start,length = call(GetSpellTabInfo,tab)
+				offset,total=start,length
+			end
+			if type(offset) == "number" and type(total) == "number" and offset >= 0 and total >= 0 and offset+total <= 10000 then
+				for index=offset+1,offset+total do
+					if modern then
+						local bank = Enum.SpellBookSpellBank.Player
+						local icon = call(C_SpellBook.GetSpellBookItemTexture,index,bank)
+						local name = call(C_SpellBook.GetSpellBookItemName,index,bank)
+						add(icon,name)
+					else
+						-- New Classic wrappers use "player"; older clients use "spell".
+						for _,bank in ipairs({BOOKTYPE_SPELL or "spell","player"}) do
+							local name = call(GetSpellBookItemName or GetSpellName,index,bank)
+							local icon = call(GetSpellBookItemTexture or GetSpellTexture,index,bank)
+							if type(name) == "string" and ItemRack.IsValidItemIcon(icon) then add(icon,name); break end
+						end
+					end
+				end
+			end
+		end
+	end
+	-- Include the matching client's player/profession artwork even when macro
+	-- icon enumeration is missing or only supplies the character's own icons.
+	local version = call(GetBuildInfo)
+	local flavor = type(version) == "string" and (version:match("^2%.") and "tbc"
+		or (version:match("^1%.60%.") or version:match("^1%.16%.")) and "forever"
+		or version:match("^1%.1[345]%.") and "era")
+	local clientIcons = ItemRackOpt.SpellIconClients and ItemRackOpt.SpellIconClients[flavor]
+	for _,icon in ipairs(clientIcons or {}) do add(icon) end
+	-- English game-data aliases make available spell artwork searchable even
+	-- when it belongs to another class. Live localized names remain searchable.
+	for _,choice in ipairs(catalog) do
+		local aliases = ItemRackOpt.SpellIconNames and ItemRackOpt.SpellIconNames[tonumber(choice.icon)]
+		for _,name in ipairs(aliases or {}) do add(choice.icon,name) end
+	end
+	return catalog
+end
+
+function ItemRackOpt.FilterQueueIcons()
+	local picker = ItemRackOpt.QueueIconPicker
+	if not picker or not picker.context then return end
+	local query = picker.search:GetText() or ""
+	local normalized = ItemRackOpt.NormalizeIconSearch(query)
+	local filtered,seen = {},{}
+	local function include(choice)
+		local key = tostring(choice.icon):lower()
+		if not seen[key] then table.insert(filtered,choice); seen[key]=true end
+	end
+	if normalized == "" then
+		for _,choice in ipairs(picker.catalog) do table.insert(filtered,choice) end
+	else
+		for _,choice in ipairs(picker.catalog) do
+			if choice.search:find(normalized,1,true) then
+				local label = choice.label
+				for name in pairs(choice.names) do
+					if ItemRackOpt.NormalizeIconSearch(name):find(normalized,1,true)
+						and (not ItemRackOpt.NormalizeIconSearch(label):find(normalized,1,true) or #name < #label) then label=name end
+				end
+				include({icon=choice.icon,label=label})
+			end
+		end
+		local name,icon = ItemRackOpt.GetSearchSpellIcon(query:match("^%s*(.-)%s*$"))
+		if type(name) == "string" and ItemRack.IsValidItemIcon(icon) then include({icon=icon,label=name}) end
+	end
+	picker.filteredIcons = filtered
+	picker.empty:SetText(#filtered == 0 and "No matching icons" or "")
+	picker.scroll:SetMinMaxValues(0,math.max(0,math.ceil(#filtered/5)-5))
+	picker.scroll:SetValue(0)
+	ItemRackOpt.QueueIconPickerUpdate()
+end
+
+function ItemRackOpt.OpenQueueIconPicker()
+	local list = ItemRack.GetQueues(ItemRackOpt.QueueEditingSet)[ItemRackOpt.SelectedSlot]
+	local entry = list and list[ItemRackOpt.SortSelected or 0]
+	if not entry or entry.id == 0 then return end
+	local picker = ItemRackOpt.QueueIconPicker
+	if not picker then
+		picker = CreateFrame("Frame",nil,ItemRackOptSubFrame7,BackdropTemplateMixin and "BackdropTemplate" or nil)
+		picker:SetSize(202,252)
+		picker:SetPoint("TOPLEFT",ItemRackOpt.QueueControls or ItemRackOptSubFrame7,"TOPRIGHT",6,-20)
+		picker:SetFrameStrata("DIALOG")
+		picker:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
+		picker:SetBackdropColor(0,0,0,1)
+		picker:SetScript("OnHide",function(self) self.context=nil; self.search:ClearFocus() end)
+		local title = picker:CreateFontString(nil,"OVERLAY","GameFontNormal")
+		title:SetPoint("TOPLEFT",12,-12); title:SetText("Item icon")
+		local close = CreateFrame("Button",nil,picker,"UIPanelCloseButton")
+		close:SetPoint("TOPRIGHT",0,0)
+		close:SetScript("OnClick",function() picker:Hide() end)
+		local searchLabel = picker:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+		searchLabel:SetPoint("TOPLEFT",12,-36); searchLabel:SetText("Search")
+		picker.search = CreateFrame("EditBox",nil,picker,"InputBoxTemplate")
+		picker.search:SetSize(132,20); picker.search:SetPoint("TOPLEFT",58,-30)
+		picker.search:SetAutoFocus(false); picker.search:SetMaxLetters(80)
+		picker.search:SetScript("OnTextChanged",ItemRackOpt.FilterQueueIcons)
+		picker.search:SetScript("OnEscapePressed",function(self) self:ClearFocus(); picker:Hide() end)
+		picker.search:SetScript("OnEnterPressed",function(self) self:ClearFocus() end)
+		picker.search:SetScript("OnEnter",function(self)
+			ItemRack.OnTooltip(self,"Search icons","Search spell names from any class, item names, or icon texture names. You can also enter a full spell name or spell ID. Names from other classes also have English search aliases.")
+		end)
+		picker.search:SetScript("OnLeave",ItemRack.ClearTooltip)
+		picker.empty = picker:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+		picker.empty:SetPoint("TOP",0,-116)
+		local reset = CreateFrame("Button",nil,picker,"UIPanelButtonTemplate")
+		reset:SetSize(170,24); reset:SetPoint("BOTTOM",0,12); reset:SetText("Reset to original")
+		reset:SetScript("OnClick",function() ItemRackOpt.ApplyQueueItemIcon(nil) end)
+		picker.buttons = {}
+		for i=1,25 do
+			local button = CreateFrame("Button","ItemRackOptQueueIcon"..i,picker,"ItemRackOptIconTemplate")
+			button:SetPoint("TOPLEFT",12+((i-1)%5)*28,-68-math.floor((i-1)/5)*28)
+			button:SetScript("OnClick",function(self)
+				if self.iconValue then ItemRackOpt.ApplyQueueItemIcon(self.iconValue) end
+			end)
+			button:SetScript("OnEnter",function(self) ItemRack.OnTooltip(self,self.iconLabel or "Item icon") end)
+			button:SetScript("OnLeave",ItemRack.ClearTooltip)
+			picker.buttons[i] = button
+		end
+		picker.scroll = CreateFrame("Slider",nil,picker)
+		picker.scroll:SetOrientation("VERTICAL"); picker.scroll:SetSize(16,140)
+		picker.scroll:SetPoint("TOPRIGHT",-15,-68); picker.scroll:SetValueStep(1)
+		picker.scroll:SetThumbTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+		local track = picker.scroll:CreateTexture(nil,"BACKGROUND")
+		track:SetAllPoints(); track:SetTexture("Interface\\Buttons\\WHITE8X8")
+		track:SetVertexColor(.15,.15,.15,1)
+		picker.scroll:SetScript("OnValueChanged",ItemRackOpt.QueueIconPickerUpdate)
+		picker:EnableMouseWheel(true)
+		picker:SetScript("OnMouseWheel",function(self,delta)
+			local _,maximum = self.scroll:GetMinMaxValues()
+			self.scroll:SetValue(math.max(0,math.min(maximum,self.scroll:GetValue()-delta)))
+		end)
+		ItemRackOpt.QueueIconPicker = picker
+	end
+	picker.context = {entry=entry,list=list,slot=ItemRackOpt.SelectedSlot,
+		setname=ItemRackOpt.QueueEditingSet,perSet=ItemRackUser.EnablePerSetQueues}
+	picker.catalog = ItemRackOpt.BuildQueueIconCatalog()
+	picker.search:SetText("")
+	picker:Show()
+	ItemRackOpt.FilterQueueIcons()
 end
 
 function ItemRackOpt.AddToSortList(sortList,id)
@@ -2015,12 +2461,19 @@ function ItemRackOpt.SortListScrollFrameUpdate()
 				name,texture,quality = "-- stop queue here --","Interface\\Buttons\\UI-GroupLoot-Pass-Up",1
 			else
 				name,texture,_,quality = ItemRack.GetInfoByID(sortList[idx].id)
+				name = name or ("Item "..tostring(ItemRack.GetIRString(sortList[idx].id,true)))
+				local location = ItemRackOpt.GetQueueItemLocation(sortList[idx].id)
+				if location == "bank" then name = name.." (in bank)"
+				elseif location == "missing" then name = name.." (not carried)"
+				elseif location == "unknown" then name = name.." (availability unknown)" end
+				if ItemRack.IsValidItemIcon(sortList[idx].customIcon) then texture = sortList[idx].customIcon end
+				texture = ItemRackOpt.NormalizeSetIcon(texture)
 			end
 			
 			_G["ItemRackOptSortList"..i.."Name"]:SetText(name)
 			_G["ItemRackOptSortList"..i.."Icon"]:SetTexture(texture)
 			ItemRack.SetRuneIconOverlay(item,sortList[idx].id,_G["ItemRackOptSortList"..i.."Icon"],11)
-			local r,g,b = GetItemQualityColor(quality or 1)
+			local r,g,b = ItemRackOpt.GetQualityColor(quality)
 			_G["ItemRackOptSortList"..i.."Name"]:SetTextColor(r,g,b,1)
 			item:Show()
 			if idx==ItemRackOpt.SortSelected then
@@ -2061,9 +2514,34 @@ function ItemRackOpt.SortListOnClick(self)
 	ItemRackOpt.ValidateSortButtons()
 end
 
+function ItemRackOpt.GetEditableQueueList()
+	if ItemRack.QueueSchemaUnsupported or type(ItemRackOpt.SelectedSlot) ~= "number" then return end
+	if ItemRackUser.EnablePerSetQueues == "ON"
+		and not (ItemRackOpt.QueueEditingSet and ItemRackUser.Sets[ItemRackOpt.QueueEditingSet]) then return end
+	local list = ItemRack.GetQueues(ItemRackOpt.QueueEditingSet)[ItemRackOpt.SelectedSlot]
+	if type(list) == "table" then return list end
+end
+
+function ItemRackOpt.AddQueueStopMarker()
+	if not ItemRackOptSubFrame7:IsVisible() then return false end
+	local list = ItemRackOpt.GetEditableQueueList()
+	if not list then return false end
+	for _,entry in ipairs(list) do if entry.id == 0 then return false end end
+	table.insert(list,{id=0})
+	ItemRackOpt.SortSelected = #list
+	ItemRackOpt.SortListScrollFrameUpdate()
+	ItemRackOpt.ValidateSortButtons()
+	return true
+end
+
 function ItemRackOpt.ValidateSortButtons()
 	local selected = ItemRackOpt.SortSelected
 	local list = ItemRack.GetQueues(ItemRackOpt.QueueEditingSet)[ItemRackOpt.SelectedSlot]
+	local editableList = ItemRackOpt.GetEditableQueueList()
+	local hasStop = false
+	for _,entry in ipairs(editableList or {}) do if entry.id == 0 then hasStop=true; break end end
+	if editableList and not hasStop then ItemRackOpt.QueueStopButton:Enable()
+	else ItemRackOpt.QueueStopButton:Disable() end
 	ItemRackOptSortMoveTop:Enable()
 	ItemRackOptSortMoveUp:Enable()
 	ItemRackOptSortMoveDown:Enable()
@@ -2082,13 +2560,14 @@ function ItemRackOpt.ValidateSortButtons()
 	end
 	local idx = FauxScrollFrame_GetOffset(ItemRackOptSortListScrollFrame)
 	local selectedEntry = selected and list and list[selected]
+	ItemRackOpt.UpdateQueueIconButton(selectedEntry)
+	ItemRackOptSlotQueueName:Show()
+	ItemRackOptQueueEnable:Show()
 	if selectedEntry then
 		ItemRackOptSortMoveDelete:Enable()
 		if selectedEntry.id ~= 0 then
 			-- display delay/priority/etc for item entries only
 			ItemRackOptItemStatsFrame:Show()
-			ItemRackOptSlotQueueName:Hide()
-			ItemRackOptQueueEnable:Hide()
 			ItemRackOptItemStatsPriority:SetChecked(selectedEntry.priority or false)
 			ItemRackOptItemStatsKeepEquipped:SetChecked(selectedEntry.keep or false)
 			ItemRackOptItemStatsSwapOnUse:SetChecked(selectedEntry.swapOnUse or false)
@@ -2158,7 +2637,15 @@ function ItemRackOpt.SortListOnEnter(self)
 		if list[idx].id==0 then
 			ItemRack.OnTooltip(self,"Stop Queue Here","Move this to mark an explicit end to an order. ie, if you have a clickable trinket with a passive effect, and would like to use the passive effect if no better trinkets are off cooldown.")
 		else
-			ItemRack.IDTooltip(self,list[idx].id)
+			ItemRack.IDTooltip(self,list[idx].id,true)
+			local location = ItemRackOpt.GetQueueItemLocation(list[idx].id)
+			if ItemRackSettings.ShowTooltips == "ON" and location ~= "carried" then
+				local status = location == "bank" and "In bank; saved in this queue."
+					or (location == "unknown" and "Item availability cannot be checked on this client; saved in this queue.")
+					or "Not carried; saved in this queue. Bank contents are checked while open."
+				GameTooltip:AddLine(status,1,.82,0,true)
+				GameTooltip:Show()
+			end
 		end
 	end
 end

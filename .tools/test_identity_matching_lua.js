@@ -16,10 +16,12 @@ const functions = [
   extractFunction(core, 'ItemRack.MatchesStoredItemID'),
   extractFunction(core, 'ItemRack.FindItem'),
   extractFunction(core, 'ItemRack.FindItemInBags'),
+  extractFunction(core, 'ItemRack.IDTooltip'),
   extractFunction(queue, 'ItemRack.QueueHasExplicitIdentityEntry'),
   extractFunction(queue, 'ItemRack.IsQueueEntryUnambiguous'),
   extractFunction(queue, 'ItemRack.FindQueueEntryIndex'),
   extractFunction(options, 'ItemRackOpt.AddToSortList'),
+  extractFunction(options, 'ItemRackOpt.PopulateSortList'),
 ].join('\n');
 
 runLua(String.raw`
@@ -124,5 +126,49 @@ check(#sortList == 2, "queue editor must list differently enchanted copies separ
 ItemRackOpt.AddToSortList(sortList,wantedLong)
 check(#sortList == 2, "queue editor must coalesce only the same stable item identity")
 
+-- October 5 Queue-page duplicate report: synthetic separator variants expose
+-- the raw-key failure; the reporter's exact links/client build are still absent.
+local first = { id=wanted, priority=true, delay="7", customIcon=123 }
+local edited = {first, {id=wantedEmptyFields}, {id=wrong},
+  {id=runeWanted}, {id=runeOther}, {id="99999:0:0:0:0:0:0:0"}, {id=0}, {id=0}}
+ItemRackOpt.QueueEditingSet = "Stealth"
+local queues = {[9]=edited}
+ItemRack.GetQueues = function(set) assert(set=="Stealth"); return queues end
+ItemRack.DockWindows = function() end
+ItemRack.BuildMenu = function() ItemRack.Menu={wantedLong} end
+ItemRackMenuFrame = {Hide=function() end}
+ItemRackOptSortListScrollFrameScrollBar = {SetValue=function() end}
+ItemRackOpt.SortListScrollFrameUpdate = function() end
+ItemRackOpt.PopulateSortList(9)
+check(#edited == 6, "queue-page-normalized-duplicates: coalesce empty/zero fields and duplicate stop markers")
+check(edited[1]==first and first.priority and first.delay=="7" and first.customIcon==123,
+  "duplicate cleanup must retain first-entry settings, order and custom icon")
+check(edited[2].id==wrong and edited[3].id==runeWanted and edited[4].id==runeOther,
+  "duplicate cleanup must preserve different enchants and runes")
+check(edited[5].id:match("99999") and edited[6].id==0,
+  "unavailable saved entries and the first stop marker must persist")
+ItemRackOpt.PopulateSortList(9)
+check(#edited==6 and queues[9]==edited and inventory[9]==runeOther,
+  "reopening editor must be idempotent and leave equipment and scope unchanged")
+-- A queue tooltip must describe the saved variant even if only another
+-- same-base copy is carried; otherwise two distinct rows appear identical.
+ItemRackSettings={ShowTooltips="ON",MenuOnShift="OFF"}
+ItemRack.AnchorTooltip=function() end; ItemRack.ShrinkTooltip=function() end
+ItemRack.IRStringToItemString=function(id) return "item:"..id end
+local tooltipID
+GameTooltip={SetInventoryItem=function(_,unit,slot) tooltipID=inventory[slot] end,
+  SetBagItem=function(_,bag,slot) tooltipID=bags[bag][slot] end,
+  SetHyperlink=function(_,id) tooltipID=id end,Show=function() end}
+ItemRack.IDTooltip({},wrong,true)
+check(tooltipID=="item:"..wrong,
+  "queue-page-missing-variant-tooltip: missing saved enchant must not show a carried same-base copy")
+ItemRack.IDTooltip({},wanted,true)
+check(tooltipID==runeWanted or tooltipID==runeOther,"strict tooltip must use a compatible owned exact physical copy")
+ItemRack.IDTooltip({},wrong)
+check(tooltipID==runeWanted or tooltipID==runeOther,"other item tooltip callers retain existing base-ID fallback")
+ItemRack.IDTooltip({},"33881",true)
+check(tooltipID==runeWanted or tooltipID==runeOther,"intentionally bare queue entries retain wildcard tooltip compatibility")
+check(inventory[9]==runeOther and edited[1]==first and first.priority and ItemRackOpt.QueueEditingSet=="Stealth",
+  "tooltip correction must leave final equipment, saved policy and editor scope unchanged")
 print(string.format("[IDENTITY MATCHING LUA] %d exact-copy compatibility checks passed.",checks))
 `, 'identity-matching');

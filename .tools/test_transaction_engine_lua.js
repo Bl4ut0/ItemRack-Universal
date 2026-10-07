@@ -301,4 +301,28 @@ assert(prints == 1, "failed set transaction must report exactly once")
 `
 );
 
-console.log('[TRANSACTION ENGINE LUA] 30 production-Lua assertions passed.');
+// Issue #29 audit: an inventory-origin move must not silently adopt the new
+// occupant of a location changed by an earlier planned move.
+runCase('issue-29-rejects-stale-expected-source-before-pickup', `${common}
+cursor=nil
+function CursorHasItem() return cursor~=nil end
+function SpellIsTargeting() return false end
+local pickups=0
+function ItemRack.GetID(bag,slot)
+  if slot then return 9001 end
+  return bag==16 and 8001 or 8002
+end
+function PickupContainerItem() pickups=pickups+1 end
+function PickupInventoryItem() pickups=pickups+1 end
+`, `
+local first=ItemRack.NewEquipmentMove(0,1,16,nil)
+local stale=ItemRack.NewEquipmentMove(16,nil,17,nil)
+stale.expectedSource=8001
+local failures=0
+local status,request,reason=ItemRack.StartEquipmentTransaction({steps={first,stale},onFailure=function() failures=failures+1 end})
+assert(status=="failed" and reason=="source_changed_2","virtual preflight must reject an inventory source identity changed by a prior step")
+assert(pickups==0 and cursor==nil,"invalid dependent plans must perform no pickup")
+assert(request.finished and failures==1 and ItemRack.ActiveEquipmentTransaction==nil,"preflight rejection must terminate once without transaction residue")
+`);
+
+console.log('[TRANSACTION ENGINE LUA] 33 production-Lua assertions passed.');

@@ -12,6 +12,22 @@ Run only the deterministic many-set workloads:
 node tests/test_large_profiles_lua.js
 ```
 
+Run the focused Queue editor validation group with:
+
+```powershell
+npm run test:queue-editor
+```
+
+This executes the existing picker, item-identity and queue-migration suites;
+all three also run in `npm test`. Named icon cases cover global edit/reset,
+editing and saving an inactive set, rejecting a picker opened before a queue
+snapshot was replaced, partial final pages, and unchanged final equipment and
+queue scopes. `queue-icon-legacy-migration` checks both scopes and independent
+recovery backups; `queue-icon-savedvariables-load` loads a representative saved
+Lua chunk in a fresh environment and checks migration idempotence. The saved
+chunk models persisted values; it does not exercise WoW's SavedVariables writer
+or replace the reload/relog acceptance checks in `BETA_TEST_CHECKLIST.md`.
+
 The focused script-event trust test can be run independently with:
 
 ```powershell
@@ -58,6 +74,17 @@ standard suite before its fix is considered complete:
 
 ### Report coverage in the standard gate
 
+The October 7 CurseForge deployment request extends `.tools/check_release_flow.js`
+in the standard gate. Production deployment verification reads a real `git archive`
+fixture and checks both folders, every tag blob, checksum, TOC/project/version
+mapping and notes. Injected HTTP responses exercise missing credentials, exact
+and missing/ambiguous game versions, beta/stable metadata, the unchanged multipart
+ZIP, returned file ID, changed-file refusal and no automatic POST retry. The
+workflow reserves a persistent release asset before upload. These fixtures do
+not prove the account's ItemRack project permission, live API submission,
+moderator approval or CurseForge installation; the read-only Actions setup run,
+actual upload receipt and client installation remain deployment acceptance.
+
 The October 4, 2026 comparison review and user clarification about weapon-only
 saved sets are covered by `weapon-only combat binding is secure and never replayed`
 in `.tools/test_set_bindings_lua.js`. It checks weapon-only and opt-in full-set
@@ -73,6 +100,19 @@ Shared-provider taint and actual client rendering remain client acceptance check
 
 | Report or failure | Permanent focused coverage |
 |---|---|
+| October 6 follow-up screenshot: searching `lightning` shows No matching icons | `.tools/test_set_icon_picker_lua.js`: `reported-lightning-cross-class-search` fails against 0d3a1cc's spellbook-only catalog and passes with independently generated game-data aliases and artwork for the matching client family. The fixture has only a rogue spellbook; Lightning Bolt/Chain Lightning remain selectable with and without macro-icon enumeration. `reported-lightning-numeric-string-icon` independently fails against the previous filename-prefix conversion and passes when string file IDs remain numeric textures. Neighboring coverage checks fully qualified paths, Classic `player`/legacy `spell` tokens, matching filtered labels, Era/TBC/Forever (including 1.16) artwork boundaries, scoped selection/reset, terminal gear, policies and cleanup. `ItemRackIconNames.lua` is loaded by the actual Options TOC and standard Lua gate; its compiler records client-data source URLs and SHA-256s. The screenshot supplies the query and empty result; character class, exact client/build and API outputs were requested but remain unavailable. These proven code gaps are not confirmation of the screenshot's exact cause; live Lightning search/rendering and client reload remain acceptance. |
+| October 6 request: provide a way to restore a deleted stop-queue row | `.tools/test_set_icon_picker_lua.js`: `queue-restore-deleted-stop-marker` deletes the marker through production `SortMove` and fails against 283711d because there is no restore control. Production restore, selector, renderer, SaveSet and next-item lookup cover appending/selecting one marker, moving it before a carried candidate to enforce the existing runtime boundary, duplicate refusal, empty/disabled and long paginated queues, inactive-set ownership, saved policy/icon snapshots, missing slot/list/set, future schema refusal and closed-editor cleanup. Control rectangles retain the existing non-overlap checks. Terminal equipment, active set, enablement and unrelated queue scopes remain unchanged. No specific client/build, item identities or profile were supplied; these are modeled editor flows. Live label spacing/clicks, scrolling and reload persistence remain acceptance. |
+| October 6 item-icon picker screenshot/request: no search field to narrow choices by spell name; include spells and item icons together | `.tools/test_set_icon_picker_lua.js`: `queue-icon-spell-search` fails against 463fb6c's picker without a live search field. `queue-icon-spells-and-items` checks searchable item names and browsing spells absent from the macro icon list alongside item icons. Production search/catalog/picker handlers cover partial spellbook names, shared-icon aliases, literal text, empty results, filtered pagination and stale-cell clearing, clear/reopen, reset with zero results, Classic/modern/incomplete/failing/missing APIs, direct spell-name/ID lookup and cache refresh. They assert unchanged equipment, queue owner and set-icon catalog/selection, scoped saved icon/policy and focus/context cleanup. No specific target spell or client build was supplied; spellbook/API responses are modeled. This initial implementation indexed player spellbook names; the later Lightning report above extends it across classes. Live typing, localized fonts, real lookup availability, tooltip/scroll rendering and reload persistence remain acceptance. |
+| October 6 Queue screenshot: selected trinket settings and icon label overlap the Global Queues footer; request a small right-side popout | `.tools/test_set_icon_picker_lua.js`: `queue-controls-right-popout` executes the production selector, layout, reorder/delete, item-policy and queue-enable handlers. It fails against cd55f75 when selecting an item hides the slot header/auto-queue control and passes after moving editing controls into a Queue-owned panel. XML-sized control rectangles cannot overlap each other, the list or scope footer; modeled Options scales 1/1.3/1.6, stop/empty selection, inactive-set ownership, saved policies, unchanged terminal gear and picker cleanup are checked. The screenshot supplies the overlap but no exact item links, client build or full profile; the identity fixture is synthetic. Live fonts, screen-edge placement, skinning, scaling and reopen/reload remain client acceptance. |
+| October 5 fresh trace: GetQueueItemLocation line 1830 calls nil while scanning bag 0 for `6256::::::::16:1485::14:::::::` | `.tools/test_set_icon_picker_lua.js`: `reported-queue-container-api-missing-global` uses the supplied full identity, reproduces the unguarded global call against 53af365, and passes through namespaced bag and bank scans after correction. It also renders the Queue with both legacy container and quality globals absent, preserves native-era legacy-only discovery, API precedence, closed-bank semantics, missing-provider unknown status, equipped-item detection and nil counts, and asserts terminal gear, global scope, saved policy and popup cleanup. Client build, ownership/location and complete profile were not supplied; bag/bank locations are modeled, while live Queue opening after reinstall/reload remains acceptance. |
+| October 5 Options screenshot: full Universal title overlaps Queue; request compact IRU / IRU-B and hover version | `.tools/check_secure_templates.js`: `compact-version-badge` fails against the unbounded title and passes with a 40-pixel title and 44-pixel hover region measured against the actual window/tab XML geometry. `.tools/test_set_icon_picker_lua.js` executes the production label and hover callbacks for Dev, stable and long beta versions, checks full metadata above the owning badge, and unchanged icon choices. Live font rendering, drag handling, tooltip cleanup and Options scaling remain acceptance checks. |
+| October 5 follow-up: Stonesplinter Axe queue nil call at line 2204, quality 2, texture 132410, slot 16, six entries | `.tools/test_set_icon_picker_lua.js`: `reported-axe-quality-api-missing-global` extends the already failing-before/passing-after color-API regression with the reported row values and six-entry visibility. It checks namespaced uncommon coloring, final main-hand gear, global queue scope, saved policy and popup cleanup. The supplied line matches the pre-fix dev call; on-disk clients already contain its fallback. Full item identity, client build and confirmation that this capture followed a reload remain unavailable; live recurrence after reload would require fresh evidence. |
+| October 5 local user trace: Hunting Boots queue crashes at SortListScrollFrameUpdate line 2023 with a nil function | `.tools/test_set_icon_picker_lua.js`: `reported-queue-quality-api-missing-global` reproduces the missing global `GetItemQualityColor` failure before correction and renders the reported Hunting Boots name, texture 132592, quality 1, slot 8 and two queue rows afterward. The trace line matches beta/pre-icon source; installed dev code retained the same unguarded API call. Exact saved boot identity and client build were not supplied, so the test uses a synthetic full identity. Neighboring cases retain legacy API precedence, namespaced API support, constants/white fallback and incomplete-provider containment, visible rows, terminal gear/set/global queue scope, entry settings and popup cleanup. This proves the production call failure, while live `/reload` and Queue opening remain pending user acceptance. |
+| October 5 report: Era 4.51 global Head Queue page shows Gnomish Mind Control Cap and Catseye Ultra Goggles twice, including with the bank open | `.tools/test_identity_matching_lua.js`: `queue-page-normalized-duplicates` fails against raw item-field keys and passes with normalization. Synthetic identities cover empty/zero fields, retained first-entry settings/order/custom icons, distinct enchants/runes, unavailable saved items, stop-marker cleanup and idempotent reopening without equipment/context changes. `queue-page-missing-variant-tooltip` fails when a missing saved enchant displays a carried same-base copy; strict Queue tooltips correct it while other callers retain compatible fallback. The screenshots establish duplicate names, addon version, client family and global Head scope, but do not expose saved/live identities, enchants or exact client build; these proven code defects are not yet confirmed as the screenshot's cause. |
+| Queue item icon feature and unavailable-item presentation | `.tools/test_set_icon_picker_lua.js`: `queue-item-icons` executes production queue policy, picker creation/click/reset/scroll/cancel, row and character/flyout rendering paths, and SaveSet. It checks global/per-set/event inheritance, disabled-queue styling, explicit boundaries, enchant/rune distinction, after-stop styling, stale scope/selection refusal, own character overlays, native defaults, saved policy/icon snapshots, open-bank exact location, closed-bank non-ownership and unchanged terminal gear/context. These modeled frame APIs do not verify live rendering, taint, client bank-event order or reload serialization. |
+| Supplied quick-access boot screenshot: item artwork does not fill the button and the gap grows with scale | `.tools/check_secure_templates.js`: `quick-access-full-icon-coverage` measures production XML anchor bounds for the icon and cooldown at 0.5x, 1x, 1.5x and 2x. It fails against the original inset template and passes with full button coverage. Existing template checks retain secure-slot separation and owned presentation. Client build and skin settings were not supplied; real rendering, cooldown masks and Masque reskinning still require client acceptance. |
+| Supplied three-rogue complaint: Universal download appears as Anniversary in the addon list | `.tools/check_regressions.js`: named Universal naming complaint guards fail against the old TOC titles and pass after correction. `.tools/check_release_flow.js` executes the shared release-post renderer for beta and stable titles and preserves channel labels. Module identifiers, dependencies and archive naming retain existing standard-gate coverage. Addon-list and Options title layout require client acceptance. |
+| GitHub #29 / DefinitelyNotNate: weapon/shield set swaps roll back or finish with wrong weapons after 4.46 pipelining | `.tools/test_batch_and_dualspec_lua.js`: `issue-29-reported-shield` uses the reported 4.51 / Classic Era 1.15.9 identities and settings; `issue-29-followup-stale-source` models the follow-up with a synthetic third weapon. Both fail against candidate e28390c and pass after correction. Neighboring cases cover full bags, paired weapons, partial shield/held-item/main-hand-only moves, no-space refusal, later-pass rejection and rollback, actual endpoints, restoration history, queue context, unequip, and cleanup. `.tools/test_transaction_engine_lua.js` verifies stale expected-source rejection before any pickup. Live item-lock timing and protected equipment acceptance remain required. |
 | PR #28 / msromike: Forever 1.60.1, ItemRack 4.51 login fails when GetCurrentBindingSet returns 0 | `.tools/test_set_bindings_lua.js`, `binding save waits for a valid binding set`, reproduces the pre-fix SaveBindings error, verifies deferred persistence once set 2 becomes available and immediate saving for set 1. Login continuity and relog persistence still need client acceptance. |
 | PR #26 / msromike: relocated minimap button needs a fixed set-menu direction | `.tools/test_batch_and_dualspec_lua.js`, `minimap-menu-direction`, fails before the fix for Up and verifies Auto/unset compatibility plus all fixed dock directions. Rendering and minimap-collector layering remain client acceptance checks. |
 | CurseForge baniro_: Mounted movement restores gear but loses the set and queues | `.tools/test_event_integration_lua.js` verifies final base-set and queue-context restoration. |
@@ -95,6 +135,21 @@ Shared-provider taint and actual client rendering remain client acceptance check
 | TBC Anniversary: character sheet swap menus appear despite being disabled | `.tools/test_batch_and_dualspec_lua.js` verifies `PaperDollItemSlotButton_OnEnter` hides open menus and suppresses new ones when `CharacterSheetMenus == "OFF"`; `.tools/check_regressions.js` guards early return in `PaperDollItemSlotButton_OnEnter`, `PaperDollFrame` exclusion from `MenuMouseover` keep-alive, and immediate dismissal in `OptListCheckButtonOnClick`. |
 
 
+
+The later supplied three-rogue diagnostic dump confirms runtime 4.51 and a
+global boots queue with item 7189 marked priority. It records successful Mount
+and Stealth set transactions followed by AutoQueue replacing their boots; this
+sequence supports a priority override rather than a blocked keybind. It also
+records Mount as mismatched while its saved boots are still worn. A production
+Lua diagnostic probe reproduced the predictive queue/set-recognition result,
+but no correction or permanent failing regression for that behavior is claimed.
+Client build, reporter/source link, comparative working-character state and
+any later blocked-keybind sequence remain missing.
+The later supplied boot screenshot supports the quick-access sizing complaint.
+The original production geometry reproduced a two-pixel inset in a 36-pixel
+button, which grew in screen pixels when scaled. The default geometry is now
+corrected and covered above; live client and skin-specific rendering remain
+unverified.
 
 The recent CurseForge report by leocard about SoD items being reported missing
 still needs client build, saved/live item and rune identities, and a diagnostic

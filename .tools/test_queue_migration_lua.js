@@ -246,6 +246,60 @@ do
     "unknown future schemas must never be downgraded or rewritten")
 end
 
+-- Queue item icons are per-entry presentation, so legacy migration and its
+-- recovery backup must preserve both numeric file IDs and legacy texture paths.
+do
+  local path="Interface\\Icons\\Spell_Shadow_ShadowWard"
+  local global={id="33881:2648:24028:0:0:0:0:0",customIcon=808,priority=true,delay=7}
+  local perSet={id=global.id,customIcon=path,keep=true,delay=9}
+  local user={Queues={[9]={global}},Sets={Stealth={Queues={[9]={perSet}}}}}
+  ItemRack.QueueMigration.Migrate(user,{},baseID)
+  check(user.Queues[9][1]==global and global.customIcon==808 and global.priority and global.delay==7
+    and user.Sets.Stealth.Queues[9][1]==perSet and perSet.customIcon==path and perSet.keep,
+    "queue-icon-legacy-migration: icons and explicit swap policy must survive migration in both scopes")
+  local backup=user.QueueMigrationBackup
+  check(backup.global[9][1].customIcon==808 and backup.sets.Stealth[9][1].customIcon==path
+    and backup.global[9][1]~=global and backup.sets.Stealth[9][1]~=perSet,
+    "legacy icon recovery backup must capture independent entry snapshots")
+  global.customIcon=909
+  check(backup.global[9][1].customIcon==808,"editing an icon must not mutate the recovery backup")
+  local report=ItemRack.QueueMigration.Migrate(user,{},baseID)
+  check(report.entriesChanged==0 and global.customIcon==909 and perSet.customIcon==path
+    and user.QueueMigrationBackup==backup,"repeat migration must preserve chosen icons and first backup")
+end
+
+-- Load a representative SavedVariables Lua chunk into a fresh environment.
+-- This models persisted values and login migration, not the client's writer.
+do
+  local persisted=[[
+ItemRackUser={QueueSchemaVersion=2,EnablePerSetQueues="ON",CurrentSet="Stealth",
+ CustomCharacterIcons="ON",CustomMenuIcons="OFF",
+ Queues={[9]={{id="33881:2648:24028:0:0:0:0:0",customIcon=101,priority=true,keep=false,delay=7}}},
+ QueuesEnabled={[9]=false},
+ Sets={Stealth={equip={[9]="33881:2648:24028:0:0:0:0:0"},QueuesEnabled={[9]=false},
+  Queues={[9]={{id="33881:2648:24028:0:0:0:0:0",customIcon="Interface\\Icons\\Spell_Shadow_ShadowWard",priority=false,keep=true,delay=9},
+   {id=0,priority=false,keep=false,delay=0},
+   {id="99999:0:0:0:0:0:0:0",customIcon=707,priority=false,keep=false,delay=0}}}}}}
+]]
+  local environment={}
+  local deserialize=assert(load(persisted,"saved-queue-icons","t",environment)); deserialize()
+  local user=environment.ItemRackUser
+  local first=user.Sets.Stealth.Queues[9][1]
+  local report=ItemRack.QueueMigration.Migrate(user,{},baseID)
+  check(report.entriesChanged==0 and user.Queues[9][1].customIcon==101
+    and first.customIcon=="Interface\\Icons\\Spell_Shadow_ShadowWard" and first.keep and first.delay==9,
+    "queue-icon-savedvariables-load: persisted icons and policy must survive login migration")
+  check(user.CurrentSet=="Stealth" and user.EnablePerSetQueues=="ON" and user.CustomCharacterIcons=="ON"
+    and user.CustomMenuIcons=="OFF" and user.Sets.Stealth.QueuesEnabled[9]==false,
+    "loading icons must retain logical set, scope, display options and disabled queue state")
+  check(user.Sets.Stealth.Queues[9][2].id==0 and user.Sets.Stealth.Queues[9][3].customIcon==707,
+    "persisted unavailable item styling must remain behind the stop boundary")
+  local rerun=ItemRack.QueueMigration.Migrate(user,{},baseID)
+  check(rerun.entriesChanged==0 and user.Sets.Stealth.Queues[9][1]==first
+    and user.QueueMigrationBackup==nil and user.QueueMigrationQuarantine==nil,
+    "repeat login migration must be idempotent without spurious recovery state")
+end
+
 print(string.format("[QUEUE MIGRATION LUA] %d upgrade, recovery, and idempotence checks passed.",checks))
 `, 'queue-migration');
 
