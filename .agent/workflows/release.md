@@ -10,7 +10,7 @@ All archives are exported from a committed Git ref. Never publish files copied f
 CurseForge publication uses `.github/workflows/curseforge-release.yml` after a
 stable GitHub release is published. It uploads the existing verified ZIP, preserving
 both addon folders. Testing a primary candidate still publishes nothing.
-The ItemRack repository must have an Actions secret named `CF_API_TOKEN` with
+The ItemRack repository must have an Actions secret named `CF_UPLOAD_TOKEN` with
 the account's upload token; MarketSync's environment secret is not shared
 automatically and cannot be read back through GitHub. Never commit the token.
 
@@ -20,15 +20,23 @@ IDs, release notes, checksum, and every ZIP byte against the tag, without
 creating a CurseForge file. An upload also proves access to project `1441253`;
 the read-only game-version endpoint alone cannot prove project permission.
 
-Publication retains `curseforge-upload-attempt.json` on the GitHub release
-before the POST and `curseforge-upload.json` with the returned file ID afterward.
-No automatic POST retries occur. If an attempt marker exists without a receipt,
-check CurseForge and Actions evidence before recovery: the server may have
-accepted the file. Remove that marker only after confirming no file was created,
-then manually dispatch with the same tag and `upload=true`. Beta tags upload as
+Publication reserves a GitHub deployment in the `curseforge` environment before
+the POST, then records success with the returned CurseForge file ID and archive
+hash. Detailed JSON stays in Actions artifacts, outside the public release assets
+and addon ZIP. All deployment states block repeated uploads for that tag.
+No automatic POST retries occur. If an attempt lacks a success receipt, inspect
+CurseForge, deployment history and Actions evidence: the server may have accepted
+the file. Only after confirming no file was created, mark that deployment inactive
+and delete its reservation, then manually dispatch with the same tag and
+`upload=true`. Preserve successful records. Beta tags upload as
 Beta files only through an explicitly authorized manual dispatch; stable tags
 upload as Release files. Ordinary dev/production pushes and GitHub prereleases
 do not upload. A successful API response means submission, not moderator approval.
+
+The 4.53 release's legacy JSON assets were migrated to deployment history before
+removal. The Actions secret was renamed from `CF_API_TOKEN` to `CF_UPLOAD_TOKEN`
+so rerunning its immutable old workflow cannot bypass the new history guard;
+the old secret must remain absent. Never rewrite the accepted tag to update CI.
 
 ## Questions to ask first
 

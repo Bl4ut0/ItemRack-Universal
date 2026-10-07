@@ -80,7 +80,14 @@ fixture and checks both folders, every tag blob, checksum, TOC/project/version
 mapping and notes. Injected HTTP responses exercise missing credentials, exact
 and missing/ambiguous game versions, beta/stable metadata, the unchanged multipart
 ZIP, returned file ID, changed-file refusal and no automatic POST retry. The
-workflow reserves a persistent release asset before upload. These fixtures do
+workflow reserves a persistent deployment before upload. `curseforge-clean-release-assets`
+guards the screenshot's public JSON downloads; production reservation/status
+handlers cover legacy guards, all prior deployment states, inaccessible history,
+exact tag/hash, unchanged source, receipt mismatch and idempotent successful-receipt
+migration without another CurseForge POST. Detailed JSON remains an Actions
+artifact, and retiring the old secret prevents historical jobs from bypassing
+the migrated guard. The named workflow case fails against the 4.53 asset publisher.
+These fixtures do
 not prove the account's ItemRack project permission, live API submission,
 moderator approval or CurseForge installation; the read-only Actions setup run,
 actual upload receipt and client installation remain deployment acceptance.

@@ -88,7 +88,7 @@ function verifyRelease({ tag, archive, checksum, notes, repo = process.cwd() }) 
 }
 
 async function preflight(plan, notes, token, fetchImpl = fetch) {
-  requireValue(token && !/[\r\n]/.test(token), 'CF_API_TOKEN is missing or invalid. Add the shared account token to ItemRack Actions secrets.');
+  requireValue(token && !/[\r\n]/.test(token), 'CF_API_TOKEN is missing or invalid. Configure ItemRack Actions secret CF_UPLOAD_TOKEN.');
   const response = await fetchImpl(`${endpoint}/game/wow/versions`, {
     headers: { 'X-Api-Token': token }, signal: AbortSignal.timeout(60000)
   });
