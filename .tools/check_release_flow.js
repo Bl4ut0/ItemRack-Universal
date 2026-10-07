@@ -1,6 +1,11 @@
 const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 const releaseTools = require('./create_release');
+const curseForge = require('./curseforge_upload');
 
 const read = (filePath) => fs.readFileSync(filePath, 'utf8');
 const createRelease = read('.tools/create_release.js');
@@ -258,4 +263,91 @@ check(
   'The default test stack must expose structure and release-flow checks.'
 );
 
-console.log(`[RELEASE FLOW] ${checks} candidate, packaging, installation, and finalization guards passed.`);
+async function checkCurseForgeDeployment() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'itemrack-deploy-'));
+  try {
+    const git = (args) => execFileSync('git', ['-C', root, ...args], { stdio: 'pipe' });
+    git(['init', '--quiet']);
+    const toc = '## Version: 4.53\n## Interface: 11601, 16001, 11509, 11508, 20505, 20506\n## X-Curse-Project-ID: 1441253\n';
+    for (const folder of ['ItemRack', 'ItemRackOptions']) {
+      fs.mkdirSync(path.join(root, folder));
+      fs.writeFileSync(path.join(root, folder, `${folder}.toc`), toc);
+      fs.writeFileSync(path.join(root, folder, `${folder}.lua`), '-- Original addon bytes\n');
+    }
+    git(['-c', 'core.autocrlf=false', 'add', 'ItemRack', 'ItemRackOptions']);
+    git(['-c', 'user.name=Deployment Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Fixture']);
+    git(['tag', 'v4.53']);
+    const archive = path.join(root, 'ItemRack-universal-4.53.zip');
+    git(['-c', 'core.autocrlf=false', 'archive', '--format=zip', `--output=${archive}`, 'v4.53', '--', 'ItemRack', 'ItemRackOptions']);
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex');
+    const checksum = `${archive}.sha256`;
+    fs.writeFileSync(checksum, `${hash}  ItemRack-universal-4.53.zip\n`);
+    const notes = '# ItemRack Universal v4.53\n\n- Test change\n';
+    const args = { tag: 'v4.53', archive, checksum, notes, repo: root };
+    const plan = curseForge.verifyRelease(args);
+    check(curseForge.verifyRelease({ ...args, notes: notes.replace('Universal', 'Anniversary') }).sha256 === plan.sha256,
+      'Existing immutable releases with historical Anniversary notes must remain usable for a read-only setup check.');
+    check(plan.fileCount === 4 && plan.releaseType === 'release' && plan.sha256 === hash &&
+      plan.gameVersionNames.join(',') === '1.60.1,1.15.9,1.15.8,2.5.5,2.5.6',
+    'CurseForge deployment must preserve both addon folders and every exact-tag byte with mapped Universal clients.');
+    assert.throws(() => curseForge.verifyRelease({ ...args, tag: 'dev' }), /exact release tag/); checks++;
+    assert.throws(() => curseForge.verifyRelease({ ...args, notes: '# Wrong release\n' }), /notes\/version/); checks++;
+    fs.writeFileSync(checksum, `${'0'.repeat(64)}  ItemRack-universal-4.53.zip\n`);
+    assert.throws(() => curseForge.verifyRelease(args), /checksum mismatch/); checks++;
+    fs.writeFileSync(checksum, `${hash}  ItemRack-universal-4.53.zip\n`);
+    const itemOnly = path.join(root, 'single-folder.zip');
+    git(['-c', 'core.autocrlf=false', 'archive', '--format=zip', `--output=${itemOnly}`, 'v4.53', '--', 'ItemRack']);
+    fs.writeFileSync(archive, fs.readFileSync(itemOnly));
+    fs.writeFileSync(checksum, `${crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex')}  ItemRack-universal-4.53.zip\n`);
+    assert.throws(() => curseForge.verifyRelease(args), /file count/); checks++;
+    git(['-c', 'core.autocrlf=false', 'archive', '--format=zip', `--output=${archive}`, 'v4.53', '--', 'ItemRack', 'ItemRackOptions']);
+    fs.writeFileSync(checksum, `${hash}  ItemRack-universal-4.53.zip\n`);
+    const versions = plan.gameVersionNames.map((name, i) => ({ name, id: 100 + i }));
+    let requests = 0;
+    const fakeFetch = async (url, request) => {
+      requests++;
+      check(url.endsWith('/game/wow/versions') && request.headers['X-Api-Token'] === 'fixture-token',
+        'Setup must authenticate without uploading a file.');
+      return { ok: true, json: async () => versions };
+    };
+    await assert.rejects(curseForge.preflight(plan, notes, '', fakeFetch), /CF_API_TOKEN/); checks++;
+    check(requests === 0, 'Missing credential must stop before network calls.');
+    const checked = await curseForge.preflight(plan, notes, 'fixture-token', fakeFetch);
+    check(checked.projectId === 1441253 && checked.metadata.gameVersions.length === 5 &&
+      checked.metadata.releaseType === 'release' && checked.metadata.changelog === notes,
+    'Deployment metadata must select ItemRack project, exact client IDs, channel and notes.');
+    await assert.rejects(curseForge.preflight(plan, notes, 'fixture-token', async () => ({ ok: true, json: async () => versions.slice(1) })), /exactly one/); checks++;
+    await assert.rejects(curseForge.preflight(plan, notes, 'fixture-token', async () => ({ ok: true, json: async () => [...versions, versions[0]] })), /exactly one/); checks++;
+    await assert.rejects(curseForge.preflight(plan, notes, 'fixture-token', async () => ({ ok: false, status: 401 })), /HTTP 401/); checks++;
+    const beta = await curseForge.preflight({ ...plan, version: '4.53-beta2', releaseType: 'beta' }, notes, 'fixture-token', fakeFetch);
+    check(beta.metadata.releaseType === 'beta', 'Beta deployment must retain its Beta file type.');
+    let uploads = 0;
+    const receipt = await curseForge.upload(checked, archive, 'fixture-token', async (url, request) => {
+      uploads++;
+      check(url.endsWith('/projects/1441253/upload-file') && request.method === 'POST', 'Upload must target the ItemRack project.');
+      check(JSON.parse(request.body.get('metadata')).gameVersions.length === 5 &&
+        Buffer.from(await request.body.get('file').arrayBuffer()).equals(fs.readFileSync(archive)),
+      'Multipart upload must carry both folders in the identical published ZIP, without flattening/rebuilding.');
+      return { ok: true, json: async () => ({ id: 12345 }) };
+    });
+    check(receipt.fileId === 12345 && receipt.sha256 === hash && uploads === 1, 'Successful deployment must retain a file-ID/hash receipt.');
+    await assert.rejects(curseForge.upload(checked, archive, 'fixture-token', async () => {
+      uploads++; throw new Error('connection lost');
+    }), /connection lost/); checks++;
+    check(uploads === 2, 'Ambiguous upload failures must never automatically retry the POST.');
+    fs.appendFileSync(archive, 'changed');
+    await assert.rejects(curseForge.upload(checked, archive, 'fixture-token', async () => { throw new Error('Network must not run'); }), /changed after/); checks++;
+    const automation = read('.github/workflows/curseforge-release.yml');
+    check(automation.includes('default: false') && automation.includes('types: [published]') &&
+      automation.includes('github.event.release.prerelease == false') &&
+      automation.includes('npm test') && automation.includes('curseforge-upload-attempt.json') &&
+      automation.includes('gh release upload "$RELEASE_TAG" .versions/CurseForge/curseforge-upload-attempt.json') &&
+      !automation.includes('--clobber'),
+    'Deployment workflow must retain a read-only check, full gate and persistent duplicate-attempt reservation.');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+checkCurseForgeDeployment().then(() => {
+  console.log(`[RELEASE FLOW] ${checks} candidate, packaging, installation, finalization and CurseForge deployment guards passed.`);
+}).catch((error) => { console.error(error); process.exitCode = 1; });

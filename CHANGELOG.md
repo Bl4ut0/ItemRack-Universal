@@ -4,6 +4,8 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **CurseForge Release Deployment**: Approved stable GitHub releases can submit the unchanged universal ZIP to CurseForge, preserving both addon folders. A read-only setup check verifies the account token, exact client versions, checksum and tag contents. Uploads retain attempt markers and file-ID receipts; ambiguous failures are never automatically retried. Beta uploads remain explicitly requested.
+
 ### Bug Fixes & Improvements
 - **Cross-Class Spell Icon Search**: The Queue icon picker now includes player/profession spell artwork from the matching Era, TBC or Forever client family, with English game-data aliases independent of the character's spellbook. Lightning Bolt and Chain Lightning are searchable on other classes. Localized live spellbook names remain searchable; filtered tooltips identify the matched alias. Fixed numeric icon IDs returned as strings, already qualified paths and Classic spellbook-token compatibility. Added permanent Lightning and neighboring client/scoped-edit regressions; live rendering remains acceptance.
 - **Restore Queue Stop Marker**: Added an Add stop marker button to the right Queue panel. It appends and selects a deleted marker so it can be moved with the arrows, and stays disabled while a marker exists. Global/per-set ownership, item order, policies and queue enablement are preserved; permanent regressions cover recovery, pagination, saved snapshots and the existing runtime stop boundary.

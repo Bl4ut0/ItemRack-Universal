@@ -1,0 +1,80 @@
+name: CurseForge release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing published GitHub release tag (for example v4.53)'
+        required: true
+        type: string
+      upload:
+        description: 'Upload after setup checks (false only checks configuration)'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: curseforge-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  verify-and-deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Persist attempt/receipt on the release, preventing duplicate retries.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run complete addon and deployment gate
+        run: npm test
+      - name: Download the published release archive and notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          node -e 'if (!/^v\d+\.\d+(?:\.\d+)?(?:-beta\d+)?$/.test(process.env.RELEASE_TAG)) process.exit(1)'
+          mkdir -p .versions/CurseForge
+          gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' | grep -Fx false
+          gh release download "$RELEASE_TAG" --pattern "ItemRack-universal-${RELEASE_TAG#v}.zip*" --dir .versions/CurseForge
+          gh release view "$RELEASE_TAG" --json body --jq '.body' > .versions/CurseForge/GITHUB_RELEASE.md
+      - name: Confirm account token, archive provenance and exact game versions
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: node .tools/curseforge_upload.js check "$RELEASE_TAG" .versions/CurseForge
+      - name: Reserve and upload the exact checked archive
+        if: github.event_name == 'release' || inputs.upload == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Eq '^curseforge-upload(-attempt)?\.json$'; then
+            echo 'An upload was already attempted. Inspect the receipt/CurseForge file before retrying.' >&2
+            exit 1
+          fi
+          cp .versions/CurseForge/curseforge-plan.json .versions/CurseForge/curseforge-upload-attempt.json
+          # Reserving this asset must fail if another run already reserved it.
+          gh release upload "$RELEASE_TAG" .versions/CurseForge/curseforge-upload-attempt.json
+          node .tools/curseforge_upload.js upload "$RELEASE_TAG" .versions/CurseForge
+          gh release upload "$RELEASE_TAG" .versions/CurseForge/curseforge-upload.json
+      - name: Retain deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: curseforge-evidence-${{ github.run_id }}
+          path: .versions/CurseForge/*.json
+          if-no-files-found: ignore

@@ -74,6 +74,17 @@ standard suite before its fix is considered complete:
 
 ### Report coverage in the standard gate
 
+The October 7 CurseForge deployment request extends `.tools/check_release_flow.js`
+in the standard gate. Production deployment verification reads a real `git archive`
+fixture and checks both folders, every tag blob, checksum, TOC/project/version
+mapping and notes. Injected HTTP responses exercise missing credentials, exact
+and missing/ambiguous game versions, beta/stable metadata, the unchanged multipart
+ZIP, returned file ID, changed-file refusal and no automatic POST retry. The
+workflow reserves a persistent release asset before upload. These fixtures do
+not prove the account's ItemRack project permission, live API submission,
+moderator approval or CurseForge installation; the read-only Actions setup run,
+actual upload receipt and client installation remain deployment acceptance.
+
 The October 4, 2026 comparison review and user clarification about weapon-only
 saved sets are covered by `weapon-only combat binding is secure and never replayed`
 in `.tools/test_set_bindings_lua.js`. It checks weapon-only and opt-in full-set
