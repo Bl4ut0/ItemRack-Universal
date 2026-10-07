@@ -1,5 +1,6 @@
 __ Development __
 
+__ New in 4.53 - By Bl4ut0 __
 - **CurseForge Release Deployment**: Approved stable GitHub releases submit the verified universal ZIP with both addon folders intact. Read-only setup checks validate credentials, client versions and tag contents; attempt markers and receipts prevent automatic duplicate retries. Beta uploads remain explicitly requested.
 - Queue icon search now includes other classes' player/profession spell artwork for the matching Era/TBC/Forever client family, with English game-data aliases alongside localized known spell names. Lightning Bolt and Chain Lightning are searchable on a rogue. Fixed string-valued numeric icon IDs, already qualified paths and Classic spellbook-token compatibility; filtered tooltips show the matching name. Permanent regressions retain queue policies, scoped edits and terminal equipment.
 - Added Add stop marker to the right Queue panel. It restores a deleted marker at the end, selects/scrolls it into view for relocation, and prevents duplicates. Global/per-set ownership, item order, settings and queue enablement remain intact; permanent regressions cover recovery, save snapshots and the existing stop boundary.
@@ -12,8 +13,6 @@ __ Development __
 - Queue editor coalesces empty/zero item-field duplicates while preserving distinct enchants and runes. Saved unavailable items remain configurable and are labeled not carried; exact items in the open bank are labeled in bank. Queue tooltips show the saved variant instead of a different carried same-base copy. Added permanent production-Lua coverage. The Era 4.51 screenshot's exact saved/live identities are still needed to confirm its cause.
 - Default quick-access icons fill the button and align with their cooldown overlays at every scale. Removed the icon inset while preserving decorative borders and Masque skin control.
 - Unified addon-list, Options and keybinding titles as ItemRack Universal. Future release posts use the same Universal title; stable ItemRack and ItemRackOptions module/folder names remain compatible.
-
-__ New in 4.53-beta1 - By Bl4ut0 __
 - GitHub #29: confirm dependent weapon moves before resolving displaced sources again, guard equipment-source identities, park slot-restricted displaced items, preserve implicit source-slot restoration history, and release reservations at set completion. Added permanent reported and neighboring production-Lua regressions; live-client acceptance remains required.
 - Restored secure weapon-only combat hotkeys and added the default-off Swap set weapons during combat option for full sets. Remaining gear and failed weapons finish after combat. Combat presses equip, not toggle; rune-specific and empty-slot weapons remain deferred.
 - Hardened Forever icon loading using private lists and guarded API calls; notices fall back when floating combat text is unavailable.
