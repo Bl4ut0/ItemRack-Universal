@@ -37,7 +37,7 @@ The addon list displays **ItemRack Universal** and **ItemRack Universal Options*
 
 - Save and equip full or partial gear sets.
 - Bind sets and individual equipment slots to keys.
-- Weapon-only set hotkeys equip during combat. Enable **Swap set weapons during combat** in Global Settings to also equip the weapon portion of full sets immediately and finish the remaining gear after combat. Combat presses equip rather than toggle; empty-slot and rune-specific weapon requests remain deferred.
+- Weapon-only saved-set hotkeys equip during combat. Enable **Full-set hotkeys swap weapons in combat** in Global Settings to also equip the weapon portion of full sets immediately and finish the remaining gear after combat. This requires a key assigned with **Sets > Bind Key**; flyout clicks, `/itemrack equip` macros, events, and queues remain deferred. Combat presses equip rather than toggle; empty-slot and rune-specific weapon requests remain deferred.
 - Add movable quick-access buttons from the character sheet.
 - Open flyout menus containing compatible carried and banked items.
 - Automatically equip sets for specializations, stances, mounting, movement, zones, buffs, drinking, and other events.
@@ -46,7 +46,7 @@ The addon list displays **ItemRack Universal** and **ItemRack Universal Options*
 - Defer restricted swaps safely through combat, casting, loading screens, and item locks.
 - Use one-frame multi-item pipelining where the client permits it.
 
-See [CONTROLS.md](CONTROLS.md) for the full mouse, keybinding, macro, and slash-command reference.
+See the [controls reference](docs/CONTROLS.md) for the full mouse, keybinding, macro, and slash-command reference. The packaged [ItemRack guide](ItemRack/readme.txt) includes a detailed explanation, scope, dependency, and fresh-profile default for every setting.
 
 ## Quick start
 
@@ -102,9 +102,9 @@ npm.cmd ci
 npm.cmd test
 ```
 
-Every reproducible user-reported bug must receive a named permanent regression in the standard `npm test` gate. See [TESTING.md](TESTING.md) for the workflow and [BETA_TEST_CHECKLIST.md](BETA_TEST_CHECKLIST.md) for live-client acceptance checks.
+Every reproducible user-reported bug must receive a named permanent regression in the standard `npm test` gate. See the [testing workflow](docs/TESTING.md) and [beta test checklist](docs/BETA_TEST_CHECKLIST.md). The [documentation index](docs/README.md) links the remaining user and engineering references.
 
-Release builds are exported from immutable Git commits. The only supported artifact is `ItemRack-universal-{Version}.zip`; client-specific source branches and packages are retired. See [.agent/workflows/release.md](.agent/workflows/release.md).
+Release builds are exported from immutable Git commits. The only supported artifact is `ItemRack-universal-{Version}.zip`; client-specific source branches and packages are retired. See the [release workflow](.agents/workflows/release.md).
 
 ## Credits
 

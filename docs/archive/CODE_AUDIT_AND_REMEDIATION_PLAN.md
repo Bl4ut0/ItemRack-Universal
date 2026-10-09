@@ -1,6 +1,13 @@
 # ItemRack v4.24-to-Dev Code Audit and Remediation Plan
 
-> Status: code remediation implemented, automated closure verified, and `v4.45-beta1` published for live-client validation. Stable promotion remains **NO-GO** until the in-client, historical SavedVariables, reporter, and performance gates below are completed.
+> [!NOTE]
+> **Archived historical snapshot.** This document records the v4.24-v4.45
+> remediation effort and is not the current release status or operating procedure.
+> Use the [current testing workflow](../TESTING.md), the
+> [release workflow](../../.agents/workflows/release.md), and the repository
+> [README](../../README.md) for active guidance.
+>
+> Historical status at archive time: code remediation implemented, automated closure verified, and `v4.45-beta1` published for live-client validation. Stable promotion remained **NO-GO** until the in-client, historical SavedVariables, reporter, and performance gates below were completed.
 >
 > Audit snapshot: 2026-09-02, branch `dev`, commit `04a6efea4f5c06748acba945103160215566cef2` (`origin/dev` at the time of inspection).
 >

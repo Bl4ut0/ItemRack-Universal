@@ -74,6 +74,23 @@ standard suite before its fix is considered complete:
 
 ### Report coverage in the standard gate
 
+October 9, 2026 local user report: `ItemRack/readme.txt`, which ships inside
+every release archive, still described the 2.2-era event design, obsolete future
+plans and a non-overlapping-set restriction while omitting the Universal client
+matrix and current safety behavior. Named `packaged-readme-current-guide` in
+`.tools/check_regressions.js` fails against the old file at the shared
+Classic/TBC/Forever documentation assertion and passes only when the packaged
+guide identifies the supported clients, combat-weapon option, diagnostics and
+explicit script approval while excluding the retired guidance. The replacement
+was checked against production click, bank, slash-command, queue and event
+handlers. The follow-up named `packaged-readme-settings-catalog` inventories
+every label in the production `OptInfo` table plus the Set, Queue, Event, rune,
+binding, reset and sound editors. It requires explicit scope/default entries for
+value-bearing main options and guards the easily misunderstood Script Test,
+destructive reset and character/account scope explanations. These are static
+packaged-document regressions; verify the next release ZIP contains the updated
+readable text beside `ItemRack.toc`.
+
 October 9 beta publishing report: CurseForge's repository packager reported no
 TOC for 7297c8b, while our GitHub CurseForge workflow was skipped by its stable-only
 job filter. The GitHub ZIP contained both nested addon TOCs. Named standard-gate
@@ -102,12 +119,41 @@ manual slot queues verify retained requests, no transaction/pickup in combat,
 post-combat actual equipment and cleared queue/cursor/transaction/set work.
 The existing secure-binding suite retains weapon-only/full-set macro coverage,
 identity reconciliation and no replay. Bag locations and API timing are modeled;
-exact client build is not supplied. Live acceptance: repeat the issue's steps
-with both toggle states; test secure weapon hotkeys, full sets, individual slots,
-two-handed/off-hand transitions, casting and rapid replacement requests. Verify
-no ADDON_ACTION_BLOCKED, no destination_rejected, all requested items equip
-after combat, current set reconciles and pending overlays clear. Other supported
-clients require equivalent protected-action acceptance before stable release.
+exact client build is not supplied. On October 9, y00 confirmed in TBC that
+4.54-beta1 retained slots 16-18 during combat, equipped them afterward and
+produced no Lua errors; the attached trace shows all three CombatQueue entries,
+post-combat equipment transitions, transaction completion and an empty final
+queue. This is live acceptance of the originally reported menu/slash deferral
+failure. The same reply expected the account-wide combat-weapons option to make
+menu and `/itemrack equip` requests immediate, but those paths cannot submit
+protected actions. Named static regression `issue-30-combat-hotkey-copy` in
+`.tools/check_regressions.js` requires the revised label and tooltip to say the
+option applies only to saved-set keys assigned through Sets > Bind Key and that
+menu, slash, event and queue requests defer. Secure Bind Key behavior itself
+still needs reporter/client acceptance, along with both toggle states, full
+sets, individual slots, two-handed/off-hand transitions, casting and rapid
+replacement requests. Other supported clients require equivalent protected-
+action acceptance before stable release.
+
+GitHub #30 October 9 follow-up on 4.54-beta1: y00 confirmed a Sets-tab Bind Key
+securely equips slots 16-18 in combat and successfully finishes non-weapon slots
+after combat, but the retained non-weapon items had no pending icon on either the
+character sheet or quick-access buttons. The cause was a presentation ownership
+gap: secure full-set completion is retained in `PendingSetBindingRequest`, while
+`UpdateCombatQueue` rendered only physical `CombatQueue` entries. Named
+`issue-30-secure-full-set-pending-overlays` in `.tools/test_set_bindings_lua.js`
+executes the production request and renderer. It verifies both surfaces show the
+reported pending armor, unobserved weapons remain visible, observed secure weapon
+completion clears only the weapon overlays, armor remains visible, no duplicate
+execution queue entry is created, combat exit executes once, and all overlays
+clear. The pre-fix implementation has no set-request projection and fails the
+first icon assertion. Live acceptance: use a bound full set with the combat
+option enabled, display matching quick-access slots and the character sheet,
+enter combat, press the binding, and verify immediate weapon icons clear while
+armor icons retain the requested textures until combat exit. Hover a pending
+quick-access icon to confirm its target tooltip; repeat a rejected weapon and a
+newer superseding set request. Check for stale icons, Lua errors, taint, duplicate
+swaps, and correct final gear on every supported client family.
 
 October 8 character-tooltip hop: https://imgur.com/a/v7eD8FY and supplied
 OLaVTW6.mp4 show the same equipped ring tooltip on the right around 6.4 seconds

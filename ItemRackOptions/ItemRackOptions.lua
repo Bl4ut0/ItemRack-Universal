@@ -284,7 +284,7 @@ function ItemRackOpt.OnLoad(self)
 		{type="slider",optset=ItemRackUser,button=ItemRackOptCharMenuWrapValueSlider,depend="CharMenuWrap",variable="CharMenuWrapValue",label="When to wrap",tooltip="When 'Char sheet wrap' checked, this is the number of menu items before wrapping to a new row/column.", min=1, max=30, step=1, form="%d"},
 
 		{type="label",label="Global Settings"},
-		{type="check",optset=ItemRackSettings,variable="CombatSetWeapons",label="Swap set weapons during combat",tooltip="Set hotkeys equip weapons immediately during combat and equip remaining gear after combat. Weapon-only sets already swap immediately. Combat presses equip rather than toggle; rune-specific and empty-slot weapon requests wait until combat ends."},
+		{type="check",optset=ItemRackSettings,variable="CombatSetWeapons",label="Full-set hotkeys swap weapons in combat",tooltip="Only saved-set keys assigned with Sets > Bind Key use this option. It does not affect flyout-menu clicks, /itemrack equip macros, events, or queues; those wait until combat ends. Weapon-only bound sets already swap immediately. When enabled, a bound full set equips slots 16-18 during combat and queues its remaining gear. Rune-specific and empty-slot weapon requests still wait until combat ends."},
 		{type="check",optset=ItemRackSettings,variable="MenuOnShift",label="Menu on Shift",tooltip="Only show menu while Shift is held down."},
 		{type="check",optset=ItemRackSettings,variable="MenuOnRight",label="Menu on right click",tooltip="Open item and set flyout menus by right clicking buttons.\nWhen unchecked, flyout menus open on hover; Alt+Right-Click opens configuration.",combatlock=1},
 		{type="check",optset=ItemRackSettings,variable="RightClickUse",label="Use on Right-Click",tooltip="Right-clicking an item button uses the item instead of manually advancing its auto queue."},
@@ -955,6 +955,7 @@ function ItemRackOpt.DeleteSet()
 		end
 		if ItemRack.PendingSetBindingRequest and ItemRack.PendingSetBindingRequest.setname == setname then
 			ItemRack.PendingSetBindingRequest = nil
+			if ItemRack.UpdateCombatQueue then ItemRack.UpdateCombatQueue() end
 		end
 		ItemRackUser.Sets[setname] = nil
 	end

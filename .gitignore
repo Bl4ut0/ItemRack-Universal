@@ -4,22 +4,14 @@
 
 # WoW Interface Code
 BlizzardInterfaceCode/
-.agent/*
-!.agent/workflows/
-.agent/workflows/*
-!.agent/workflows/release.md
-!.agent/workflows/local_build.md
 .versions/
 WeakAuras/
 
 # Local files
 .env
-CURSEFORGE_DESCRIPTION.md
 RELEASE_NOTES.md
-DEAD_ENDS.md
 WTF/
 Images/
-.rules/
 .vscode
 .gemini/
 OmniCC/

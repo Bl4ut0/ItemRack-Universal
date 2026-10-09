@@ -2025,6 +2025,12 @@ function ItemRack.OnUnitInventoryChanged(self,event,unit)
 				ItemRack.UpdateCombatQueue()
 			end
 		end
+		-- Secure set macros can update weapon slots after PostClick has projected
+		-- the full pending set. Refresh that projection on the observed inventory
+		-- event so completed weapons disappear while deferred armor remains shown.
+		if ItemRack.PendingSetBindingRequest then
+			ItemRack.UpdateCombatQueue()
+		end
 		ItemRack.RequestInventoryRefresh("UNIT_INVENTORY_CHANGED")
 	end
 end
@@ -4884,6 +4890,22 @@ function ItemRack.RemoveFromCombatQueue(slot)
 	end
 end
 
+function ItemRack.GetPendingSetBindingDisplayID(slot)
+	local request = ItemRack.PendingSetBindingRequest
+	if type(request) ~= "table" or request.kind ~= "secure_set_binding"
+	or request.intent ~= "equip" or not ItemRackUser.Sets then
+		return nil
+	end
+	local set = ItemRackUser.Sets[request.setname]
+	local id = set and type(set.equip) == "table" and set.equip[slot] or nil
+	if not id or id == 0 then return nil end
+	local equippedState,equippedID = ItemRack.GetEquippedSlotState(slot)
+	if equippedState == "resolved" and ItemRack.MatchesStoredItemID(id,equippedID) then
+		return nil
+	end
+	return id
+end
+
 function ItemRack.UpdateCombatQueue()
 	if ItemRackUser.EnableQueues ~= "ON" and ItemRack.PendingQueueEquipSet then
 		ItemRack.TryEquipPendingQueueSet()
@@ -4901,8 +4923,9 @@ function ItemRack.UpdateCombatQueue()
 	local queue,id
 	for i in pairs(ItemRackUser.Buttons) do
 		queue = _G["ItemRackButton"..i.."Queue"]
-		if ItemRack.CombatQueue[i] then
-			queue:SetTexture(select(2,ItemRack.GetInfoByID(ItemRack.CombatQueue[i])))
+		id = ItemRack.CombatQueue[i] or ItemRack.GetPendingSetBindingDisplayID(i)
+		if id then
+			queue:SetTexture(select(2,ItemRack.GetInfoByID(id)))
 			queue:SetAlpha(1)
 			queue:Show()
 		elseif ItemRack.GetQueuesEnabled()[i] then
@@ -4916,8 +4939,9 @@ function ItemRack.UpdateCombatQueue()
 
 	for i=1,19 do
 		queue = _G["Character"..ItemRack.SlotInfo[i].name.."Queue"]
-		if ItemRack.CombatQueue[i] then
-			queue:SetTexture(select(2,ItemRack.GetInfoByID(ItemRack.CombatQueue[i])))
+		id = ItemRack.CombatQueue[i] or ItemRack.GetPendingSetBindingDisplayID(i)
+		if id then
+			queue:SetTexture(select(2,ItemRack.GetInfoByID(id)))
 			queue:Show()
 		else
 			queue:Hide()
@@ -4939,7 +4963,8 @@ function ItemRack.InventoryTooltip(self)
 		ItemRack.TooltipOwner = self
 		ItemRack.TooltipType = "INVENTORY"
 		ItemRack.TooltipSlot = id
-		ItemRack.TooltipBag = ItemRack.CombatQueue[id] and ItemRack.GetInfoByID(ItemRack.CombatQueue[id])
+		local pendingID = ItemRack.CombatQueue[id] or ItemRack.GetPendingSetBindingDisplayID(id)
+		ItemRack.TooltipBag = pendingID and ItemRack.GetInfoByID(pendingID)
 		ItemRack.StartTimer("TooltipUpdate",0)
 	end
 end
@@ -5873,6 +5898,7 @@ function ItemRack.ProcessPendingSetBinding(reason)
 	or (request.intent ~= "equip" and request.intent ~= "unequip")
 	or not ItemRackUser.Sets or not ItemRackUser.Sets[request.setname] then
 		ItemRack.PendingSetBindingRequest = nil
+		if ItemRack.UpdateCombatQueue then ItemRack.UpdateCombatQueue() end
 		ItemRack.Debug("API","Dropped invalid pending set binding",reason or "retry")
 		return false,"invalid"
 	end
@@ -5881,6 +5907,7 @@ function ItemRack.ProcessPendingSetBinding(reason)
 	-- busy it records its own manual waiting request; this transient intent must
 	-- never be replayed a second time.
 	ItemRack.PendingSetBindingRequest = nil
+	if ItemRack.UpdateCombatQueue then ItemRack.UpdateCombatQueue() end
 	local pendingQueue = ItemRack.PendingQueueEquipSet
 	if pendingQueue and pendingQueue.isAutomatic and ItemRack.CancelPendingQueueEquipSet then
 		ItemRack.CancelPendingQueueEquipSet(pendingQueue,"set_binding_manual_precedence")
@@ -5910,6 +5937,7 @@ function ItemRack.RunSetBinding(setname,request)
 		ItemRack.Debug("API","Set binding request superseded",superseded.id,request.id)
 	end
 	local executed,executeReason = ItemRack.ProcessPendingSetBinding("set binding click")
+	if ItemRack.UpdateCombatQueue then ItemRack.UpdateCombatQueue() end
 	return executed and "executed" or "deferred",executeReason
 end
 
@@ -5964,7 +5992,10 @@ function ItemRack.ConfigureSetBindingButton(button,setname)
 			-- Retain the set request only for remaining armor or a rejected,
 			-- locked, or wrong-copy weapon; never schedule a combat toggle.
 			ItemRack.PendingSetBindingRequest = nil
-			if ItemRack.IsSetEquipped(setname) then return end
+			if ItemRack.IsSetEquipped(setname) then
+				if ItemRack.UpdateCombatQueue then ItemRack.UpdateCombatQueue() end
+				return
+			end
 		end
 		ItemRack.RunSetBinding(setname,request)
 	end)

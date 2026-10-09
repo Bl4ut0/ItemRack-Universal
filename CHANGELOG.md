@@ -4,7 +4,11 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **Pending icons for secure full-set hotkeys (GitHub #30)**: When a combat-capable saved-set key equips weapons immediately and retains the rest of the set for combat exit, the still-unmet items now appear on both character-sheet slots and quick-access buttons. Observed secure weapon completions clear only their own projected icons; deferred armor remains visible until the set request is consumed. Pending-item tooltips use the same target, and the projection never duplicates execution work into `CombatQueue`. Added the reported production-Lua regression and lifecycle checks; live icon rendering remains to be confirmed.
+- **Clear combat-hotkey setting**: Renamed the ambiguous "Swap set weapons during combat" option to "Full-set hotkeys swap weapons in combat." Its tooltip now explains that only saved-set keys assigned through **Sets > Bind Key** use the secure combat path; flyout clicks, `/itemrack equip` macros, events, and queues continue to defer. GitHub #30's reporter confirmed that 4.54-beta1 correctly queues slots 16-18 and equips them after combat without Lua errors.
 - **Automatic CurseForge betas**: Published GitHub prereleases now enter the same verified-ZIP deployment workflow as stable releases. Exact beta tags select CurseForge Beta classification; stable tags remain Release. Both include all supported Era/TBC/Forever game-version IDs. Preserve provenance checks, upload reservations and no automatic POST retries. Added failing-before/passing-after automatic-beta trigger coverage and real tagged-beta metadata/upload regressions; live next-release submission remains acceptance.
+- **Documentation and agent guidance cleanup**: Consolidated shared Codex and Antigravity instructions in root `AGENTS.md`, moved maintained references under `docs/`, archived the completed v4.24-v4.45 audit snapshot, and migrated release/local-build workflows to `.agents/workflows/`. Removed obsolete `.rules`, `.gemini/rules.md`, and dead-end scratch guidance. Updated packaging exclusions, links, and permanent path regressions; accepted release tags remain unchanged.
+- **Packaged Universal guide and complete settings reference**: Replaced the 2.2-era `ItemRack/readme.txt` shipped inside every archive with a self-contained guide to supported clients, both addon folders, current controls, exact-item sets, global/per-set queues, custom icon search, stop-marker recovery, deferred and secure combat weapon paths, ordered event ownership, script approval, diagnostics, and support data. Added detailed scope, fresh-profile defaults, dependencies, interactions, ranges, destructive effects, and explanations for every main option plus Set, Queue, Event, keybinding, reset, SoD rune, and LibSoundIndex control. Removed obsolete future plans and the old non-overlapping-set restriction. Added failing-before/passing-after `packaged-readme-current-guide` and `packaged-readme-settings-catalog` regressions.
 
 
 ## [4.54-beta1] - 2026-10-09
@@ -576,7 +580,7 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 ### UI & Layout Improvements
 - **Smart Menu Docking**: Character sheet flyout menus for left-side slots (Head, Neck, Back, Chest, Shirt, Tabard, Wrist, Shoulder) now spawn to the **left** instead of the right, preventing overlap with tooltips or the character model.
 - **Minimap Tooltip Anchor**: Repositioned the minimap button tooltip to the bottom-left of the button to ensure it doesn't obstruct the dropdown menu interactions.
-- **Documentation**: Added a complete [CONTROLS.md](CONTROLS.md) reference guide accessible from the README.
+- **Documentation**: Added a complete [CONTROLS.md](docs/CONTROLS.md) reference guide accessible from the README.
 
 ## [4.27] - Dual Spec Support
 ### Core Refinements & Spec Switching

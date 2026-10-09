@@ -14,11 +14,14 @@ const mainToc = read('ItemRack/ItemRack.toc');
 const optionsToc = read('ItemRackOptions/ItemRackOptions.toc');
 const buildScript = read('.tools/build_release_dev.ps1');
 const installScript = read('.tools/install_local.ps1');
-const releaseWorkflow = read('.agent/workflows/release.md');
-const technicalChanges = read('TECHNICAL_CHANGES.md');
+const releaseWorkflow = read('.agents/workflows/release.md');
+const technicalChanges = read('docs/TECHNICAL_CHANGES.md');
 const readme = read('README.md');
-const curseForgeDescription = read('CURSEFORGE_DESCRIPTION.md');
-const betaChecklist = read('BETA_TEST_CHECKLIST.md');
+const packagedReadme = read('ItemRack/readme.txt');
+const agentsGuide = read('AGENTS.md');
+const docsIndex = read('docs/README.md');
+const curseForgeDescription = read('docs/CURSEFORGE_DESCRIPTION.md');
+const betaChecklist = read('docs/BETA_TEST_CHECKLIST.md');
 
 let checks = 0;
 function check(condition, message) {
@@ -33,6 +36,102 @@ function between(source, start, end) {
   assert.notStrictEqual(endIndex, -1, `Missing end marker: ${end}`);
   return source.slice(startIndex, endIndex);
 }
+
+// October 9, 2026 follow-up: the packaged guide needs a detailed catalog of
+// every setting, including the editors outside the main scrolling Settings tab.
+const optInfoSource = between(options, 'ItemRackOpt.OptInfo = {', 'ItemRackOpt.InitializeSliders');
+const optInfoLabels = [...new Set(
+  Array.from(optInfoSource.matchAll(/label="([^"]+)"/g), (match) => match[1].trim())
+    .filter(Boolean)
+)];
+for (const label of optInfoLabels) {
+  check(
+    packagedReadme.includes(label),
+    `packaged-readme-settings-catalog: missing main Options setting "${label}".`
+  );
+}
+const optionValueLabels = [...new Set(
+  Array.from(optInfoSource.matchAll(/variable="[^"]+"[^\n]*label="([^"]+)"/g), (match) => match[1].trim())
+    .filter(Boolean)
+)];
+for (const label of optionValueLabels) {
+  check(
+    packagedReadme.includes(`* ${label} [`),
+    `packaged-readme-settings-catalog: setting "${label}" needs an explicit scope/default entry.`
+  );
+}
+const generatedCheckLabelSource = between(
+  options,
+  'ItemRack.CheckButtonLabels = {',
+  'ItemRack.SetnameBlacklist'
+);
+const generatedCheckLabels = [...new Set(
+  Array.from(generatedCheckLabelSource.matchAll(/= "([^"]+)"/g), (match) => match[1].trim())
+    .filter(Boolean)
+)];
+for (const label of generatedCheckLabels) {
+  check(
+    packagedReadme.includes(label),
+    `packaged-readme-settings-catalog: missing generated checkbox label "${label}".`
+  );
+}
+for (const label of [
+  'Show SoD rune icons',
+  'Show Helm',
+  'Show Cloak',
+  'Primary Spec',
+  'Secondary Spec',
+  'Hide Set',
+  'Auto Queue This Slot',
+  'Item delay',
+  'Priority',
+  'Pause Queue',
+  'Burn on Use',
+  'Custom Swap In',
+  'Add stop marker',
+  'Name of event',
+  'Type of event',
+  'Any mount',
+  'Unequip when buff fades',
+  'On Movement',
+  '0.5s Stop Delay',
+  'Except in PVP instances',
+  'Except in PVE instances',
+  'Unequip on leaving stance',
+  'Unequip on leaving zone',
+  'Unequip when leaving spec',
+  'Event Trigger',
+  'Event Script',
+  'Disable Swap Sounds',
+  'Per-event sound',
+]) {
+  check(
+    packagedReadme.includes(label),
+    `packaged-readme-settings-catalog: missing editor setting "${label}".`
+  );
+}
+check(
+  packagedReadme.includes('COMPLETE SETTINGS REFERENCE') &&
+    packagedReadme.includes('Fresh-profile default') &&
+    packagedReadme.includes('Character-specific') &&
+    packagedReadme.includes('Account-wide') &&
+    packagedReadme.includes('Test immediately executes the') &&
+    packagedReadme.includes("current character's ItemRack sets"),
+  'packaged-readme-settings-catalog: missing scope/default guidance.'
+);
+
+// GitHub #30 follow-up: the reporter reasonably expected the old label to
+// affect flyout clicks and /itemrack equip macros. Keep the secure-binding
+// boundary explicit in both the live option and the packaged user guide.
+check(
+  options.includes('label="Full-set hotkeys swap weapons in combat"') &&
+    options.includes('Only saved-set keys assigned with Sets > Bind Key use this option.') &&
+    options.includes('It does not affect flyout-menu clicks, /itemrack equip macros, events, or queues; those wait until combat ends.') &&
+    packagedReadme.includes('saved-set key assigned with Sets > Bind Key') &&
+    packagedReadme.includes('A chat macro containing /itemrack equip is not the same action') &&
+    !options.includes('label="Swap set weapons during combat"'),
+  'issue-30-combat-hotkey-copy: the label and tooltip must distinguish secure Bind Key actions from deferred menu, slash, event, and queue requests.'
+);
 
 for (const [name, toc] of [['ItemRack', mainToc], ['ItemRackOptions', optionsToc]]) {
   check(
@@ -49,6 +148,7 @@ for (const [name, toc] of [['ItemRack', mainToc], ['ItemRackOptions', optionsToc
 
 for (const [name, document] of [
   ['README', readme],
+  ['packaged README', packagedReadme],
   ['CurseForge description', curseForgeDescription],
   ['technical changes', technicalChanges],
   ['client checklist', betaChecklist],
@@ -62,6 +162,23 @@ check(
   !curseForgeDescription.includes('dedicated update for the **TBC Anniversary Edition**') &&
     !technicalChanges.includes('port ItemRack Classic to the TBC Anniversary Edition'),
   'Public and technical documentation must not describe the unified addon as a dedicated TBC-only port.'
+);
+// October 9, 2026 user report: ItemRack/readme.txt still described the 2.2-era
+// event model and future plans despite shipping in every Universal archive.
+check(
+  packagedReadme.includes('ItemRack Universal') &&
+    packagedReadme.includes('Classic Era') &&
+    /Burning Crusade|TBC/.test(packagedReadme) &&
+    /Forever|Camelot/.test(packagedReadme) &&
+    packagedReadme.includes('Full-set hotkeys swap weapons in combat') &&
+    packagedReadme.includes('/itemrack debug') &&
+    packagedReadme.includes('/itemrack dump') &&
+    packagedReadme.includes('explicit approval') &&
+    !packagedReadme.includes('2.2 (re)introduces events') &&
+    !packagedReadme.includes('__ Future plans __') &&
+    !packagedReadme.includes('__ More documentation to come __') &&
+    !packagedReadme.includes("sets that don't overlap"),
+  'packaged-readme-current-guide: the shipped README must describe the Universal behavior and omit retired 2.2 guidance.'
 );
 
 const tooltipHook = between(
@@ -227,9 +344,38 @@ check(
   'The canonical workflow must retain both release tracks.'
 );
 check(
-  !fs.existsSync('.agent/workflows/beta_release.md') && !fs.existsSync('.agent/workflows/update_version.md'),
+  !fs.existsSync('.agent/workflows/beta_release.md') &&
+    !fs.existsSync('.agent/workflows/update_version.md') &&
+    !fs.existsSync('.agents/workflows/beta_release.md') &&
+    !fs.existsSync('.agents/workflows/update_version.md'),
   'Retired contradictory release workflows must not remain present.'
 );
+check(
+  agentsGuide.includes('docs/TESTING.md') &&
+    agentsGuide.includes('.agents/workflows/release.md') &&
+    agentsGuide.includes('.agents/workflows/local_build.md'),
+  'Shared Codex/Antigravity guidance must reference the canonical testing and workflow paths.'
+);
+check(
+  docsIndex.includes('CONTROLS.md') &&
+    docsIndex.includes('TESTING.md') &&
+    readme.includes('docs/README.md'),
+  'The root README and documentation index must expose the relocated references.'
+);
+for (const obsoletePath of [
+  '.rules',
+  '.gemini/rules.md',
+  '.agent/workflows/release.md',
+  '.agent/workflows/local_build.md',
+  'TESTING.md',
+  'BETA_TEST_CHECKLIST.md',
+  'CONTROLS.md',
+  'CURSEFORGE_DESCRIPTION.md',
+  'TECHNICAL_CHANGES.md',
+  'CODE_AUDIT_AND_REMEDIATION_PLAN.md',
+]) {
+  check(!fs.existsSync(obsoletePath), `Retired documentation path must stay absent: ${obsoletePath}`);
+}
 check(
   !technicalChanges.includes('Calling `Show()` on `GameTooltip` is safe and taint-free'),
   'Technical guidance must not claim insecure tooltip Show calls are safe.'

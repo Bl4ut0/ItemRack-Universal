@@ -12,7 +12,7 @@ const read = (filePath) => fs.readFileSync(filePath, 'utf8');
 const createRelease = read('.tools/create_release.js');
 const buildScript = read('.tools/build_release_dev.ps1');
 const installScript = read('.tools/install_local.ps1');
-const workflow = read('.agent/workflows/release.md');
+const workflow = read('.agents/workflows/release.md');
 const packageJson = JSON.parse(read('package.json'));
 
 let checks = 0;

@@ -138,11 +138,15 @@ If you try to swap items while in combat, ItemRack will:
 3. Automatically perform the swap when you leave combat
 
 Weapon-only saved-set keybindings equip immediately through a secure action.
-Enable **Swap set weapons during combat** under Global Settings to give full-set
-keybindings the same immediate weapon action; the remaining gear finishes after
-combat. Combat presses equip rather than toggle. Rune-specific or empty-slot
-weapon requests use the deferred planner. Changes to the option during combat
-apply when combat ends.
+Enable **Full-set hotkeys swap weapons in combat** under Global Settings to give
+full-set keybindings the same immediate weapon action; the remaining gear
+finishes after combat. This applies only to saved-set keys assigned with the
+Sets-tab **Bind Key** button. Flyout-menu selections, `/itemrack equip` macros,
+events, and queue requests use the deferred planner. Combat key presses equip
+rather than toggle. Rune-specific or empty-slot weapon requests also defer.
+Changes to the option during combat apply when combat ends. Character-sheet and
+quick-access slot overlays show each still-unmet item from a bound set request;
+an overlay clears when that exact item is observed equipped or the request ends.
 
 ---
 
