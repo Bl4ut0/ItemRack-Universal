@@ -1,4 +1,5 @@
 __ Development __
+- Published GitHub betas automatically submit the verified universal ZIP to CurseForge as Beta; stable releases remain Release. Both include all supported game-version tags, with existing verification and duplicate-upload safeguards. Added permanent trigger and tagged-beta upload regressions; existing release tags are unchanged.
 
 __ New in 4.54-beta1 - By Bl4ut0 __
 - GitHub #30: defer ordinary Lua weapon/shield/relic swaps until combat ends, retaining requested items instead of failing protected pickups. Secure weapon-hotkey macros remain unchanged. Reported-item regressions verify both toggle states, slot queues, final post-combat equipment and cleanup; live TBC acceptance is pending.

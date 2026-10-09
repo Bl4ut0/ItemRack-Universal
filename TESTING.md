@@ -74,6 +74,24 @@ standard suite before its fix is considered complete:
 
 ### Report coverage in the standard gate
 
+October 9 beta publishing report: CurseForge's repository packager reported no
+TOC for 7297c8b, while our GitHub CurseForge workflow was skipped by its stable-only
+job filter. The GitHub ZIP contained both nested addon TOCs. Named standard-gate
+`curseforge-auto-beta-published` in `.tools/check_release_flow.js` fails against
+that job filter and passes when both published channels reach verification and
+upload. `curseforge-auto-beta-all-flavors` builds a real tagged beta Git archive,
+verifies every source byte and both versioned TOCs, maps the same five game-version
+IDs as stable, and asserts Beta metadata, unchanged multipart bytes and hash receipt.
+Existing checks preserve read-only dispatch, stable Release classification,
+missing/ambiguous version refusal, durable reservations and no automatic POST
+retry. These are workflow-structure and injected-HTTP checks, not a live upload.
+Acceptance: publish a future beta containing the updated workflow, confirm its
+Actions run is not skipped and the resulting CurseForge file is Beta with all
+supported versions. Stable releases must remain Release. Disable the separate
+repository-packager integration in CurseForge project settings; it is not used
+by the canonical verified-ZIP uploader. The failed historical beta tag is unchanged;
+changing dev does not replay its prior release event or alter its workflow.
+
 GitHub #30 (y00), TBC Anniversary / ItemRack 4.53, enUS: ordinary set-menu
 clicks bypassed combat deferral for slots 16-18, then failed with protected
 PickupInventoryItem/destination_rejected and lost those requests. Named

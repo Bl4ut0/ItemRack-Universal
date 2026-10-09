@@ -4,6 +4,8 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **Automatic CurseForge betas**: Published GitHub prereleases now enter the same verified-ZIP deployment workflow as stable releases. Exact beta tags select CurseForge Beta classification; stable tags remain Release. Both include all supported Era/TBC/Forever game-version IDs. Preserve provenance checks, upload reservations and no automatic POST retries. Added failing-before/passing-after automatic-beta trigger coverage and real tagged-beta metadata/upload regressions; live next-release submission remains acceptance.
+
 
 ## [4.54-beta1] - 2026-10-09
 - **Combat weapon deferral (GitHub #30)**: Ordinary set/menu and queued weapon, shield/off-hand and relic requests now remain queued during combat instead of attempting protected Lua pickups and losing the weapon requests. Secure weapon-hotkey macros remain unchanged; unfinished items reconcile after combat. Permanent production-Lua regressions use the reported item identities, both combat-weapons toggle states and manual slot queues, checking final equipment and cleanup. Live TBC protected-action acceptance is pending.

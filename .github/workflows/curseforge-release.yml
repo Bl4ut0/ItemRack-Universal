@@ -24,7 +24,8 @@ concurrency:
 
 jobs:
   verify-and-deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    # Published stable releases AND prereleases submit the same verified ZIP.
+    # The exact tag determines CurseForge Release/Beta classification.
     runs-on: ubuntu-latest
     permissions:
       contents: read

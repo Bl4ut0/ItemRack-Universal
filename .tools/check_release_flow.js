@@ -320,8 +320,33 @@ async function checkCurseForgeDeployment() {
     await assert.rejects(curseForge.preflight(plan, notes, 'fixture-token', async () => ({ ok: true, json: async () => versions.slice(1) })), /exactly one/); checks++;
     await assert.rejects(curseForge.preflight(plan, notes, 'fixture-token', async () => ({ ok: true, json: async () => [...versions, versions[0]] })), /exactly one/); checks++;
     await assert.rejects(curseForge.preflight(plan, notes, 'fixture-token', async () => ({ ok: false, status: 401 })), /HTTP 401/); checks++;
-    const beta = await curseForge.preflight({ ...plan, version: '4.53-beta2', releaseType: 'beta' }, notes, 'fixture-token', fakeFetch);
-    check(beta.metadata.releaseType === 'beta', 'Beta deployment must retain its Beta file type.');
+    // Report: v4.54-beta1's release job was skipped. Exercise a real tagged beta
+    // through the same provenance, channel and all-client mapping as stable.
+    for (const folder of ['ItemRack', 'ItemRackOptions']) {
+      fs.writeFileSync(path.join(root, folder, `${folder}.toc`), toc.replace('4.53', '4.54-beta1'));
+    }
+    git(['-c', 'core.autocrlf=false', 'add', 'ItemRack', 'ItemRackOptions']);
+    git(['-c', 'user.name=Deployment Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Beta fixture']);
+    git(['tag', 'v4.54-beta1']);
+    const betaArchive = path.join(root, 'ItemRack-universal-4.54-beta1.zip');
+    git(['-c', 'core.autocrlf=false', 'archive', '--format=zip', `--output=${betaArchive}`, 'v4.54-beta1', '--', 'ItemRack', 'ItemRackOptions']);
+    const betaHash = crypto.createHash('sha256').update(fs.readFileSync(betaArchive)).digest('hex');
+    fs.writeFileSync(`${betaArchive}.sha256`, `${betaHash}  ItemRack-universal-4.54-beta1.zip\n`);
+    const betaNotes = '# ItemRack Universal v4.54-beta1\n\n- Beta fix\n';
+    const betaPlan = curseForge.verifyRelease({ tag: 'v4.54-beta1', archive: betaArchive,
+      checksum: `${betaArchive}.sha256`, notes: betaNotes, repo: root });
+    const beta = await curseForge.preflight(betaPlan, betaNotes, 'fixture-token', fakeFetch);
+    check(beta.metadata.releaseType === 'beta' && beta.metadata.displayName === 'ItemRack Universal 4.54-beta1' &&
+      JSON.stringify(beta.metadata.gameVersions) === JSON.stringify(checked.metadata.gameVersions),
+    'curseforge-auto-beta-all-flavors: exact tagged beta must retain Beta classification and all Era/TBC/Forever game IDs.');
+    const betaReceipt = await curseForge.upload(beta, betaArchive, 'fixture-token', async (url, request) => {
+      const metadata = JSON.parse(request.body.get('metadata'));
+      check(metadata.releaseType === 'beta' && metadata.gameVersions.length === 5 &&
+        Buffer.from(await request.body.get('file').arrayBuffer()).equals(fs.readFileSync(betaArchive)),
+      'Beta POST must carry all client tags and unchanged verified two-folder ZIP.');
+      return { ok: true, json: async () => ({ id: 54321 }) };
+    });
+    check(betaReceipt.fileId === 54321 && betaReceipt.sha256 === betaHash, 'Beta receipt must retain exact published hash.');
     let uploads = 0;
     const receipt = await curseForge.upload(checked, archive, 'fixture-token', async (url, request) => {
       uploads++;
@@ -339,8 +364,11 @@ async function checkCurseForgeDeployment() {
     fs.appendFileSync(archive, 'changed');
     await assert.rejects(curseForge.upload(checked, archive, 'fixture-token', async () => { throw new Error('Network must not run'); }), /changed after/); checks++;
     const automation = read('.github/workflows/curseforge-release.yml');
+    const releaseJob = between(automation, '  verify-and-deploy:', '    runs-on:');
+    check(automation.includes('types: [published]') && !/^\s+if:/m.test(releaseJob) &&
+      automation.includes("if: github.event_name == 'release' || inputs.upload == true"),
+    'curseforge-auto-beta-published: both stable and prerelease published events must reach verification/upload without a stable-only job filter.');
     check(automation.includes('default: false') && automation.includes('types: [published]') &&
-      automation.includes('github.event.release.prerelease == false') &&
       automation.includes('npm test') && automation.includes('curseforge_deployment.js reserve') &&
       automation.includes('curseforge_deployment.js success') && automation.includes('deployments: write') &&
       automation.includes('actions/upload-artifact@v4') && automation.includes('secrets.CF_UPLOAD_TOKEN') &&
