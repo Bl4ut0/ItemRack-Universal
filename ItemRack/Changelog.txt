@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.54-beta1 - By Bl4ut0 __
 - GitHub #30: defer ordinary Lua weapon/shield/relic swaps until combat ends, retaining requested items instead of failing protected pickups. Secure weapon-hotkey macros remain unchanged. Reported-item regressions verify both toggle states, slot queues, final post-combat equipment and cleanup; live TBC acceptance is pending.
 - Corrected competing native/manual character-tooltip anchors without resetting item contents or owner. Restricted positioning to the active character slot/flyout and cleared stale row offsets. Permanent regression covers modeled refreshes and neighboring tooltip contexts; live no-hop/taint acceptance remains pending.
 - Fixed missing set-name lines on modern Forever item tooltips; kept legacy Classic hooks and copy-specific matching. Added permanent tooltip regression coverage. Live Forever acceptance is pending.
