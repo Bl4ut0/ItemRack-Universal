@@ -721,8 +721,9 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 	for k,v in pairs(swap) do swapStr = swapStr .. k..":"..v.." " end
 	ItemRack.Debug("Equip", "EquipSet swap list generated:", swapStr)
  
-	-- if in combat, dead, or casting, queue non-weapon items for later
-	-- PickupInventoryItem is blocked by the game during InCombatLockdown() for armor, but weapons (16, 17, 18) can swap in combat if not casting/dead
+	-- Ordinary Lua transactions cannot perform protected pickups during combat,
+	-- even for weapons. Secure hotkeys equip permitted weapons through their macro
+	-- before reaching this reconciliation path; any remaining slots must defer.
 	if InCombatLockdown() or ItemRack.IsPlayerReallyDead() or ItemRack.NowCasting then
 		local reason = InCombatLockdown() and "combat" or (ItemRack.NowCasting and "casting" or "dead")
 		local eventPlan = ItemRack.IsEventEquipment and ItemRack.EventFramePlans
@@ -738,11 +739,8 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 		ItemRack.Debug("Equip", "EquipSet checking swap deferrals: set=" .. tostring(setname) .. " reason=" .. reason .. " slots queued:")
 		for i in pairs(swap) do
 			local isWeaponSlot = (i >= 16 and i <= 18)
-			local canSwapWeaponInCombat = InCombatLockdown() and isWeaponSlot and not ItemRack.NowCasting and not ItemRack.IsPlayerReallyDead()
 			local secureMacroMismatch = isWeaponSlot and isSecureKeybind
-			if canSwapWeaponInCombat and not secureMacroMismatch then
-				ItemRack.Debug("Equip", "  slot " .. tostring(i) .. " -> weapon swap allowed in combat")
-			else
+			do
 				local detail = secureMacroMismatch and "secure macro left an item-identity mismatch" or reason
 				ItemRack.Debug("Equip", "  slot " .. tostring(i) .. " -> " .. tostring(swap[i]) .. " DEFERRED to CombatQueue (" .. detail .. ")")
 				ItemRack.AddToCombatQueue(i,swap[i])

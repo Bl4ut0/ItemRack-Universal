@@ -976,5 +976,120 @@ assert(oldEnterCalled == true, "PaperDollItemSlotButton_OnEnter must call origin
   ''
 );
 
-console.log('[BATCH & DUAL-SPEC LUA] Batch execution, issue #29 weapon dependencies, exact-copy reservations, rollback safety, dual-spec, minimap, and spellbook safety assertions passed.');
+// 4.53 feedback: breakout spacing is independent of docked-button spacing.
+// Exercise the actual renderer, including both wrap directions and set menus.
+runLua(String.raw`
+ItemRack = { Menu={}, DockInfo={ TEST={xstart=6,ystart=-6,xdir=1,ydir=-1} }, currentDock="TEST", menuDock="TOPLEFT",
+  SlotInfo={ [13]={ INVTYPE_TRINKET=true } }, Debug=function() end,
+  GetID=function(b,s) return s or 0 end, GetInfoByID=function() return "Item",1,"INVTYPE_TRINKET" end,
+  PlayerCanWear=function() return true end, IsSoulbound=function() return true end,
+  StartTimer=function() end, UpdateMenuCooldowns=function() end, GetCountByID=function() return 1 end,
+  SetRuneIconOverlay=function() end, MissingItems=function() end }
+ItemRack.AddToMenu=function(id) table.insert(ItemRack.Menu,id) end
+ItemRackUser={Sets={A={},B={},C={},D={},E={}},ButtonSpacing=24,SetMenuWrap="ON",SetMenuWrapValue=2,
+  CharMenuWrap="ON",CharMenuWrapValue=2,Locked="ON"}
+ItemRackSettings={HideTradables="OFF",AllowEmpty="OFF",AllowHidden="OFF"}
+function InCombatLockdown() return false end
+function IsAltKeyDown() return false end
+function GetContainerNumSlots(b) return b==0 and 5 or 0 end
+local screenHeight, scale = 1080,1
+function GetScreenHeight() return screenHeight end
+UIParent={GetEffectiveScale=function() return 1 end}
+local function noop() end
+ItemRackButtonMenu={Hide=noop}
+ItemRackMenuFrame={GetEffectiveScale=function() return scale end,GetFrameLevel=function() return 1 end,
+  Show=noop,Hide=noop,SetWidth=function(self,v) self.width=v end,SetHeight=function(self,v) self.height=v end}
+local buttons={}
+function ItemRack.CreateMenuButton(i)
+  local b={SetFrameLevel=noop,Show=noop,Hide=noop,
+    SetPoint=function(self,_,_,_,x,y) self.x=x; self.y=y end}
+  buttons[i]=b; _G["ItemRackMenu"..i]=b
+  _G["ItemRackMenu"..i.."Icon"]={SetDesaturated=noop}
+  _G["ItemRackMenu"..i.."Border"]={Hide=noop,Show=noop,SetVertexColor=noop}
+  _G["ItemRackMenu"..i.."Name"]={SetText=noop}
+  _G["ItemRackMenu"..i.."Count"]={SetText=noop}
+  return b
+end
+${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.BuildMenu')}
+for _,orientation in ipairs({"VERTICAL","HORIZONTAL"}) do
+  ItemRack.menuOrient=orientation
+  for _,spacing in ipairs({0,4,12,24}) do
+    ItemRackUser.BreakoutSpacing=spacing
+    ItemRack.BuildMenu(13,false,3)
+    local stride=36+spacing
+    local delta=orientation=="VERTICAL" and buttons[2].x-buttons[1].x or buttons[1].y-buttons[2].y
+    assert(delta==stride,"breakout-independent-spacing: renderer must honor its own setting")
+    assert(ItemRackMenuFrame.width==12+(orientation=="VERTICAL" and 2 or 3)*stride,"breakout width must contain wrapped buttons")
+    assert(ItemRackMenuFrame.height==12+(orientation=="VERTICAL" and 3 or 2)*stride,"breakout height must contain wrapped buttons")
+    assert(ItemRackUser.ButtonSpacing==24,"breakout spacing must not change docked spacing")
+    ItemRack.BuildMenu(20,false,2)
+    delta=orientation=="VERTICAL" and buttons[2].x-buttons[1].x or buttons[1].y-buttons[2].y
+    assert(delta==40,"set-menu spacing must retain its existing default")
+  end
+end
+ItemRackUser.BreakoutSpacing=nil
+ItemRack.menuOrient="VERTICAL"
+ItemRack.BuildMenu(13,false,3)
+assert(buttons[2].x-buttons[1].x==40,"older profiles retain the four-pixel breakout gap")
+screenHeight=180; scale=2
+ItemRackUser.BreakoutSpacing=24
+ItemRack.BuildMenu(13,false,3)
+assert(ItemRackMenuFrame.height==72,"scaled short screens must wrap without division by zero")
+`, 'reported-breakout-spacing');
+
+// GitHub #30, y00: TBC Anniversary 4.53. Reported weapon/shield/relic IDs.
+for (const toggle of ['OFF', 'ON']) {
+  for (const manualQueue of [false, true]) {
+    runCase(`issue-30-combat-weapons-${toggle}-${manualQueue ? 'slot-queue' : 'full-set'}`, `${commonSetup}
+local combat=true
+local pickups=0
+function InCombatLockdown() return combat end
+function UnitAffectingCombat() return combat end
+ItemRackSettings.CombatSetWeapons="${toggle}"
+ItemRack.CombatQueue={}; ItemRack.RunAfterCombat={}
+ItemRackUser.EnableEvents="OFF"
+local target={[8]="32268:2649:31867:24056:::::70::::::::::",[16]="28767::::::::70::::::::::",[17]="33661:2655:::::::70::::::::::",[18]="27917::::::::70::::::::::"}
+local inventory={[8]="32245:2649:24056:31867:::::70::::::::::",[16]="33687:2669:::::::70::::::::::",[17]="32375:1071:::::::70::::::::::",[18]="29388::::::::70::::::::::"}
+local bags={[0]={[1]=target[16],[2]=target[17],[3]=target[18],[4]=target[8]}}
+ItemRackUser.Sets.Target={equip=target,old={}}
+ItemRackUser.Sets["~CombatQueue"]={equip={}}
+function ItemRack.GetID(b,s) if s then return bags[b] and bags[b][s] or 0 end; return inventory[b] or 0 end
+function ItemRack.GetEquippedSlotState(s) return "resolved",ItemRack.GetID(s) end
+function ItemRack.GetInfoByID(id) return tostring(id),nil,id==target[8] and "INVTYPE_FEET" or id==target[17] and "INVTYPE_SHIELD" or id==target[18] and "INVTYPE_RELIC" or "INVTYPE_WEAPON" end
+function ItemRack.FindItem(id,lock)
+  for s=1,4 do if bags[0][s]==id and not ItemRack.LockList[0][s] then
+    if lock then ItemRack.LockList[0][s]=1 end; return nil,0,s end end
+end
+function ItemRack.ValidBag(b) return b==0 end
+function GetContainerNumSlots() return 4 end
+function GetContainerItemLink(b,s) return bags[b] and bags[b][s] end
+function GetInventoryItemID(_,s) return inventory[s] end
+function GetInventoryItemLink(_,s) return inventory[s] end
+function PickupContainerItem(b,s) assert(not combat,"protected bag pickup during combat"); pickups=pickups+1; local held=cursor; cursor=bags[b][s]; bags[b][s]=held end
+function PickupInventoryItem(s) assert(not combat,"protected inventory pickup during combat"); pickups=pickups+1; local held=cursor; cursor=inventory[s]; inventory[s]=held end
+${extractFunction('ItemRack/ItemRack.lua','ItemRack.ClearCombatQueueMetadata')}
+${extractFunction('ItemRack/ItemRack.lua','ItemRack.AddToCombatQueue')}
+${extractFunction('ItemRack/ItemRack.lua','ItemRack.ProcessCombatQueue')}
+`, `${equipSource}
+if ${manualQueue} then
+  for s=16,18 do ItemRack.AddToCombatQueue(s,target[s]) end
+else ItemRack.EquipSet("Target") end
+for s=16,18 do assert(ItemRack.CombatQueue[s]==target[s],"issue #30 must retain every requested weapon slot during combat") end
+if not ${manualQueue} then assert(ItemRack.CombatQueue[8]==target[8],"full sets must retain armor alongside weapons") end
+assert(pickups==0 and not ItemRack.ActiveEquipmentTransaction,"combat must not submit insecure transactions")
+ItemRack.ProcessCombatQueue()
+for s=16,18 do assert(ItemRack.CombatQueue[s]==target[s],"queue processor must not drain weapons during combat") end
+assert(pickups==0,"combat queue must not call protected pickups")
+combat=false; ItemRack.ProcessCombatQueue(); RunTimers()
+for s=16,18 do assert(inventory[s]==target[s],"regen must equip the actual reported weapon, shield and relic") end
+if not ${manualQueue} then
+  assert(inventory[8]==target[8],"full-set armor must complete with the weapons")
+  assert(ItemRackUser.CurrentSet=="Target","full-set deferred completion must reconcile logical set")
+else assert(inventory[8]~=target[8],"weapon-only slot queues must leave armor unchanged") end
+assert(next(ItemRack.CombatQueue)==nil and not ItemRack.ActiveEquipmentTransaction and cursor==nil,"completion must leave no queue, cursor or transaction residue")
+assert(not ItemRack.SetSwapping and next(ItemRack.SwapList)==nil,"deferred set work must terminate")
+`);
+  }
+}
+console.log('[BATCH & DUAL-SPEC LUA] Batch execution, issue #29/#30 weapon regressions, rollback, dual-spec, breakout spacing and spellbook checks passed.');
 

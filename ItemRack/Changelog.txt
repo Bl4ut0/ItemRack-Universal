@@ -1,4 +1,8 @@
 __ Development __
+- GitHub #30: defer ordinary Lua weapon/shield/relic swaps until combat ends, retaining requested items instead of failing protected pickups. Secure weapon-hotkey macros remain unchanged. Reported-item regressions verify both toggle states, slot queues, final post-combat equipment and cleanup; live TBC acceptance is pending.
+- Corrected competing native/manual character-tooltip anchors without resetting item contents or owner. Restricted positioning to the active character slot/flyout and cleared stale row offsets. Permanent regression covers modeled refreshes and neighboring tooltip contexts; live no-hop/taint acceptance remains pending.
+- Fixed missing set-name lines on modern Forever item tooltips; kept legacy Classic hooks and copy-specific matching. Added permanent tooltip regression coverage. Live Forever acceptance is pending.
+- Restored full-texture icon proportions without enlarging 36px buttons; aligned breakout icons and cooldowns. Added independent Breakout spacing (0-24, default 4), including scaled wrapping and frame sizing. Default scales are unchanged; live visual acceptance is pending.
 
 __ New in 4.53 - By Bl4ut0 __
 - **CurseForge Release Deployment**: Approved stable GitHub releases submit the verified universal ZIP with both addon folders intact. Read-only setup checks validate credentials, client versions and tag contents; attempt markers and receipts prevent automatic duplicate retries. Beta uploads remain explicitly requested.

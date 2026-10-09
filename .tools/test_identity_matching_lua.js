@@ -4,6 +4,125 @@ const { extractFunction, runLua } = require('./lib/lua_harness');
 const core = 'ItemRack/ItemRack.lua';
 const queue = 'ItemRack/ItemRackQueue.lua';
 const options = 'ItemRackOptions/ItemRackOptions.lua';
+// October 8 report/video: https://imgur.com/a/v7eD8FY (attached OLaVTW6.mp4).
+// Native layout is modeled; this verifies the anchor contract, not client rendering.
+const tooltipSource = fs.readFileSync(core, 'utf8');
+const anchorHooks = tooltipSource.slice(tooltipSource.indexOf('hooksecurefunc(GameTooltip, "Show",'),
+  tooltipSource.indexOf('function ItemRack.DockMenuToCharacterSheet'));
+runLua(String.raw`
+ItemRack={SlotInfo={}}
+for i=0,19 do ItemRack.SlotInfo[i]={name='Slot'..i} end
+ItemRack.SlotInfo[11].name='Finger0Slot'
+ItemRackSettings={CharacterSheetMenus='ON',MenuOnShift='OFF',RightSlotsGoLeft='OFF',LeftSlotsGoRight='ON'}
+local slot={GetName=function() return 'CharacterFinger0Slot' end,GetTop=function() return 300 end}
+ItemRackMenuFrame={visible=true,IsVisible=function(s) return s.visible end,
+  GetName=function() return 'ItemRackMenuFrame' end,GetTop=function() return 300 end}
+GameTooltip={alpha=1,owner=slot,side='none',scripts={},content='saved item',ownerCalls=0}
+function GameTooltip:SetAlpha(a) self.alpha=a end
+function GameTooltip:GetOwner() return self.owner end
+function GameTooltip:SetOwner(o,a) self.owner=o; self.nativeAnchor=a; self.side=a; self.ownerCalls=self.ownerCalls+1 end
+function GameTooltip:SetAnchorType(a) self.nativeAnchor=a end
+function GameTooltip:ClearAllPoints() end
+function GameTooltip:SetPoint(p,_,_,_,y) self.side=p=='TOPRIGHT' and 'LEFT' or 'RIGHT'; self.y=y end
+function GameTooltip:Show() end
+function GameTooltip:HookScript(n,f) self.scripts[n]=f end
+function hooksecurefunc(t,n,f) local old=t[n]; t[n]=function(self,...) old(self,...); f(self,...) end end
+function IsShiftKeyDown() return false end
+ItemRack.IsEquipmentManagerOpen=function() return false end
+ItemRack.DockMenuToCharacterSheet=function(s) ItemRack.menuDockedTo=s:GetName(); ItemRackMenuFrame.visible=true end
+ItemRack.oldPaperDollItemSlotButton_OnEnter=function(s) GameTooltip:SetOwner(s,'ANCHOR_RIGHT'); GameTooltip:Show() end
+${extractFunction(core,'ItemRack.ApplyTooltipAnchor')}
+${extractFunction(core,'PaperDollItemSlotButton_OnEnter')}
+${anchorHooks}
+local function nativeLayout()
+  if GameTooltip.nativeAnchor~='ANCHOR_NONE' then GameTooltip.side='RIGHT' end
+end
+for _,count in ipairs({1,2,40}) do
+  ItemRack.Menu={}; for i=1,count do ItemRack.Menu[i]=i end
+  ItemRack.menuDockedTo=nil
+  PaperDollItemSlotButton_OnEnter(slot)
+  assert(GameTooltip.nativeAnchor=='ANCHOR_NONE','reported tooltip hop: manual placement must disable native side anchoring')
+  assert(GameTooltip.side=='LEFT' and GameTooltip.alpha==1,'ring tooltip must retain intended left placement')
+  local ownerCalls=GameTooltip.ownerCalls
+  for i=1,3 do
+    nativeLayout()
+    assert(GameTooltip.side=='LEFT','layout refresh must not expose a right-side intermediate position')
+    GameTooltip:Show()
+    assert(GameTooltip.side=='LEFT','Show refresh must keep left placement')
+  end
+  assert(GameTooltip.owner==slot and GameTooltip.content=='saved item' and GameTooltip.ownerCalls==ownerCalls,
+    'positioning must preserve native owner/content without rebuilding or showing item data')
+end
+ItemRackSettings.RightSlotsGoLeft='ON'; PaperDollItemSlotButton_OnEnter(slot)
+assert(GameTooltip.side=='RIGHT' and GameTooltip.nativeAnchor=='ANCHOR_NONE','opposite menu direction must retain right tooltip placement')
+-- Stale vertical alignment must not leak from flyout rows into an equipped slot.
+ItemRack.pendingTooltipVerticalOwner={GetTop=function() return 999 end}
+PaperDollItemSlotButton_OnEnter(slot)
+assert(GameTooltip.y==0,'new character hover must clear stale flyout vertical offset')
+-- Unrelated owners and another character slot must not inherit the pending anchor.
+for _,name in ipairs({'ActionButton1','ContainerFrame1Item1','ItemRackButton11','ItemRackOptInv11','CharacterSlot8'}) do
+  ItemRack.pendingTooltipOwner=slot; ItemRack.pendingTooltipAnchor='ANCHOR_LEFT'
+  GameTooltip:SetOwner({GetName=function() return name end},'ANCHOR_RIGHT')
+  GameTooltip:Show()
+  assert(GameTooltip.nativeAnchor=='ANCHOR_RIGHT' and GameTooltip.side=='ANCHOR_RIGHT','unrelated tooltip must remain untouched: '..name)
+  assert(ItemRack.pendingTooltipAnchor==nil,'unrelated tooltip must clear stale override')
+end
+-- A flyout tooltip retains its real owner and row alignment.
+local row={GetName=function() return 'ItemRackMenu1' end,GetTop=function() return 250 end}
+GameTooltip:SetOwner(row,'ANCHOR_RIGHT'); ItemRack.pendingTooltipOwner=ItemRackMenuFrame
+ItemRack.pendingTooltipAnchor='ANCHOR_RIGHT'; ItemRack.pendingTooltipVerticalOwner=row
+GameTooltip:Show()
+assert(GameTooltip.owner==row and GameTooltip.nativeAnchor=='ANCHOR_NONE' and GameTooltip.y==-50,
+  'flyout alignment must not change tooltip ownership')
+GameTooltip.scripts.OnHide()
+assert(not ItemRack.pendingTooltipAnchor and not ItemRack.pendingTooltipOwner and not ItemRack.pendingTooltipVerticalOwner,
+  'hide must clear the complete positioning context')
+-- Missing API clients must not crash or clear item data; live behavior remains acceptance.
+GameTooltip.SetAnchorType=nil; ItemRack.menuDockedTo=slot:GetName()
+GameTooltip:SetOwner(slot,'ANCHOR_RIGHT'); ItemRack.pendingTooltipOwner=slot; ItemRack.pendingTooltipAnchor='ANCHOR_LEFT'
+ItemRack.ApplyTooltipAnchor()
+assert(GameTooltip.side=='LEFT' and GameTooltip.content=='saved item','missing anchor API fallback must remain safe')
+ItemRackSettings.CharacterSheetMenus='OFF'; ItemRack.pendingTooltipAnchor=nil; ItemRackMenuFrame.visible=false
+PaperDollItemSlotButton_OnEnter(slot)
+assert(GameTooltip.nativeAnchor=='ANCHOR_RIGHT','disabled character menus must retain native tooltip behavior')
+`, 'reported-character-tooltip-anchor-hop');
+// Forever user report, October 8, 2026: data-processed tooltips bypass legacy setters.
+runLua(String.raw`
+local lines,hooks,registrations={},0,0
+ItemRack={GetIRString=function(link) return link:match("item:(.-)|h") or 0 end,
+  MatchesStoredItemFields=function(a,b) return a==b end}
+ItemRackSettings={ShowTooltips="ON",ShowSetInTooltip="ON"}
+ItemRackUser={Sets={Prot={equip={[8]="32267:2649:24056:24062"}},
+  Other={equip={[8]="32267:2649:24056:31867"}},["~Internal"]={equip={[8]="32267:2649:24056:24062"}}}}
+local data={}
+${extractFunction(core,'ItemRack.ListSetsHavingItem')}
+${extractFunction(core,'ItemRack.OnSetHyperlink')}
+${extractFunction(core,'ItemRack.OnTooltipItemData')}
+${extractFunction(core,'ItemRack.RegisterSetTooltipHooks')}
+local callback
+Enum={TooltipDataType={Item=0}}
+TooltipDataProcessor={AddTooltipPostCall=function(_,fn) registrations=registrations+1; callback=fn end}
+GameTooltip={SetBagItem=function() end,SetInventoryItem=function() end,SetHyperlink=function() end}
+function hooksecurefunc() hooks=hooks+1 end
+ItemRack.RegisterSetTooltipHooks(); ItemRack.RegisterSetTooltipHooks()
+assert(registrations==1 and hooks==0,"modern registration must occur once without legacy duplication")
+local tooltip={GetItem=function() return "Boots","|Hitem:32267:2649:24056:24062|h[Boots]|h" end,
+  AddDoubleLine=function(_,_,name) table.insert(lines,name) end}
+callback(tooltip)
+assert(#lines==1 and lines[1]=="Prot","modern tooltips must show only matching public sets")
+ItemRackSettings.ShowSetInTooltip="OFF"; callback(tooltip)
+assert(#lines==1,"setting OFF must suppress modern set lines")
+ItemRackSettings.ShowSetInTooltip="ON"; ItemRackSettings.ShowTooltips="OFF"; callback(tooltip)
+assert(#lines==1,"master tooltip setting OFF must suppress modern set lines")
+ItemRackSettings.ShowTooltips="ON"
+callback({GetItem=function() error("unavailable") end}); callback({})
+callback({GetItem=function() return nil,nil end})
+issecretvalue=function() return true end; callback(tooltip)
+assert(#lines==1,"unavailable and secret links must not be inspected")
+ItemRack.SetTooltipHooksRegistered=nil; TooltipDataProcessor=nil
+ItemRack.RegisterSetTooltipHooks()
+assert(hooks==3,"Classic must retain all three legacy hooks")
+`, 'forever-modern-set-tooltip');
 const functions = [
   extractFunction(core, 'ItemRack.SameID'),
   extractFunction(core, 'ItemRack.GetRuneID'),

@@ -4,6 +4,14 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **Combat weapon deferral (GitHub #30)**: Ordinary set/menu and queued weapon, shield/off-hand and relic requests now remain queued during combat instead of attempting protected Lua pickups and losing the weapon requests. Secure weapon-hotkey macros remain unchanged; unfinished items reconcile after combat. Permanent production-Lua regressions use the reported item identities, both combat-weapons toggle states and manual slot queues, checking final equipment and cleanup. Live TBC protected-action acceptance is pending.
+
+- **Character tooltip anchoring**: Disable native side anchoring while applying scoped character-slot/flyout tooltip positions, preserving tooltip ownership and contents. Tighten context checks and clear stale flyout-row offsets. Permanent regression fails before the fix and passes modeled refresh/cleanup checks afterward; live confirmation of the reported right-to-left hop and taint safety remains pending.
+
+- **Forever set tooltip compatibility**: Register item tooltip post-processing on modern clients and retain legacy setter hooks on Classic. Resolve full item links to preserve saved enchant/gem/rune distinctions, respect tooltip settings, and ignore unavailable or secret links. Permanent production-Lua registration/display regressions cover both paths; live Forever rendering remains acceptance.
+
+- **Icon proportions and breakout spacing**: Removed the added texture crop while keeping 36px button bounds. Main, breakout and inventory/set selector artwork now uses the full texture; breakout cooldowns align with the artwork. Added independent Breakout spacing (0–24, default 4), with wrapping and frame sizing using that spacing and effective menu scale. Existing main/menu scale defaults are unchanged. Permanent geometry and production menu-renderer regressions cover the reported inconsistency; live trim/action-bar comparison remains acceptance.
+
 
 ## [4.53] - 2026-10-07
 ### Bug Fixes & Improvements

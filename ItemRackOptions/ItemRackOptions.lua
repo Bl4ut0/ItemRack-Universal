@@ -259,6 +259,8 @@ function ItemRackOpt.OnLoad(self)
 		{type="check",optset=ItemRackUser,variable="CustomMenuIcons",label="Custom icons in item flyouts",tooltip="Show queue item icons in quick-access and character-sheet item flyouts. Set editing keeps original icons."},
 		{type="number",optset=ItemRackUser,variable="ButtonSpacing",button=ItemRackOptButtonSpacing,label="Button spacing",tooltip="Padding distance between buttons.",combatlock=1},
 		{type="slider",button=ItemRackOptButtonSpacingSlider,variable="ButtonSpacing",label="Button spacing",tooltip="Padding distance between buttons.", min=0, max=24, step=1, form="%d",combatlock=1},
+		{type="number",optset=ItemRackUser,variable="BreakoutSpacing",button=ItemRackOptBreakoutSpacing,label="Breakout spacing",tooltip="Padding between item breakout buttons, independent of main button spacing.",combatlock=1},
+		{type="slider",button=ItemRackOptBreakoutSpacingSlider,variable="BreakoutSpacing",label="Breakout spacing",tooltip="Padding between item breakout buttons, independent of main button spacing.",min=0,max=24,step=1,form="%d",combatlock=1},
 		{type="number",optset=ItemRackUser,variable="Alpha",button=ItemRackOptAlpha,label="Transparency",tooltip="Transparency (alpha) of the buttons and menu."},
 		{type="slider",button=ItemRackOptAlphaSlider,variable="Alpha",label="Transparency",tooltip="Transparency (alpha) of the buttons and menu.", min=.1, max=1, step=.05, form="%.2f"},
 		{type="number",optset=ItemRackUser,variable="MainScale",button=ItemRackOptMainScale,label="Button scale",tooltip="Scale size of the item buttons.",combatlock=1},
@@ -1243,6 +1245,8 @@ function ItemRackOpt.UpdateSlider(name)
 			number:SetText(string.format(slider.form or "%s",value))
 			if name=="ButtonSpacing" then
 				ItemRack.ConstructLayout()
+			elseif name=="BreakoutSpacing" then
+				if ItemRackMenuFrame:IsVisible() then ItemRack.BuildMenu() end
 			elseif name=="Alpha" then
 				ItemRack.ReflectAlpha()
 			elseif name=="MenuScale" then

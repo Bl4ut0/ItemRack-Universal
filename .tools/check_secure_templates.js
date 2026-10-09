@@ -92,6 +92,17 @@ try {
   };
   const iconBounds = regionBounds('ItemRackIcon', 'Texture');
   const cooldownBounds = regionBounds('Cooldown', 'Cooldown');
+  // 4.53 user feedback: filling the inset while retaining a 7% crop zoomed
+  // the artwork. Full coverage must preserve the original texture extent.
+  for (const [body, suffix] of [[quickBody, 'ItemRackIcon'],
+    [templateBody(buttonsXml, 'ItemRackMenuItemTemplate'), 'Icon'],
+    [templateBody(optionsXml, 'ItemRackOptIconButtonTemplate'), 'Icon']]) {
+    const texture = new RegExp(`<Texture name="\\$parent${suffix}"[^>]*>([\\s\\S]*?)<\\/Texture>`).exec(body);
+    check(texture && texture[1].includes('<TexCoords left="0" right="1" top="0" bottom="1"/>'),
+      'reported-icon-zoom: default artwork must preserve the full texture');
+    check(!texture[1].includes('<Offset'),
+      'reported-breakout-inset: artwork must fill the unchanged 36px button');
+  }
   for (const scale of [0.5, 1, 1.5, 2]) {
     const expected = [0, 0, Number(quickSize[1]) * scale, Number(quickSize[2]) * scale];
     check(iconBounds.every((edge, index) => edge * scale === expected[index]),

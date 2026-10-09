@@ -405,6 +405,7 @@ ItemRackUser = {
 	CustomMenuIcons = "OFF",
 	EnableQueueContextCheck = "ON",
 	ButtonSpacing = 4, -- padding between docked buttons
+	BreakoutSpacing = 4, -- independent padding between item breakout buttons
 	Alpha = 1, -- alpha of buttons
 	MainScale = 1, -- scale of the dockable buttons
 	MenuScale = .85, -- scale of the menu in relation to docked buttons
@@ -710,6 +711,7 @@ function ItemRack.AuditSavedVariables(printToChat)
 		CustomMenuIcons = "OFF",
 		EnableQueueContextCheck = "ON",
 		ButtonSpacing = 4,
+		BreakoutSpacing = 4,
 		Alpha = 1,
 		MainScale = 1,
 		MenuScale = .85,
@@ -2092,8 +2094,9 @@ function ItemRack.ProcessCombatQueue()
 			combat[i] = nil
 		end
 		for i in pairs(queue) do
-			local isWeaponSlot = (i >= 16 and i <= 18)
-			local canSwap = (not inCombat) or (isWeaponSlot and not ItemRack.NowCasting and not ItemRack.IsPlayerReallyDead())
+			-- This processor is ordinary Lua, not a secure weapon macro. Keep all
+			-- slots queued until combat ends; permitted secure swaps happen elsewhere.
+			local canSwap = not inCombat
 			ItemRack.Debug("CombatQueue", "  ProcessCQ slot="..tostring(i).." canSwap="..tostring(canSwap))
 			if canSwap then
 				local discard = false
@@ -2333,7 +2336,27 @@ function ItemRack.OnSetInventoryItem(tooltip, unit, inv_slot)
 end
 
 function ItemRack.OnSetHyperlink(tooltip, link)
-	ItemRack.ListSetsHavingItem(tooltip, link:match("item:(.+)"))
+	if type(link) == "string" then ItemRack.ListSetsHavingItem(tooltip,ItemRack.GetIRString(link)) end
+end
+
+function ItemRack.OnTooltipItemData(tooltip)
+	if not tooltip or type(tooltip.GetItem) ~= "function" then return end
+	local ok,_,link = pcall(tooltip.GetItem,tooltip)
+	if not ok or (issecretvalue and issecretvalue(link)) then return end
+	ItemRack.OnSetHyperlink(tooltip,link)
+end
+
+function ItemRack.RegisterSetTooltipHooks()
+	if ItemRack.SetTooltipHooksRegistered then return end
+	if TooltipDataProcessor and type(TooltipDataProcessor.AddTooltipPostCall) == "function"
+	and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item then
+		TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item,ItemRack.OnTooltipItemData)
+	else
+		if GameTooltip and GameTooltip.SetBagItem then hooksecurefunc(GameTooltip,"SetBagItem",ItemRack.OnSetBagItem) end
+		if GameTooltip and GameTooltip.SetInventoryItem then hooksecurefunc(GameTooltip,"SetInventoryItem",ItemRack.OnSetInventoryItem) end
+		if GameTooltip and GameTooltip.SetHyperlink then hooksecurefunc(GameTooltip,"SetHyperlink",ItemRack.OnSetHyperlink) end
+	end
+	ItemRack.SetTooltipHooksRegistered = true
 end
 
 do
@@ -2425,9 +2448,7 @@ function ItemRack.InitCore()
 		hooksecurefunc(C_Item, "UseItemByName", ItemRack.newUseItemByName)
 	end
 	if PaperDollFrame_OnShow then hooksecurefunc("PaperDollFrame_OnShow",ItemRack.newPaperDollFrame_OnShow) end
-	if GameTooltip and GameTooltip.SetBagItem then hooksecurefunc(GameTooltip, "SetBagItem", ItemRack.OnSetBagItem) end
-	if GameTooltip and GameTooltip.SetInventoryItem then hooksecurefunc(GameTooltip, "SetInventoryItem", ItemRack.OnSetInventoryItem) end
-	if GameTooltip and GameTooltip.SetHyperlink then hooksecurefunc(GameTooltip, "SetHyperlink", ItemRack.OnSetHyperlink) end
+	ItemRack.RegisterSetTooltipHooks()
 
 	ItemRackFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 	ItemRackFrame:RegisterEvent("PLAYER_LOGOUT")
@@ -3706,18 +3727,22 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 			end
 		end
 
-		-- Screen space awareness: ensure height doesn't exceed screen
-		local screenHeight = GetScreenHeight()
+		-- Set menus retain their existing spacing; item breakouts have their own control.
+		local stride = 36 + (id < 20 and math.max(0,math.min(24,tonumber(ItemRackUser.BreakoutSpacing) or 4)) or 4)
+		local menuScale = ItemRackMenuFrame:GetEffectiveScale()
+		local screenHeight = GetScreenHeight() * UIParent:GetEffectiveScale() / menuScale
+		local availableRows = math.max(1,math.floor((screenHeight - 80) / stride))
+		max_cols = math.max(1,max_cols)
 		if ItemRack.menuOrient == "HORIZONTAL" then
 			-- In horizontal mode, max_cols is the HEIGHT in buttons
-			if (max_cols * 40 + 40) > screenHeight then
-				max_cols = math.floor((screenHeight - 80) / 40)
+			if (max_cols * stride + stride) > screenHeight then
+				max_cols = availableRows
 			end
 		else
 			-- In vertical mode, height grows with rows (menuCount / max_cols)
 			local rows = math.ceil(menuCount / max_cols)
-			if (rows * 40 + 40) > screenHeight then
-				max_cols = math.ceil(menuCount / (math.floor((screenHeight - 80) / 40)))
+			if (rows * stride + stride) > screenHeight then
+				max_cols = math.ceil(menuCount / availableRows)
 			end
 		end
 
@@ -3743,22 +3768,22 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 			end
 
 			if ItemRack.menuOrient=="VERTICAL" then
-				xpos = xpos + ItemRack.DockInfo[ItemRack.currentDock].xdir*40
+				xpos = xpos + ItemRack.DockInfo[ItemRack.currentDock].xdir*stride
 				col = col + 1
 				if col>=max_cols then
 					xpos = ItemRack.DockInfo[ItemRack.currentDock].xstart
 					col = 0
-					ypos = ypos + ItemRack.DockInfo[ItemRack.currentDock].ydir*40
+					ypos = ypos + ItemRack.DockInfo[ItemRack.currentDock].ydir*stride
 					row = row + 1
 				end
 				button:Show()
 			else
-				ypos = ypos + ItemRack.DockInfo[ItemRack.currentDock].ydir*40
+				ypos = ypos + ItemRack.DockInfo[ItemRack.currentDock].ydir*stride
 				col = col + 1
 				if col>=max_cols then
 					ypos = ItemRack.DockInfo[ItemRack.currentDock].ystart
 					col = 0
-					xpos = xpos + ItemRack.DockInfo[ItemRack.currentDock].xdir*40
+					xpos = xpos + ItemRack.DockInfo[ItemRack.currentDock].xdir*stride
 					row = row + 1
 				end
 				button:Show()
@@ -3787,11 +3812,11 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 		end
 
 		if ItemRack.menuOrient=="VERTICAL" then
-			ItemRackMenuFrame:SetWidth(12+(max_cols*40))
-			ItemRackMenuFrame:SetHeight(12+((row+1)*40))
+			ItemRackMenuFrame:SetWidth(12+(max_cols*stride))
+			ItemRackMenuFrame:SetHeight(12+((row+1)*stride))
 		else
-			ItemRackMenuFrame:SetWidth(12+((row+1)*40))
-			ItemRackMenuFrame:SetHeight(12+(max_cols*40))
+			ItemRackMenuFrame:SetWidth(12+((row+1)*stride))
+			ItemRackMenuFrame:SetHeight(12+(max_cols*stride))
 		end
 
 		ItemRack.StartTimer("MenuMouseover")
@@ -5382,6 +5407,8 @@ function PaperDollItemSlotButton_OnEnter(self)
 	-- We MUST NOT modify GameTooltip.SetOwner or any other secure table — doing so
 	-- taints the GameTooltip table, which propagates to Blizzard action bar OnEnter
 	-- handlers and causes ADDON_ACTION_BLOCKED errors on protected calls like SetShown().
+	-- A previous flyout row must not offset this newly hovered character slot.
+	ItemRack.pendingTooltipVerticalOwner = nil
 	ItemRack.oldPaperDollItemSlotButton_OnEnter(self)
 	
 	-- AFTER the secure handler and its post-hooks have finished, reposition and
@@ -5436,8 +5463,8 @@ end
 
 -- Apply the stored tooltip anchor after PaperDollItemSlotButton_OnEnter and
 -- asynchronous tooltip refreshes that may restore Blizzard's default anchor.
--- Also handles wide tooltips that would overlap the menu by falling back to
--- positioning below or above the menu frame.
+-- Disable native side anchoring without resetting the owner or item contents.
+-- Otherwise a layout refresh can restore the old side before our Show hook runs.
 function ItemRack.ApplyTooltipAnchor()
 	local anchor = ItemRack.pendingTooltipAnchor
 	local owner = ItemRack.pendingTooltipOwner
@@ -5446,9 +5473,10 @@ function ItemRack.ApplyTooltipAnchor()
 	-- Only re-apply if we're still in a character-sheet tooltip context.
 	-- If menuDockedTo has changed (e.g. moved to options panel), the pending
 	-- anchor is stale and should be discarded.
-	if not (ItemRack.menuDockedTo and string.match(ItemRack.menuDockedTo, "^Character")) then
+	if not (ItemRackMenuFrame:IsVisible() and ItemRack.menuDockedTo and string.match(ItemRack.menuDockedTo, "^Character")) then
 		ItemRack.pendingTooltipAnchor = nil
 		ItemRack.pendingTooltipOwner = nil
+		ItemRack.pendingTooltipVerticalOwner = nil
 		return
 	end
 	
@@ -5457,16 +5485,22 @@ function ItemRack.ApplyTooltipAnchor()
 	if not tooltipOwner or not tooltipOwner.GetName then return end
 	local ownerName = tooltipOwner:GetName() or ""
 	
-	-- We want to apply the anchor for Character sheet slots AND for ItemRackMenuFrame / ItemRackOpt menus.
-	-- We DO NOT want to apply it for ItemRackButton (the quick access buttons), because they have their own anchoring in ItemRack.InventoryTooltip.
-	if ownerName:match("^ItemRackButton") or not (ownerName:match("^Character") or ownerName:match("^ItemRack")) then
+	-- Only the docked character slot and its flyout belong to this context.
+	-- Options, quick-access buttons and other character slots must remain untouched.
+	if not (ownerName == ItemRack.menuDockedTo or tooltipOwner == ItemRackMenuFrame or ownerName:match("^ItemRackMenu%d+$")) then
 		-- Not an ItemRack menu/character tooltip — clear stale pending state
 		ItemRack.pendingTooltipAnchor = nil
 		ItemRack.pendingTooltipOwner = nil
+		ItemRack.pendingTooltipVerticalOwner = nil
 		return
 	end
 	
 	-- Apply the desired anchor
+	-- SetOwner would clear/rebuild tooltip data. SetAnchorType preserves it and
+	-- prevents native layout from competing with the manual points below.
+	if type(GameTooltip.SetAnchorType) == "function" then
+		GameTooltip:SetAnchorType("ANCHOR_NONE")
+	end
 	GameTooltip:ClearAllPoints()
 	local verticalOwner = ItemRack.pendingTooltipVerticalOwner
 	if anchor == "ANCHOR_RIGHT" then
@@ -5486,8 +5520,8 @@ function ItemRack.ApplyTooltipAnchor()
 	end
 end
 
--- Secure hook to prevent asynchronous addons from ripping the tooltip off our custom Anchor.
--- Every time GameTooltip:Show() natively resets to SetOwner, we instantly snap it back.
+-- Reapply the scoped positioning after item-data display/refresh. Native layout
+-- remains disabled while these manual points own the active tooltip position.
 hooksecurefunc(GameTooltip, "Show", function(self)
 	if ItemRack.pendingTooltipAnchor and ItemRack.pendingTooltipOwner and ItemRackMenuFrame:IsVisible() then
 		ItemRack.ApplyTooltipAnchor()
@@ -5499,6 +5533,7 @@ end)
 GameTooltip:HookScript("OnHide", function()
 	ItemRack.pendingTooltipAnchor = nil
 	ItemRack.pendingTooltipOwner = nil
+	ItemRack.pendingTooltipVerticalOwner = nil
 end)
 
 function ItemRack.DockMenuToCharacterSheet(self)

@@ -74,6 +74,72 @@ standard suite before its fix is considered complete:
 
 ### Report coverage in the standard gate
 
+GitHub #30 (y00), TBC Anniversary / ItemRack 4.53, enUS: ordinary set-menu
+clicks bypassed combat deferral for slots 16-18, then failed with protected
+PickupInventoryItem/destination_rejected and lost those requests. Named
+`issue-30-combat-weapons-*` cases in `.tools/test_batch_and_dualspec_lua.js`
+use the reported current/target weapon, shield and relic identities. The
+full-set case fails before correction. Both combat-weapons toggle states and
+manual slot queues verify retained requests, no transaction/pickup in combat,
+post-combat actual equipment and cleared queue/cursor/transaction/set work.
+The existing secure-binding suite retains weapon-only/full-set macro coverage,
+identity reconciliation and no replay. Bag locations and API timing are modeled;
+exact client build is not supplied. Live acceptance: repeat the issue's steps
+with both toggle states; test secure weapon hotkeys, full sets, individual slots,
+two-handed/off-hand transitions, casting and rapid replacement requests. Verify
+no ADDON_ACTION_BLOCKED, no destination_rejected, all requested items equip
+after combat, current set reconciles and pending overlays clear. Other supported
+clients require equivalent protected-action acceptance before stable release.
+
+October 8 character-tooltip hop: https://imgur.com/a/v7eD8FY and supplied
+OLaVTW6.mp4 show the same equipped ring tooltip on the right around 6.4 seconds
+and on the left around 6.6 seconds. Exact client/build, installed addon version,
+profile, other tooltip addons and native refresh ordering remain unknown.
+`reported-character-tooltip-anchor-hop` in `.tools/test_identity_matching_lua.js`
+executes the production character hover, anchor application and Show/OnHide hooks.
+It fails before the fix because native ANCHOR_RIGHT survives manual left placement.
+Modeled native layout and repeated Show refreshes retain the intended side after
+the fix, with 1/2/40-entry profiles, opposite direction, preserved owner/content,
+flyout alignment, stale offset cleanup, unrelated owners, hide cleanup, missing
+SetAnchorType safety and disabled menus. The menu renderer is stubbed in this
+focused anchor test; actual geometry has separate menu-renderer coverage.
+This proves the anchor-state conflict is corrected, not the recording's exact
+client refresh sequence or protected-action safety. In-game acceptance: repeat
+the recorded ring/armor hovers and flyout rows with small/large/empty menus,
+both directions and multiple UI/menu scales; wait for data/comparison refresh,
+rapidly change slots, toggle character menus off and open equipment manager.
+Check bags, action bars and Options retain normal tooltips, contents/set lines
+stay present, and no hop, Lua errors or taint occurs, including in combat.
+Repeat with tooltip addons enabled/disabled. Clients lacking SetAnchorType keep
+the safe previous manual-position fallback; no-hop behavior there is unverified.
+
+October 8 Forever report: missing set lines with the setting enabled. The
+`forever-modern-set-tooltip` case in `.tools/test_identity_matching_lua.js`
+models data-processor registration and invokes the production callback and
+membership renderer; verifies public-set filtering, identity differences,
+both settings, nil/error/secret links, one registration and Classic fallback.
+Pre-fix code has no processor registration or callback. Exact client build,
+reporter identity and in-client reproduction remain unavailable. Acceptance:
+hover bag, equipped and linked items on Forever with both settings on/off,
+including Baganator tooltips; check lines appear once and no Lua/taint errors.
+Baganator 834-2-g8c53fdf explicitly excludes Forever from its separate ItemRack
+adapter. The suggested upstream change is documented in BAGANATOR_COMPATIBILITY.md;
+it is not bundled or claimed to have passed live integration acceptance.
+
+The October 7, 2026 feedback after 4.53 describes zoomed main artwork,
+inset breakout artwork and independent breakout spacing. The comparison image,
+reporter/client build and skin settings were not supplied. `reported-icon-zoom`
+and `reported-breakout-inset` in `.tools/check_secure_templates.js` check full
+texture coordinates and bounds; the former fails on 4.53. The production
+`reported-breakout-spacing` case in `.tools/test_batch_and_dualspec_lua.js`
+fails on the pre-fix renderer and verifies independent spacing, both wrap
+orientations, frame containment, legacy defaults, unchanged set-menu spacing
+and a scaled short screen. In-client acceptance must compare Tidal Charm to
+the action bar at equal effective scale, check trim/selection/cooldown alignment
+in both icon pickers, and repeat with Masque enabled/disabled. Geometry tests
+do not establish pixel-perfect rendering or resolve the unspecified picker
+trim observation.
+
 The October 7 CurseForge deployment request extends `.tools/check_release_flow.js`
 in the standard gate. Production deployment verification reads a real `git archive`
 fixture and checks both folders, every tag blob, checksum, TOC/project/version
