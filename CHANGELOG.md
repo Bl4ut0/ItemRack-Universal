@@ -4,6 +4,7 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **Forever character-slot hover dispatch**: Explicitly register ItemRack's character-slot `OnEnter` wrapper when a frame remains bound to Blizzard's captured original handler. A live Forever dump showed the Hands slot compared false to ItemRack's replacement global and true to the captured native function, so the prior direct global assignment did not affect real slot hovers even though tests called the wrapper directly. Registration is idempotent and preserves exactly one native-handler call. Extended the production-Lua tooltip regression from the reported frame binding and added an initialization guard. The reporter confirmed the installed Dev build resolved the observed right-to-left tooltip hop after reload.
 
 ## [4.54-beta2] - 2026-10-09
 - **Pending icons for secure full-set hotkeys (GitHub #30)**: When a combat-capable saved-set key equips weapons immediately and retains the rest of the set for combat exit, the still-unmet items now appear on both character-sheet slots and quick-access buttons. Observed secure weapon completions clear only their own projected icons; deferred armor remains visible until the set request is consumed. Pending-item tooltips use the same target, and the projection never duplicates execution work into `CombatQueue`. Added the reported production-Lua regression and lifecycle checks; live icon rendering remains to be confirmed.

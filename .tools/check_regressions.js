@@ -501,6 +501,14 @@ check(
 );
 
 check(
+  core.includes('function ItemRack.RegisterCharacterSlotOnEnterHandlers()') &&
+    core.includes('button:GetScript("OnEnter") == ItemRack.oldPaperDollItemSlotButton_OnEnter') &&
+    core.includes('button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)') &&
+    buttons.includes('ItemRack.RegisterCharacterSlotOnEnterHandlers()'),
+  'forever-character-onenter-binding: InitButtons must replace captured native slot handlers with the ItemRack wrapper.'
+);
+
+check(
   core.includes('if i ~= "PaperDollFrame" or ItemRackSettings.CharacterSheetMenus == "ON" then'),
   'MenuMouseover must not treat PaperDollFrame as keep-alive when CharacterSheetMenus is disabled.'
 );

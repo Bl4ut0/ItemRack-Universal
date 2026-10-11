@@ -1,5 +1,7 @@
 __ Development __
 
+- Forever character slots now explicitly dispatch hover handling through ItemRack when the frame remains bound to Blizzard's captured original function. A live Hands-slot dump proved the old global replacement was not the frame's actual OnEnter script. Registration preserves one native tooltip call and is idempotent; permanent production-Lua and initialization regressions cover the reported binding. The reporter confirmed the installed Dev build resolved the observed right-to-left tooltip hop after reload.
+
 __ New in 4.54-beta2 - By Bl4ut0 __
 - GitHub #30 follow-up: secure full-set hotkeys now show every still-pending item on character-sheet and quick-access slots. Secure weapon completion clears only the completed weapon icon while deferred armor stays visible until combat exit; pending tooltips match the projected item and no duplicate swap work is created. Added a permanent production-Lua regression; live icon rendering remains to be confirmed.
 - Renamed Swap set weapons during combat to Full-set hotkeys swap weapons in combat and expanded its tooltip. Only saved-set keys assigned with Sets > Bind Key use the secure combat path; flyout clicks, /itemrack equip macros, events, and queues defer. GitHub #30's reporter confirmed 4.54-beta1 queues slots 16-18 and equips them after combat without Lua errors.

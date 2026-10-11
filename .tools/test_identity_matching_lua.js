@@ -14,7 +14,10 @@ ItemRack={SlotInfo={}}
 for i=0,19 do ItemRack.SlotInfo[i]={name='Slot'..i} end
 ItemRack.SlotInfo[11].name='Finger0Slot'
 ItemRackSettings={CharacterSheetMenus='ON',MenuOnShift='OFF',RightSlotsGoLeft='OFF',LeftSlotsGoRight='ON'}
-local slot={GetName=function() return 'CharacterFinger0Slot' end,GetTop=function() return 300 end}
+local slot={scripts={},GetName=function() return 'CharacterFinger0Slot' end,GetTop=function() return 300 end}
+function slot:GetScript(name) return self.scripts[name] end
+function slot:SetScript(name,handler) self.scripts[name]=handler end
+CharacterFinger0Slot=slot
 ItemRackMenuFrame={visible=true,IsVisible=function(s) return s.visible end,
   GetName=function() return 'ItemRackMenuFrame' end,GetTop=function() return 300 end}
 GameTooltip={alpha=1,owner=slot,side='none',scripts={},content='saved item',ownerCalls=0}
@@ -30,13 +33,24 @@ function hooksecurefunc(t,n,f) local old=t[n]; t[n]=function(self,...) old(self,
 function IsShiftKeyDown() return false end
 ItemRack.IsEquipmentManagerOpen=function() return false end
 ItemRack.DockMenuToCharacterSheet=function(s) ItemRack.menuDockedTo=s:GetName(); ItemRackMenuFrame.visible=true end
-ItemRack.oldPaperDollItemSlotButton_OnEnter=function(s) GameTooltip:SetOwner(s,'ANCHOR_RIGHT'); GameTooltip:Show() end
+local nativeEnterCalls=0
+ItemRack.oldPaperDollItemSlotButton_OnEnter=function(s) nativeEnterCalls=nativeEnterCalls+1; GameTooltip:SetOwner(s,'ANCHOR_RIGHT'); GameTooltip:Show() end
 ${extractFunction(core,'ItemRack.ApplyTooltipAnchor')}
 ${extractFunction(core,'PaperDollItemSlotButton_OnEnter')}
+${extractFunction(core,'ItemRack.RegisterCharacterSlotOnEnterHandlers')}
 ${anchorHooks}
 local function nativeLayout()
   if GameTooltip.nativeAnchor~='ANCHOR_NONE' then GameTooltip.side='RIGHT' end
 end
+-- October 11 Forever evidence: CharacterHandsSlot:GetScript('OnEnter') compared
+-- false to ItemRack's global wrapper and true to the captured native handler.
+-- Start from that real dispatch shape and require explicit, idempotent repair.
+slot.scripts.OnEnter=ItemRack.oldPaperDollItemSlotButton_OnEnter
+assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==1,'Forever-bound native character handler must be replaced explicitly')
+assert(slot:GetScript('OnEnter')==PaperDollItemSlotButton_OnEnter,'character slot must dispatch through ItemRack wrapper')
+assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==0,'character handler registration must be idempotent')
+slot:GetScript('OnEnter')(slot)
+assert(nativeEnterCalls==1,'registered ItemRack wrapper must invoke the captured native handler exactly once')
 for _,count in ipairs({1,2,40}) do
   ItemRack.Menu={}; for i=1,count do ItemRack.Menu[i]=i end
   ItemRack.menuDockedTo=nil

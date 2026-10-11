@@ -64,6 +64,9 @@ end
 
 function ItemRack.InitButtons()
 	ItemRackUser.Buttons = ItemRackUser.Buttons or {}
+	if ItemRack.RegisterCharacterSlotOnEnterHandlers then
+		ItemRack.RegisterCharacterSlotOnEnterHandlers()
+	end
 	if hooksecurefunc and PaperDollItemSlotButton_Update and not ItemRack.CustomIconHooked then
 		hooksecurefunc("PaperDollItemSlotButton_Update",ItemRack.RefreshCustomItemIcons)
 		ItemRack.CustomIconHooked = true

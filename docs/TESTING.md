@@ -168,14 +168,34 @@ flyout alignment, stale offset cleanup, unrelated owners, hide cleanup, missing
 SetAnchorType safety and disabled menus. The menu renderer is stubbed in this
 focused anchor test; actual geometry has separate menu-renderer coverage.
 This proves the anchor-state conflict is corrected, not the recording's exact
-client refresh sequence or protected-action safety. In-game acceptance: repeat
+client refresh sequence or protected-action safety. October 11 follow-up
+screenshots from locally installed Dev builds show Foreman Belt and, on Forever,
+Frontier Britches and Pioneer Gloves still moving from the right to the left of
+the right-side row, including with an already-open breakout. MarketSense tooltip
+lines are visible. The affected Forever client confirms
+`type(GameTooltip.SetAnchorType) == "function"`, disproving the attempted
+missing-API fallback; transient-hide and pre-build-alpha experiments also did not
+resolve the live reproduction and were removed. No additional correction is
+claimed by those attempts. A subsequent live dump on `CharacterHandsSlot` returned
+false for equality with ItemRack's global wrapper and true for equality with the
+captured original handler. This confirms Forever retained Blizzard's function
+object when the frame was created, so changing the global name never routed real
+slot hovers through the tested ItemRack wrapper. The extended named regression now
+starts with that reported frame-script binding, runs production registration,
+requires idempotent replacement and verifies the captured native handler executes
+exactly once before the existing anchor assertions. Static standard-gate coverage
+requires registration from `InitButtons`. The exact Forever build remains unknown.
+After installing the corrected Dev build and reloading on October 11, the reporter
+confirmed the tooltip-hop problem appeared solved. This is live acceptance of the
+reported Forever character-slot dispatch failure. Other supported clients and
+tooltip-addon combinations retain the acceptance checks below.
+In-game acceptance: repeat
 the recorded ring/armor hovers and flyout rows with small/large/empty menus,
 both directions and multiple UI/menu scales; wait for data/comparison refresh,
 rapidly change slots, toggle character menus off and open equipment manager.
 Check bags, action bars and Options retain normal tooltips, contents/set lines
 stay present, and no hop, Lua errors or taint occurs, including in combat.
-Repeat with tooltip addons enabled/disabled. Clients lacking SetAnchorType keep
-the safe previous manual-position fallback; no-hop behavior there is unverified.
+Repeat with tooltip addons enabled/disabled.
 
 October 8 Forever report: missing set lines with the setting enabled. The
 `forever-modern-set-tooltip` case in `.tools/test_identity_matching_lua.js`

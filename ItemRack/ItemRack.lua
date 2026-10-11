@@ -5486,6 +5486,24 @@ function PaperDollItemSlotButton_OnEnter(self)
 	end
 end
 
+-- Some clients bind the character-slot OnEnter script to the function object
+-- that existed when Blizzard created the frame. Replacing the global name does
+-- not update that stored handler, so install ItemRack's wrapper explicitly while
+-- preserving the captured native handler that the wrapper calls exactly once.
+function ItemRack.RegisterCharacterSlotOnEnterHandlers()
+	local registered = 0
+	for i=0,19 do
+		local slotInfo = ItemRack.SlotInfo[i]
+		local button = slotInfo and _G["Character"..slotInfo.name]
+		if button and button.GetScript and button.SetScript
+		and button:GetScript("OnEnter") == ItemRack.oldPaperDollItemSlotButton_OnEnter then
+			button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)
+			registered = registered + 1
+		end
+	end
+	return registered
+end
+
 -- Apply the stored tooltip anchor after PaperDollItemSlotButton_OnEnter and
 -- asynchronous tooltip refreshes that may restore Blizzard's default anchor.
 -- Disable native side anchoring without resetting the owner or item contents.
