@@ -9,6 +9,9 @@ const beginBinding = extractFunction(coreFile, 'ItemRack.BeginSetBinding');
 const processBinding = extractFunction(coreFile, 'ItemRack.ProcessPendingSetBinding');
 const runBinding = extractFunction(coreFile, 'ItemRack.RunSetBinding');
 const weaponMacro = extractFunction(coreFile, 'ItemRack.GetWeaponBindingMacro');
+const pendingBindingDisplay = extractFunction(coreFile, 'ItemRack.GetPendingSetBindingDisplayID');
+const updateCombatQueue = extractFunction(coreFile, 'ItemRack.UpdateCombatQueue');
+const inventoryTooltip = extractFunction(coreFile, 'ItemRack.InventoryTooltip');
 const configureButton = weaponMacro + '\n' + extractFunction(coreFile, 'ItemRack.ConfigureSetBindingButton');
 const neutralizeButton = extractFunction(coreFile, 'ItemRack.NeutralizeSetBindingButton');
 const queueBindings = extractFunction(coreFile, 'ItemRack.QueueSetBindingsAfterCombat');
@@ -347,6 +350,78 @@ scripts.PreClick(); scripts.PostClick()
 assert(ItemRack.PendingSetBindingRequest.intent=="equip","rejected or wrong-copy weapon actions must retain an after-combat repair request")
 `);
 checks += 13;
+
+// GitHub #30 follow-up (y00, 4.54-beta1): a full-set secure hotkey equipped
+// slots 16-18 in combat and retained the remaining gear, but neither the
+// character sheet nor quick-access buttons showed the pending item icons.
+runCase('issue-30-secure-full-set-pending-overlays', `
+local combat=true
+local equipped={[1]="old-armor",[16]="old-weapon"}
+local equips=0
+local function overlay()
+  return {
+    shown=false,texture=nil,alpha=nil,
+    SetTexture=function(self,value) self.texture=value end,
+    SetAlpha=function(self,value) self.alpha=value end,
+    Show=function(self) self.shown=true end,
+    Hide=function(self) self.shown=false end,
+  }
+end
+ItemRackUser={
+  EnableQueues="ON",
+  Buttons={[1]={},[16]={}},
+  Sets={Full={equip={[1]="new-armor",[16]="new-weapon"}}},
+}
+ItemRackSettings={EquipToggle="OFF",ShowTooltips="ON",DisableTooltipsInCombat="OFF"}
+ItemRack={
+  CombatQueue={},SetBindingRequestSequence=0,NowCasting=nil,
+  SlotInfo={},Debug=function() end,
+  IsPlayerReallyDead=function() return false end,
+  GetQueuesEnabled=function() return {} end,
+  GetEquippedSlotState=function(slot) return "resolved",equipped[slot] end,
+  MatchesStoredItemID=function(expected,actual) return expected==actual end,
+  GetInfoByID=function(id) return tostring(id),"texture:"..tostring(id) end,
+  EquipSet=function(name) assert(name=="Full"); equips=equips+1 end,
+  StartTimer=function() end,
+}
+for slot=1,19 do
+  ItemRack.SlotInfo[slot]={name="Slot"..slot}
+  _G["CharacterSlot"..slot.."Queue"]=overlay()
+end
+ItemRackButton1Queue=overlay()
+ItemRackButton16Queue=overlay()
+function InCombatLockdown() return combat end
+`, [pendingBindingDisplay,updateCombatQueue,inventoryTooltip,beginBinding,processBinding,runBinding], `
+local request=ItemRack.BeginSetBinding("Full")
+local status,reason=ItemRack.RunSetBinding("Full",request)
+assert(status=="deferred" and reason=="protected",
+  "reported secure full-set request must remain pending during combat")
+assert(ItemRackButton1Queue.shown and ItemRackButton1Queue.texture=="texture:new-armor" and ItemRackButton1Queue.alpha==1,
+  "quick-access armor button must show the pending saved-set item")
+assert(CharacterSlot1Queue.shown and CharacterSlot1Queue.texture=="texture:new-armor",
+  "character-sheet armor slot must show the pending saved-set item")
+ItemRack.InventoryTooltip({GetID=function() return 1 end})
+assert(ItemRack.TooltipBag=="new-armor",
+  "quick-access pending icon tooltip must describe the projected target item")
+assert(ItemRackButton16Queue.shown and CharacterSlot16Queue.shown,
+  "unobserved secure weapon completion must remain visibly pending")
+assert(next(ItemRack.CombatQueue)==nil,
+  "visual projection must not duplicate the set-binding request into the execution queue")
+equipped[16]="new-weapon"
+ItemRack.UpdateCombatQueue()
+assert(not ItemRackButton16Queue.shown and not CharacterSlot16Queue.shown,
+  "observed secure weapon completion must clear its icon while armor remains pending")
+assert(ItemRackButton1Queue.shown and CharacterSlot1Queue.shown,
+  "refreshing secure weapon completion must preserve deferred armor icons")
+combat=false
+local processed,intent=ItemRack.ProcessPendingSetBinding("combat ended")
+assert(processed and intent=="equip" and equips==1,
+  "combat exit must still transfer the original request exactly once")
+assert(not ItemRackButton1Queue.shown and not CharacterSlot1Queue.shown,
+  "consuming the request must clear both pending overlays")
+`);
+checks += 11;
+
 // Forever 1.60.1 report: "Usage: SaveBindings(1||2)" at PLAYER_LOGIN. The client
 // returned binding set 0 while a saved set key was being reconciled.
 runCase(

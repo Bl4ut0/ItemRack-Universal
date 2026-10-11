@@ -110,7 +110,7 @@ When reporting a problem, include:
 The dump identifies the exact ItemRack release and includes technical state such as event ownership, queues, equipment transactions, and locks. Review it before sharing because it can contain gear-set names and item information.
 
 - Source and issue tracker: https://github.com/Bl4ut0/ItemRack-Universal
-- Full controls: https://github.com/Bl4ut0/ItemRack-Universal/blob/master/CONTROLS.md
+- Full controls: https://github.com/Bl4ut0/ItemRack-Universal/blob/master/docs/CONTROLS.md
 
 ## Credits
 

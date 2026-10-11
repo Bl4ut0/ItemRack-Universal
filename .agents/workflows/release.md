@@ -8,9 +8,9 @@ This is the only release workflow. It has two publication channels:
 All archives are exported from a committed Git ref. Never publish files copied from the mutable checkout. The single `ItemRack-universal-{Version}.zip` archive carries the shared Classic Era, Anniversary/TBC, and Forever/Camelot TOC metadata and runtime compatibility layer. Separate client-specific branches, tags, archive names, and release procedures are retired. Generated archives, manifests, hashes, and post files live under `.versions/` and are intentionally not committed.
 
 CurseForge publication uses `.github/workflows/curseforge-release.yml` after a
-stable GitHub release is published. It uploads the existing verified ZIP, preserving
+stable GitHub release or beta prerelease is published. It uploads the existing verified ZIP, preserving
 both addon folders. Testing a primary candidate still publishes nothing.
-The ItemRack repository must have an Actions secret named `CF_API_TOKEN` with
+The ItemRack repository must have an Actions secret named `CF_UPLOAD_TOKEN` with
 the account's upload token; MarketSync's environment secret is not shared
 automatically and cannot be read back through GitHub. Never commit the token.
 
@@ -20,15 +20,27 @@ IDs, release notes, checksum, and every ZIP byte against the tag, without
 creating a CurseForge file. An upload also proves access to project `1441253`;
 the read-only game-version endpoint alone cannot prove project permission.
 
-Publication retains `curseforge-upload-attempt.json` on the GitHub release
-before the POST and `curseforge-upload.json` with the returned file ID afterward.
-No automatic POST retries occur. If an attempt marker exists without a receipt,
-check CurseForge and Actions evidence before recovery: the server may have
-accepted the file. Remove that marker only after confirming no file was created,
-then manually dispatch with the same tag and `upload=true`. Beta tags upload as
-Beta files only through an explicitly authorized manual dispatch; stable tags
-upload as Release files. Ordinary dev/production pushes and GitHub prereleases
-do not upload. A successful API response means submission, not moderator approval.
+Publication reserves a GitHub deployment in the `curseforge` environment before
+the POST, then records success with the returned CurseForge file ID and archive
+hash. Detailed JSON stays in Actions artifacts, outside the public release assets
+and addon ZIP. All deployment states block repeated uploads for that tag.
+No automatic POST retries occur. If an attempt lacks a success receipt, inspect
+CurseForge, deployment history and Actions evidence: the server may have accepted
+the file. Only after confirming no file was created, mark that deployment inactive
+and delete its reservation, then manually dispatch with the same tag and
+`upload=true`. Preserve successful records. Beta tags upload as
+Beta files automatically when their GitHub prerelease is published; stable tags
+upload as Release files when their GitHub release is published. Both carry every
+supported game-version ID derived from the verified universal TOC. Ordinary
+dev/production pushes and tag pushes alone do not upload. Manual dispatch retains
+read-only setup checks and guarded recovery for an existing published tag.
+A successful API response means submission, not moderator approval. Do not enable
+the separate CurseForge repository packager: the verified ZIP upload is canonical.
+
+The 4.53 release's legacy JSON assets were migrated to deployment history before
+removal. The Actions secret was renamed from `CF_API_TOKEN` to `CF_UPLOAD_TOKEN`
+so rerunning its immutable old workflow cannot bypass the new history guard;
+the old secret must remain absent. Never rewrite the accepted tag to update CI.
 
 ## Questions to ask first
 
@@ -40,7 +52,7 @@ Ask the user for:
    - Primary: `X.Y[-Z]`, such as `4.43`.
 3. Release date in `YYYY-MM-DD`.
 4. Authorization appropriate to the phase:
-   - Beta: push `dev` and an annotated tag, publish a GitHub prerelease, and replace detected local addon folders.
+   - Beta: push `dev` and an annotated tag, publish a GitHub prerelease (automatically submitting it to CurseForge as Beta), and replace detected local addon folders.
    - Primary candidate: merge/push `dev` to the detected production branch and replace detected local addon folders. This does **not** authorize a tag or public release.
    - Primary finalize: tag and publish the accepted candidate, merge it back to `dev`, and reset/push the `dev` TOCs.
 
@@ -131,7 +143,7 @@ The beta track never switches to or pushes the production branch.
    git push origin dev
    ```
 
-8. Report the beta tag and commit, GitHub URL, archive SHA-256, installed destinations, and generated CurseForge post path. GitHub prereleases do not automatically upload to CurseForge. If separately authorized, manually dispatch the CurseForge workflow with that tag and `upload=true`, then report its file ID.
+8. Report the beta tag and commit, GitHub URL, archive SHA-256, installed destinations, generated CurseForge post path, and automatic CurseForge workflow/file ID. GitHub publication triggers Beta submission; confirm both destinations are authorized before creating the prerelease. Verify submission separately from moderation/installation. On failure, preserve the immutable tag/archive and follow guarded upload recovery above. Never blindly retry an ambiguous POST.
 
 ## Track B: Primary
 

@@ -259,6 +259,8 @@ function ItemRackOpt.OnLoad(self)
 		{type="check",optset=ItemRackUser,variable="CustomMenuIcons",label="Custom icons in item flyouts",tooltip="Show queue item icons in quick-access and character-sheet item flyouts. Set editing keeps original icons."},
 		{type="number",optset=ItemRackUser,variable="ButtonSpacing",button=ItemRackOptButtonSpacing,label="Button spacing",tooltip="Padding distance between buttons.",combatlock=1},
 		{type="slider",button=ItemRackOptButtonSpacingSlider,variable="ButtonSpacing",label="Button spacing",tooltip="Padding distance between buttons.", min=0, max=24, step=1, form="%d",combatlock=1},
+		{type="number",optset=ItemRackUser,variable="BreakoutSpacing",button=ItemRackOptBreakoutSpacing,label="Breakout spacing",tooltip="Padding between item breakout buttons, independent of main button spacing.",combatlock=1},
+		{type="slider",button=ItemRackOptBreakoutSpacingSlider,variable="BreakoutSpacing",label="Breakout spacing",tooltip="Padding between item breakout buttons, independent of main button spacing.",min=0,max=24,step=1,form="%d",combatlock=1},
 		{type="number",optset=ItemRackUser,variable="Alpha",button=ItemRackOptAlpha,label="Transparency",tooltip="Transparency (alpha) of the buttons and menu."},
 		{type="slider",button=ItemRackOptAlphaSlider,variable="Alpha",label="Transparency",tooltip="Transparency (alpha) of the buttons and menu.", min=.1, max=1, step=.05, form="%.2f"},
 		{type="number",optset=ItemRackUser,variable="MainScale",button=ItemRackOptMainScale,label="Button scale",tooltip="Scale size of the item buttons.",combatlock=1},
@@ -282,7 +284,7 @@ function ItemRackOpt.OnLoad(self)
 		{type="slider",optset=ItemRackUser,button=ItemRackOptCharMenuWrapValueSlider,depend="CharMenuWrap",variable="CharMenuWrapValue",label="When to wrap",tooltip="When 'Char sheet wrap' checked, this is the number of menu items before wrapping to a new row/column.", min=1, max=30, step=1, form="%d"},
 
 		{type="label",label="Global Settings"},
-		{type="check",optset=ItemRackSettings,variable="CombatSetWeapons",label="Swap set weapons during combat",tooltip="Set hotkeys equip weapons immediately during combat and equip remaining gear after combat. Weapon-only sets already swap immediately. Combat presses equip rather than toggle; rune-specific and empty-slot weapon requests wait until combat ends."},
+		{type="check",optset=ItemRackSettings,variable="CombatSetWeapons",label="Full-set hotkeys swap weapons in combat",tooltip="Only saved-set keys assigned with Sets > Bind Key use this option. It does not affect flyout-menu clicks, /itemrack equip macros, events, or queues; those wait until combat ends. Weapon-only bound sets already swap immediately. When enabled, a bound full set equips slots 16-18 during combat and queues its remaining gear. Rune-specific and empty-slot weapon requests still wait until combat ends."},
 		{type="check",optset=ItemRackSettings,variable="MenuOnShift",label="Menu on Shift",tooltip="Only show menu while Shift is held down."},
 		{type="check",optset=ItemRackSettings,variable="MenuOnRight",label="Menu on right click",tooltip="Open item and set flyout menus by right clicking buttons.\nWhen unchecked, flyout menus open on hover; Alt+Right-Click opens configuration.",combatlock=1},
 		{type="check",optset=ItemRackSettings,variable="RightClickUse",label="Use on Right-Click",tooltip="Right-clicking an item button uses the item instead of manually advancing its auto queue."},
@@ -953,6 +955,7 @@ function ItemRackOpt.DeleteSet()
 		end
 		if ItemRack.PendingSetBindingRequest and ItemRack.PendingSetBindingRequest.setname == setname then
 			ItemRack.PendingSetBindingRequest = nil
+			if ItemRack.UpdateCombatQueue then ItemRack.UpdateCombatQueue() end
 		end
 		ItemRackUser.Sets[setname] = nil
 	end
@@ -1243,6 +1246,8 @@ function ItemRackOpt.UpdateSlider(name)
 			number:SetText(string.format(slider.form or "%s",value))
 			if name=="ButtonSpacing" then
 				ItemRack.ConstructLayout()
+			elseif name=="BreakoutSpacing" then
+				if ItemRackMenuFrame:IsVisible() then ItemRack.BuildMenu() end
 			elseif name=="Alpha" then
 				ItemRack.ReflectAlpha()
 			elseif name=="MenuScale" then

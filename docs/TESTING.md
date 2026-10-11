@@ -74,13 +74,170 @@ standard suite before its fix is considered complete:
 
 ### Report coverage in the standard gate
 
+October 9, 2026 local user report: `ItemRack/readme.txt`, which ships inside
+every release archive, still described the 2.2-era event design, obsolete future
+plans and a non-overlapping-set restriction while omitting the Universal client
+matrix and current safety behavior. Named `packaged-readme-current-guide` in
+`.tools/check_regressions.js` fails against the old file at the shared
+Classic/TBC/Forever documentation assertion and passes only when the packaged
+guide identifies the supported clients, combat-weapon option, diagnostics and
+explicit script approval while excluding the retired guidance. The replacement
+was checked against production click, bank, slash-command, queue and event
+handlers. The follow-up named `packaged-readme-settings-catalog` inventories
+every label in the production `OptInfo` table plus the Set, Queue, Event, rune,
+binding, reset and sound editors. It requires explicit scope/default entries for
+value-bearing main options and guards the easily misunderstood Script Test,
+destructive reset and character/account scope explanations. These are static
+packaged-document regressions; verify the next release ZIP contains the updated
+readable text beside `ItemRack.toc`.
+
+October 9 beta publishing report: CurseForge's repository packager reported no
+TOC for 7297c8b, while our GitHub CurseForge workflow was skipped by its stable-only
+job filter. The GitHub ZIP contained both nested addon TOCs. Named standard-gate
+`curseforge-auto-beta-published` in `.tools/check_release_flow.js` fails against
+that job filter and passes when both published channels reach verification and
+upload. `curseforge-auto-beta-all-flavors` builds a real tagged beta Git archive,
+verifies every source byte and both versioned TOCs, maps the same five game-version
+IDs as stable, and asserts Beta metadata, unchanged multipart bytes and hash receipt.
+Existing checks preserve read-only dispatch, stable Release classification,
+missing/ambiguous version refusal, durable reservations and no automatic POST
+retry. These are workflow-structure and injected-HTTP checks, not a live upload.
+Acceptance: publish a future beta containing the updated workflow, confirm its
+Actions run is not skipped and the resulting CurseForge file is Beta with all
+supported versions. Stable releases must remain Release. Disable the separate
+repository-packager integration in CurseForge project settings; it is not used
+by the canonical verified-ZIP uploader. The failed historical beta tag is unchanged;
+changing dev does not replay its prior release event or alter its workflow.
+
+GitHub #30 (y00), TBC Anniversary / ItemRack 4.53, enUS: ordinary set-menu
+clicks bypassed combat deferral for slots 16-18, then failed with protected
+PickupInventoryItem/destination_rejected and lost those requests. Named
+`issue-30-combat-weapons-*` cases in `.tools/test_batch_and_dualspec_lua.js`
+use the reported current/target weapon, shield and relic identities. The
+full-set case fails before correction. Both combat-weapons toggle states and
+manual slot queues verify retained requests, no transaction/pickup in combat,
+post-combat actual equipment and cleared queue/cursor/transaction/set work.
+The existing secure-binding suite retains weapon-only/full-set macro coverage,
+identity reconciliation and no replay. Bag locations and API timing are modeled;
+exact client build is not supplied. On October 9, y00 confirmed in TBC that
+4.54-beta1 retained slots 16-18 during combat, equipped them afterward and
+produced no Lua errors; the attached trace shows all three CombatQueue entries,
+post-combat equipment transitions, transaction completion and an empty final
+queue. This is live acceptance of the originally reported menu/slash deferral
+failure. The same reply expected the account-wide combat-weapons option to make
+menu and `/itemrack equip` requests immediate, but those paths cannot submit
+protected actions. Named static regression `issue-30-combat-hotkey-copy` in
+`.tools/check_regressions.js` requires the revised label and tooltip to say the
+option applies only to saved-set keys assigned through Sets > Bind Key and that
+menu, slash, event and queue requests defer. Secure Bind Key behavior itself
+still needs reporter/client acceptance, along with both toggle states, full
+sets, individual slots, two-handed/off-hand transitions, casting and rapid
+replacement requests. Other supported clients require equivalent protected-
+action acceptance before stable release.
+
+GitHub #30 October 9 follow-up on 4.54-beta1: y00 confirmed a Sets-tab Bind Key
+securely equips slots 16-18 in combat and successfully finishes non-weapon slots
+after combat, but the retained non-weapon items had no pending icon on either the
+character sheet or quick-access buttons. The cause was a presentation ownership
+gap: secure full-set completion is retained in `PendingSetBindingRequest`, while
+`UpdateCombatQueue` rendered only physical `CombatQueue` entries. Named
+`issue-30-secure-full-set-pending-overlays` in `.tools/test_set_bindings_lua.js`
+executes the production request and renderer. It verifies both surfaces show the
+reported pending armor, unobserved weapons remain visible, observed secure weapon
+completion clears only the weapon overlays, armor remains visible, no duplicate
+execution queue entry is created, combat exit executes once, and all overlays
+clear. The pre-fix implementation has no set-request projection and fails the
+first icon assertion. Live acceptance: use a bound full set with the combat
+option enabled, display matching quick-access slots and the character sheet,
+enter combat, press the binding, and verify immediate weapon icons clear while
+armor icons retain the requested textures until combat exit. Hover a pending
+quick-access icon to confirm its target tooltip; repeat a rejected weapon and a
+newer superseding set request. Check for stale icons, Lua errors, taint, duplicate
+swaps, and correct final gear on every supported client family.
+
+October 8 character-tooltip hop: https://imgur.com/a/v7eD8FY and supplied
+OLaVTW6.mp4 show the same equipped ring tooltip on the right around 6.4 seconds
+and on the left around 6.6 seconds. Exact client/build, installed addon version,
+profile, other tooltip addons and native refresh ordering remain unknown.
+`reported-character-tooltip-anchor-hop` in `.tools/test_identity_matching_lua.js`
+executes the production character hover, anchor application and Show/OnHide hooks.
+It fails before the fix because native ANCHOR_RIGHT survives manual left placement.
+Modeled native layout and repeated Show refreshes retain the intended side after
+the fix, with 1/2/40-entry profiles, opposite direction, preserved owner/content,
+flyout alignment, stale offset cleanup, unrelated owners, hide cleanup, missing
+SetAnchorType safety and disabled menus. The menu renderer is stubbed in this
+focused anchor test; actual geometry has separate menu-renderer coverage.
+This proves the anchor-state conflict is corrected, not the recording's exact
+client refresh sequence or protected-action safety. October 11 follow-up
+screenshots from locally installed Dev builds show Foreman Belt and, on Forever,
+Frontier Britches and Pioneer Gloves still moving from the right to the left of
+the right-side row, including with an already-open breakout. MarketSense tooltip
+lines are visible. The affected Forever client confirms
+`type(GameTooltip.SetAnchorType) == "function"`, disproving the attempted
+missing-API fallback; transient-hide and pre-build-alpha experiments also did not
+resolve the live reproduction and were removed. No additional correction is
+claimed by those attempts. A subsequent live dump on `CharacterHandsSlot` returned
+false for equality with ItemRack's global wrapper and true for equality with the
+captured original handler. This confirms Forever retained Blizzard's function
+object when the frame was created, so changing the global name never routed real
+slot hovers through the tested ItemRack wrapper. The extended named regression now
+starts with that reported frame-script binding, runs production registration,
+requires idempotent replacement and verifies the captured native handler executes
+exactly once before the existing anchor assertions. Static standard-gate coverage
+requires registration from `InitButtons`. The exact Forever build remains unknown.
+After installing the corrected Dev build and reloading on October 11, the reporter
+confirmed the tooltip-hop problem appeared solved. This is live acceptance of the
+reported Forever character-slot dispatch failure. Other supported clients and
+tooltip-addon combinations retain the acceptance checks below.
+In-game acceptance: repeat
+the recorded ring/armor hovers and flyout rows with small/large/empty menus,
+both directions and multiple UI/menu scales; wait for data/comparison refresh,
+rapidly change slots, toggle character menus off and open equipment manager.
+Check bags, action bars and Options retain normal tooltips, contents/set lines
+stay present, and no hop, Lua errors or taint occurs, including in combat.
+Repeat with tooltip addons enabled/disabled.
+
+October 8 Forever report: missing set lines with the setting enabled. The
+`forever-modern-set-tooltip` case in `.tools/test_identity_matching_lua.js`
+models data-processor registration and invokes the production callback and
+membership renderer; verifies public-set filtering, identity differences,
+both settings, nil/error/secret links, one registration and Classic fallback.
+Pre-fix code has no processor registration or callback. Exact client build,
+reporter identity and in-client reproduction remain unavailable. Acceptance:
+hover bag, equipped and linked items on Forever with both settings on/off,
+including Baganator tooltips; check lines appear once and no Lua/taint errors.
+Baganator 834-2-g8c53fdf explicitly excludes Forever from its separate ItemRack
+adapter. The suggested upstream change is documented in BAGANATOR_COMPATIBILITY.md;
+it is not bundled or claimed to have passed live integration acceptance.
+
+The October 7, 2026 feedback after 4.53 describes zoomed main artwork,
+inset breakout artwork and independent breakout spacing. The comparison image,
+reporter/client build and skin settings were not supplied. `reported-icon-zoom`
+and `reported-breakout-inset` in `.tools/check_secure_templates.js` check full
+texture coordinates and bounds; the former fails on 4.53. The production
+`reported-breakout-spacing` case in `.tools/test_batch_and_dualspec_lua.js`
+fails on the pre-fix renderer and verifies independent spacing, both wrap
+orientations, frame containment, legacy defaults, unchanged set-menu spacing
+and a scaled short screen. In-client acceptance must compare Tidal Charm to
+the action bar at equal effective scale, check trim/selection/cooldown alignment
+in both icon pickers, and repeat with Masque enabled/disabled. Geometry tests
+do not establish pixel-perfect rendering or resolve the unspecified picker
+trim observation.
+
 The October 7 CurseForge deployment request extends `.tools/check_release_flow.js`
 in the standard gate. Production deployment verification reads a real `git archive`
 fixture and checks both folders, every tag blob, checksum, TOC/project/version
 mapping and notes. Injected HTTP responses exercise missing credentials, exact
 and missing/ambiguous game versions, beta/stable metadata, the unchanged multipart
 ZIP, returned file ID, changed-file refusal and no automatic POST retry. The
-workflow reserves a persistent release asset before upload. These fixtures do
+workflow reserves a persistent deployment before upload. `curseforge-clean-release-assets`
+guards the screenshot's public JSON downloads; production reservation/status
+handlers cover legacy guards, all prior deployment states, inaccessible history,
+exact tag/hash, unchanged source, receipt mismatch and idempotent successful-receipt
+migration without another CurseForge POST. Detailed JSON remains an Actions
+artifact, and retiring the old secret prevents historical jobs from bypassing
+the migrated guard. The named workflow case fails against the 4.53 asset publisher.
+These fixtures do
 not prove the account's ItemRack project permission, live API submission,
 moderator approval or CurseForge installation; the read-only Actions setup run,
 actual upload receipt and client installation remain deployment acceptance.

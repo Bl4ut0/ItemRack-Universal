@@ -768,10 +768,10 @@
 			<Layer level="ARTWORK">
 				<Texture name="$parentIcon">
 					<Anchors>
-						<Anchor point="TOPLEFT"><Offset x="2" y="-2"/></Anchor>
-						<Anchor point="BOTTOMRIGHT"><Offset x="-2" y="2"/></Anchor>
+						<Anchor point="TOPLEFT"/>
+						<Anchor point="BOTTOMRIGHT"/>
 					</Anchors>
-					<TexCoords left="0.07" right="0.93" top="0.07" bottom="0.93"/>
+					<TexCoords left="0" right="1" top="0" bottom="1"/>
 				</Texture>
 				<Texture name="$parentBorder" file="Interface\Buttons\UI-ActionButton-Border" hidden="true" alphaMode="ADD">
 					<Size x="62" y="62"/>
@@ -1363,10 +1363,12 @@
 						</Scripts>
 					</Button>
 					<Slider name="ItemRackOptButtonSpacingSlider" inherits="ItemRackOptSliderTemplate"/>
+					<Slider name="ItemRackOptBreakoutSpacingSlider" inherits="ItemRackOptSliderTemplate"/>
 					<Slider name="ItemRackOptAlphaSlider" inherits="ItemRackOptSliderTemplate"/>
 					<Slider name="ItemRackOptMainScaleSlider" inherits="ItemRackOptSliderTemplate"/>
 					<Slider name="ItemRackOptMenuScaleSlider" inherits="ItemRackOptSliderTemplate"/>
 					<EditBox name="ItemRackOptButtonSpacing" inherits="ItemRackNumberEditBoxTemplate"/>
+					<EditBox name="ItemRackOptBreakoutSpacing" inherits="ItemRackNumberEditBoxTemplate"/>
 					<EditBox name="ItemRackOptAlpha" inherits="ItemRackNumberEditBoxTemplate"/>
 					<EditBox name="ItemRackOptMainScale" inherits="ItemRackNumberEditBoxTemplate"/>
 					<EditBox name="ItemRackOptMenuScale" inherits="ItemRackNumberEditBoxTemplate"/>

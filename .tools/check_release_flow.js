@@ -6,12 +6,13 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const releaseTools = require('./create_release');
 const curseForge = require('./curseforge_upload');
+const deploymentLedger = require('./curseforge_deployment');
 
 const read = (filePath) => fs.readFileSync(filePath, 'utf8');
 const createRelease = read('.tools/create_release.js');
 const buildScript = read('.tools/build_release_dev.ps1');
 const installScript = read('.tools/install_local.ps1');
-const workflow = read('.agent/workflows/release.md');
+const workflow = read('.agents/workflows/release.md');
 const packageJson = JSON.parse(read('package.json'));
 
 let checks = 0;
@@ -319,8 +320,33 @@ async function checkCurseForgeDeployment() {
     await assert.rejects(curseForge.preflight(plan, notes, 'fixture-token', async () => ({ ok: true, json: async () => versions.slice(1) })), /exactly one/); checks++;
     await assert.rejects(curseForge.preflight(plan, notes, 'fixture-token', async () => ({ ok: true, json: async () => [...versions, versions[0]] })), /exactly one/); checks++;
     await assert.rejects(curseForge.preflight(plan, notes, 'fixture-token', async () => ({ ok: false, status: 401 })), /HTTP 401/); checks++;
-    const beta = await curseForge.preflight({ ...plan, version: '4.53-beta2', releaseType: 'beta' }, notes, 'fixture-token', fakeFetch);
-    check(beta.metadata.releaseType === 'beta', 'Beta deployment must retain its Beta file type.');
+    // Report: v4.54-beta1's release job was skipped. Exercise a real tagged beta
+    // through the same provenance, channel and all-client mapping as stable.
+    for (const folder of ['ItemRack', 'ItemRackOptions']) {
+      fs.writeFileSync(path.join(root, folder, `${folder}.toc`), toc.replace('4.53', '4.54-beta1'));
+    }
+    git(['-c', 'core.autocrlf=false', 'add', 'ItemRack', 'ItemRackOptions']);
+    git(['-c', 'user.name=Deployment Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Beta fixture']);
+    git(['tag', 'v4.54-beta1']);
+    const betaArchive = path.join(root, 'ItemRack-universal-4.54-beta1.zip');
+    git(['-c', 'core.autocrlf=false', 'archive', '--format=zip', `--output=${betaArchive}`, 'v4.54-beta1', '--', 'ItemRack', 'ItemRackOptions']);
+    const betaHash = crypto.createHash('sha256').update(fs.readFileSync(betaArchive)).digest('hex');
+    fs.writeFileSync(`${betaArchive}.sha256`, `${betaHash}  ItemRack-universal-4.54-beta1.zip\n`);
+    const betaNotes = '# ItemRack Universal v4.54-beta1\n\n- Beta fix\n';
+    const betaPlan = curseForge.verifyRelease({ tag: 'v4.54-beta1', archive: betaArchive,
+      checksum: `${betaArchive}.sha256`, notes: betaNotes, repo: root });
+    const beta = await curseForge.preflight(betaPlan, betaNotes, 'fixture-token', fakeFetch);
+    check(beta.metadata.releaseType === 'beta' && beta.metadata.displayName === 'ItemRack Universal 4.54-beta1' &&
+      JSON.stringify(beta.metadata.gameVersions) === JSON.stringify(checked.metadata.gameVersions),
+    'curseforge-auto-beta-all-flavors: exact tagged beta must retain Beta classification and all Era/TBC/Forever game IDs.');
+    const betaReceipt = await curseForge.upload(beta, betaArchive, 'fixture-token', async (url, request) => {
+      const metadata = JSON.parse(request.body.get('metadata'));
+      check(metadata.releaseType === 'beta' && metadata.gameVersions.length === 5 &&
+        Buffer.from(await request.body.get('file').arrayBuffer()).equals(fs.readFileSync(betaArchive)),
+      'Beta POST must carry all client tags and unchanged verified two-folder ZIP.');
+      return { ok: true, json: async () => ({ id: 54321 }) };
+    });
+    check(betaReceipt.fileId === 54321 && betaReceipt.sha256 === betaHash, 'Beta receipt must retain exact published hash.');
     let uploads = 0;
     const receipt = await curseForge.upload(checked, archive, 'fixture-token', async (url, request) => {
       uploads++;
@@ -338,12 +364,61 @@ async function checkCurseForgeDeployment() {
     fs.appendFileSync(archive, 'changed');
     await assert.rejects(curseForge.upload(checked, archive, 'fixture-token', async () => { throw new Error('Network must not run'); }), /changed after/); checks++;
     const automation = read('.github/workflows/curseforge-release.yml');
+    const releaseJob = between(automation, '  verify-and-deploy:', '    runs-on:');
+    check(automation.includes('types: [published]') && !/^\s+if:/m.test(releaseJob) &&
+      automation.includes("if: github.event_name == 'release' || inputs.upload == true"),
+    'curseforge-auto-beta-published: both stable and prerelease published events must reach verification/upload without a stable-only job filter.');
     check(automation.includes('default: false') && automation.includes('types: [published]') &&
-      automation.includes('github.event.release.prerelease == false') &&
-      automation.includes('npm test') && automation.includes('curseforge-upload-attempt.json') &&
-      automation.includes('gh release upload "$RELEASE_TAG" .versions/CurseForge/curseforge-upload-attempt.json') &&
-      !automation.includes('--clobber'),
-    'Deployment workflow must retain a read-only check, full gate and persistent duplicate-attempt reservation.');
+      automation.includes('npm test') && automation.includes('curseforge_deployment.js reserve') &&
+      automation.includes('curseforge_deployment.js success') && automation.includes('deployments: write') &&
+      automation.includes('actions/upload-artifact@v4') && automation.includes('secrets.CF_UPLOAD_TOKEN') &&
+      !automation.includes('gh release upload') && !automation.includes('contents: write'),
+    'curseforge-clean-release-assets: retain upload history and retry guards without adding JSON to release downloads.');
+
+    // User's release-assets screenshot: moving JSON off the public downloads
+    // must retain the completed 4.53 upload and block duplicate/ambiguous runs.
+    const history = [];
+    const statuses = [];
+    let legacyAssets = [];
+    let creates = 0;
+    const ledgerApi = (method, url, body) => {
+      if (method === 'GET' && url.includes('/deployments?')) return history;
+      if (method === 'GET' && url.includes('/releases/tags/')) return { assets: legacyAssets };
+      if (method === 'POST' && url.endsWith('/deployments')) {
+        creates++;
+        check(body.ref === checked.tag && body.auto_merge === false && body.required_contexts.length === 0 &&
+          body.environment === 'curseforge' && body.payload.sha256 === hash,
+        'Deployment reservation must record the checked tag/hash without merging or altering release source.');
+        const deployment = { id: 4321, sha: checked.commit, payload: body.payload, environment: body.environment };
+        history.push(deployment); return deployment;
+      }
+      if (method === 'GET' && url.endsWith('/deployments/4321')) return history[0];
+      if (method === 'POST' && url.endsWith('/statuses')) { statuses.push(body); return { id: 999 }; }
+      throw new Error('Unexpected ledger request');
+    };
+    legacyAssets = [{ name: 'curseforge-upload-attempt.json' }];
+    assert.throws(() => deploymentLedger.reserve('Bl4ut0/ItemRack-Universal', checked, ledgerApi), /legacy upload record/); checks++;
+    check(creates === 0, 'Legacy reservation must block before creating a new deployment or uploading again.');
+    legacyAssets = [];
+    const marker = deploymentLedger.reserve('Bl4ut0/ItemRack-Universal', checked, ledgerApi);
+    check(marker.deploymentId === 4321 && statuses[0].state === 'in_progress', 'Upload reservation must persist before the CurseForge POST.');
+    assert.throws(() => deploymentLedger.reserve('Bl4ut0/ItemRack-Universal', checked, ledgerApi), /already attempted/); checks++;
+    deploymentLedger.recordSuccess('Bl4ut0/ItemRack-Universal', { ...receipt, deploymentId: marker.deploymentId }, ledgerApi);
+    check(statuses[1].state === 'success' && statuses[1].environment_url.endsWith('/12345') &&
+      statuses[1].description.includes(hash), 'Deployment receipt must preserve CurseForge file ID and accepted archive hash.');
+    assert.throws(() => deploymentLedger.recordSuccess('Bl4ut0/ItemRack-Universal', {
+      ...receipt, deploymentId: marker.deploymentId, sha256: '0'.repeat(64)
+    }, ledgerApi), /differs from its reservation/); checks++;
+    for (const state of ['success', 'failure', 'in_progress', 'inactive']) {
+      assert.throws(() => deploymentLedger.reserve('Bl4ut0/ItemRack-Universal', checked, () => [{ id: 4321, state }]), /already attempted/); checks++;
+    }
+    assert.throws(() => deploymentLedger.reserve('Bl4ut0/ItemRack-Universal', checked, () => { throw new Error('history unavailable'); }), /history unavailable/); checks++;
+    history.length = 0; statuses.length = 0; creates = 0;
+    const migrated = deploymentLedger.migrate('Bl4ut0/ItemRack-Universal', receipt, ledgerApi);
+    check(migrated.fileId === 12345 && creates === 1 && statuses[0].state === 'success',
+      'Existing successful upload must migrate to durable deployment history without any new CurseForge request.');
+    deploymentLedger.migrate('Bl4ut0/ItemRack-Universal', receipt, ledgerApi);
+    check(creates === 1, 'Legacy receipt migration must be idempotent.');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
