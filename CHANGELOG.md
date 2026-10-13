@@ -4,6 +4,9 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+
+## [4.55] - 2026-10-13
+### Bug Fixes & Improvements
 - **Forever breakout comparisons (Venruki)**: Added an account-wide, default-on **Always compare breakout items** option so ItemRack flyout rows show the equipped-item comparison on Forever without requiring the client's comparison modifier. The option is scoped to ItemRack breakout rows and does not rewrite WoW's account CVar; disabling it restores native client behavior. Existing Menu on Shift suppression remains intact, and clients missing the comparison helper fail safely. Added the reported production-Lua regression and documented live acceptance checks.
 
 ## [4.54] - 2026-10-11
