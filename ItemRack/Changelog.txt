@@ -1,5 +1,6 @@
 __ Development __
 
+__ New in 4.55 - By Bl4ut0 __
 - Venruki's Forever report: added an account-wide, default-on Always compare breakout items option so users see equipped-item comparisons on ItemRack flyout rows without holding the client comparison modifier. It does not change WoW's account CVar; turning it off restores native behavior. Menu on Shift suppression and missing-API safety are preserved, with permanent production-Lua coverage.
 
 __ New in 4.54 - By Bl4ut0 __
