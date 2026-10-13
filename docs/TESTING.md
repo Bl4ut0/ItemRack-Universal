@@ -74,6 +74,22 @@ standard suite before its fix is considered complete:
 
 ### Report coverage in the standard gate
 
+October 13, 2026 Forever report from Venruki: ItemRack breakout item tooltips required the
+client comparison modifier because Forever does not enable automatic item
+comparison by default, unlike current Retail. Exact ItemRack version, Forever
+build and item identities were not supplied. Named
+`forever-breakout-comparison-default` in `.tools/test_identity_matching_lua.js`
+models that client behavior against production tooltip code. It fails before
+the option exists and requires the default-on ItemRack setting to request one
+comparison for a flyout row without changing WoW's account CVar. It also checks
+that disabling the option returns control to the client, Menu on Shift retains
+its intentional comparison suppression, missing comparison APIs remain safe,
+and unrelated ItemRack tooltips are unchanged. In-game acceptance: on Forever,
+hover armor plus paired ring/trinket flyout rows with the option on and no
+modifier, then off with and without the comparison modifier. Repeat with Menu
+on Shift, Tiny Tooltips, character-sheet and quick-access flyouts; verify correct
+comparison items, no duplicate/overlapping tooltips, Lua errors or taint.
+
 October 9, 2026 local user report: `ItemRack/readme.txt`, which ships inside
 every release archive, still described the 2.2-era event design, obsolete future
 plans and a non-overlapping-set restriction while omitting the Universal client

@@ -1,5 +1,7 @@
 __ Development __
 
+- Venruki's Forever report: added an account-wide, default-on Always compare breakout items option so users see equipped-item comparisons on ItemRack flyout rows without holding the client comparison modifier. It does not change WoW's account CVar; turning it off restores native behavior. Menu on Shift suppression and missing-API safety are preserved, with permanent production-Lua coverage.
+
 __ New in 4.54 - By Bl4ut0 __
 - Forever character slots now explicitly dispatch hover handling through ItemRack when the frame remains bound to Blizzard's captured original function. A live Hands-slot dump proved the old global replacement was not the frame's actual OnEnter script. Registration preserves one native tooltip call and is idempotent; permanent production-Lua and initialization regressions cover the reported binding. The reporter confirmed the installed Dev build resolved the observed right-to-left tooltip hop after reload.
 - GitHub #30 follow-up: secure full-set hotkeys now show every still-pending item on character-sheet and quick-access slots. Secure weapon completion clears only the completed weapon icon while deferred armor stays visible until combat exit; pending tooltips match the projected item and no duplicate swap work is created. Added a permanent production-Lua regression; the reporter confirmed all five 4.54-beta2 in-client acceptance checks.

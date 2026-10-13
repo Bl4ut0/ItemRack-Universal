@@ -306,6 +306,7 @@ function ItemRackOpt.OnLoad(self)
 
 		{type="label",label="Tooltip Settings"},
 		{type="check",optset=ItemRackSettings,variable="ShowTooltips",label="Show tooltips",tooltip="Show tooltips like the one you're reading now."},
+		{type="check",optset=ItemRackSettings,variable="AlwaysCompareBreakoutItems",depend="ShowTooltips",label="Always compare breakout items",tooltip="Show the currently equipped item beside ItemRack flyout item tooltips without requiring WoW's comparison modifier. Turn this off to follow the WoW client's comparison setting instead. Menu on Shift continues to suppress comparisons while opening a flyout to prevent overlapping tooltips."},
 		{type="check",optset=ItemRackSettings,variable="ShowSetInTooltip",depend="ShowTooltips",label="Show set info in tooltips",tooltip="Show which set an item belongs to in the tooltip."},
 		{type="check",optset=ItemRackSettings,variable="TooltipColorUnEquipped",depend="ShowTooltips",label="Highlight unequipped in tooltip",tooltip="Show items that are in your bags but not currently equipped as Orange in the set tooltip."},
 		{type="check",optset=ItemRackSettings,variable="TinyTooltips",depend="ShowTooltips",label="Tiny Tooltips",tooltip="Shrink ALL ItemRack tooltips to display only name, cooldown and durability."},

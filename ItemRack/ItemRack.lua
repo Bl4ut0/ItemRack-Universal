@@ -431,6 +431,7 @@ ItemRackSettings = {
 	NotifyThirty = "OFF", -- notify when a used item reaches 30 seconds cooldown
 	NotifyChatAlso = "OFF", -- send cooldown notifications to chat also
 	ShowTooltips = "ON", -- show all itemrack tooltips
+	AlwaysCompareBreakoutItems = "ON", -- show equipped-item comparisons for ItemRack flyout rows
 	TinyTooltips = "OFF", -- whether to condense tooltips to most important info
 	TinyTooltipsQuickAccess = "OFF", -- whether to apply tiny tooltips only to quick access (not character sheet menus)
 	TinyTooltipsSubMenusOnly = "OFF", -- whether to restrict tiny tooltips to popup sub-menu items only (not the main slot button)
@@ -2523,6 +2524,7 @@ function ItemRack.InitCore()
 	end
 	ItemRackSettings.LeftSlotsGoRight = ItemRackSettings.LeftSlotsGoRight or "ON" -- 4.28
 	ItemRackSettings.RightSlotsGoLeft = ItemRackSettings.RightSlotsGoLeft or "OFF" -- 4.27.3
+	ItemRackSettings.AlwaysCompareBreakoutItems = ItemRackSettings.AlwaysCompareBreakoutItems or "ON"
 	ItemRackSettings.TinyTooltipsQuickAccess = ItemRackSettings.TinyTooltipsQuickAccess or "OFF"
 	ItemRackSettings.TinyTooltipsSubMenusOnly = ItemRackSettings.TinyTooltipsSubMenusOnly or "OFF"
 	ItemRackSettings.DisableTooltipsInCombat = ItemRackSettings.DisableTooltipsInCombat or "OFF"
@@ -4990,6 +4992,16 @@ function ItemRack.MenuTooltip(self)
 end
 
 -- request a tooltip of a straight item id (called when hovering over items from the currently displayed set inside ItemRack's GUI)
+function ItemRack.ShowBreakoutComparison(owner)
+	if ItemRackSettings.AlwaysCompareBreakoutItems ~= "ON" then return end
+	if ItemRackSettings.MenuOnShift == "ON" and IsShiftKeyDown() then return end
+	local ownerName = (owner and type(owner.GetName) == "function") and owner:GetName() or ""
+	if not string.match(ownerName, "^ItemRackMenu%d+$") then return end
+	if type(GameTooltip_ShowCompareItem) == "function" then
+		GameTooltip_ShowCompareItem(GameTooltip)
+	end
+end
+
 function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style ID
 	if ItemRackSettings.ShowTooltips ~= "ON" then return end
 	exactOnly = exactOnly and not ItemRack.IsBareItemID(itemID)
@@ -5017,6 +5029,7 @@ function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style
 	end
 	ItemRack.ShrinkTooltip(self)
 	GameTooltip:Show()
+	ItemRack.ShowBreakoutComparison(self)
 	
 	-- Suppress WoW's default compare tooltips if MenuOnShift is active
 	-- Otherwise holding shift to open the menu covers the screen in 3 tooltips
@@ -5134,6 +5147,7 @@ function ItemRack.TooltipUpdate()
 			GameTooltip:AddLine("Queued: "..ItemRack.TooltipBag)
 		end
 		GameTooltip:Show()
+		ItemRack.ShowBreakoutComparison(ItemRack.TooltipOwner)
 		
 		-- Suppress WoW's default compare tooltips if MenuOnShift is active
 		if ItemRackSettings.MenuOnShift=="ON" and IsShiftKeyDown() then
@@ -6442,6 +6456,7 @@ function ItemRack.SlashHandler(arg1)
 				
 				-- Tooltip Settings
 				{ name = "ItemRackSettings.ShowTooltips", val = ItemRackSettings.ShowTooltips },
+				{ name = "ItemRackSettings.AlwaysCompareBreakoutItems", val = ItemRackSettings.AlwaysCompareBreakoutItems },
 				{ name = "ItemRackSettings.ShowSetInTooltip", val = ItemRackSettings.ShowSetInTooltip },
 				{ name = "ItemRackSettings.TooltipColorUnEquipped", val = ItemRackSettings.TooltipColorUnEquipped },
 				{ name = "ItemRackSettings.TinyTooltips", val = ItemRackSettings.TinyTooltips },
