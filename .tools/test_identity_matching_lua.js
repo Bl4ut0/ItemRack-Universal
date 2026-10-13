@@ -137,6 +137,67 @@ ItemRack.SetTooltipHooksRegistered=nil; TooltipDataProcessor=nil
 ItemRack.RegisterSetTooltipHooks()
 assert(hooks==3,"Classic must retain all three legacy hooks")
 `, 'forever-modern-set-tooltip');
+
+// October 13, 2026 Forever report from Venruki: unlike current Retail, the client does not
+// enable automatic comparison tooltips by default, so ItemRack flyout rows only
+// compare while the player holds the client comparison modifier.
+const breakoutComparisonFunctions = [
+  extractFunction(core, 'ItemRack.MenuTooltip'),
+  extractFunction(core, 'ItemRack.ShowBreakoutComparison'),
+  extractFunction(core, 'ItemRack.TooltipUpdate'),
+].join('\n');
+runLua(String.raw`
+local compareCalls,hidden1,hidden2=0,0,0
+local owner={GetName=function() return 'ItemRackMenu1' end,GetID=function() return 1 end}
+ItemRack={
+  AnchorTooltip=function() end,
+  FindItem=function() return nil,0,1 end,
+  Menu={'100'},
+  ShrinkTooltip=function() end,
+  StartTimer=function() end,
+  StopTimer=function() end,
+}
+ItemRackSettings={ShowTooltips='ON',AlwaysCompareBreakoutItems='ON',MenuOnShift='OFF'}
+GameTooltip={SetBagItem=function() end,Show=function() end}
+ShoppingTooltip1={Hide=function() hidden1=hidden1+1 end}
+ShoppingTooltip2={Hide=function() hidden2=hidden2+1 end}
+function GetContainerItemCooldown() return 0 end
+function GameTooltip_ShowCompareItem(tooltip)
+  assert(tooltip==GameTooltip,'comparison must target the active ItemRack tooltip')
+  compareCalls=compareCalls+1
+end
+function IsShiftKeyDown() return false end
+${breakoutComparisonFunctions}
+local function hoverBreakout()
+  ItemRack.MenuTooltip(owner)
+  ItemRack.TooltipUpdate()
+end
+
+hoverBreakout()
+assert(compareCalls==1,'Forever breakout must request comparison when its default-on option is enabled')
+
+ItemRackSettings.AlwaysCompareBreakoutItems='OFF'
+hoverBreakout()
+assert(compareCalls==1,'disabled option must leave comparison behavior to the WoW client')
+
+ItemRackSettings.AlwaysCompareBreakoutItems='ON'
+ItemRackSettings.MenuOnShift='ON'
+function IsShiftKeyDown() return true end
+hoverBreakout()
+assert(compareCalls==1 and hidden1==1 and hidden2==1,
+  'Menu on Shift must retain its intentional comparison suppression')
+
+ItemRackSettings.MenuOnShift='OFF'
+function IsShiftKeyDown() return false end
+GameTooltip_ShowCompareItem=nil
+hoverBreakout()
+assert(compareCalls==1,'clients without the comparison helper must remain safe')
+
+GameTooltip_ShowCompareItem=function() compareCalls=compareCalls+1 end
+ItemRack.ShowBreakoutComparison({GetName=function() return 'ItemRackOptInv1' end})
+assert(compareCalls==1,'the breakout option must not alter unrelated ItemRack tooltips')
+`, 'forever-breakout-comparison-default');
+
 const functions = [
   extractFunction(core, 'ItemRack.SameID'),
   extractFunction(core, 'ItemRack.GetRuneID'),
@@ -149,6 +210,7 @@ const functions = [
   extractFunction(core, 'ItemRack.MatchesStoredItemID'),
   extractFunction(core, 'ItemRack.FindItem'),
   extractFunction(core, 'ItemRack.FindItemInBags'),
+  extractFunction(core, 'ItemRack.ShowBreakoutComparison'),
   extractFunction(core, 'ItemRack.IDTooltip'),
   extractFunction(queue, 'ItemRack.QueueHasExplicitIdentityEntry'),
   extractFunction(queue, 'ItemRack.IsQueueEntryUnambiguous'),

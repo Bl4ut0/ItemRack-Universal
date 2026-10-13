@@ -359,6 +359,12 @@ Tooltip Settings:
 
 * Show tooltips [Account-wide; Fresh-profile default: ON] Enables ItemRack-owned
   tooltips.
+* Always compare breakout items [Account-wide; Fresh-profile default: ON;
+  requires Show tooltips] Requests the equipped-item comparison beside ItemRack
+  flyout rows even when the WoW client normally requires its comparison
+  modifier. Turning it off follows the client's comparison CVar and modifier.
+  Menu on Shift still suppresses comparisons while opening a flyout to avoid
+  overlapping tooltips.
 * Show set info in tooltips [Account-wide; Fresh-profile default: OFF; requires
   Show tooltips] Lists public saved sets containing the hovered exact item.
 * Highlight unequipped in tooltip [Account-wide; Fresh-profile default: OFF;
