@@ -2343,6 +2343,9 @@ end
 
 function ItemRack.OnActiveTalentGroupChanged()
 	ItemRack.UpdateClassSpecificStuff()
+	if ItemRack.SetSetBindings then
+		ItemRack.SetSetBindings()
+	end
 	if ItemRack.PendingDualWieldRetry then
 		for setname, expectedSpec in pairs(ItemRack.PendingDualWieldRetry) do
 			if C_Timer and C_Timer.After then
@@ -6073,7 +6076,10 @@ function ItemRack.GetWeaponBindingMacro(setname)
 	local set = ItemRackUser.Sets and ItemRackUser.Sets[setname]
 	if not set or type(set.equip) ~= "table" then return "" end
 	local allowFullSet = ItemRackSettings and ItemRackSettings.CombatSetWeapons == "ON"
-	if set.AssociatedSpec and not allowFullSet then return "" end
+	local currentSpec = GetActiveTalentGroup and GetActiveTalentGroup()
+	local numGroups = GetNumTalentGroups and GetNumTalentGroups() or 0
+	local willSwitchSpec = set.AssociatedSpec and numGroups > 1 and currentSpec and currentSpec ~= set.AssociatedSpec
+	if willSwitchSpec and not allowFullSet then return "" end
 	local lines = {"/stopmacro [nocombat]"}
 	for slot,id in pairs(set.equip) do
 		-- Empty-slot and rune-specific requests need the normal planner. Secure

@@ -3,7 +3,8 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
-
+### Bug Fixes & Improvements
+- **Weapon-only combat set hotkeys with specialization assignment**: Fixed weapon-only bound sets (`Slots 16–18`) failing to execute their immediate combat `/equipslot` macro when `CombatSetWeapons` (`Full-set hotkeys swap weapons in combat`) is `OFF` and the set has a specialization checkbox (`AssociatedSpec`) assigned to the active talent group or on a single-spec character. `ItemRack.GetWeaponBindingMacro` now defers to the out-of-combat planner only when equipping the set would actually switch talent groups (`numGroups > 1` and `currentSpec ~= set.AssociatedSpec`), and `ItemRack.OnActiveTalentGroupChanged` reconciles set binding buttons so active-spec weapon macros stay synchronized after a talent switch. Added the reported `v4.56-beta1` production-Lua regression in `.tools/test_set_bindings_lua.js`.
 
 ## [4.56] - 2026-10-16
 ### Bug Fixes & Improvements
