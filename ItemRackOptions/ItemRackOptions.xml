@@ -1355,6 +1355,11 @@
 							</OnClick>
 						</Scripts>
 					</Button>
+					<Button name="ItemRackOptQuickAccessMenuDir" inherits="ItemRackOptDropDownTemplate">
+						<Scripts>
+							<OnClick>ItemRackOpt.ToggleQuickAccessMenuDirPick()</OnClick>
+						</Scripts>
+					</Button>
 					<Button name="ItemRackOptMinimapMenuDir" inherits="ItemRackOptDropDownTemplate">
 						<Scripts>
 							<OnClick>
@@ -1366,11 +1371,13 @@
 					<Slider name="ItemRackOptBreakoutSpacingSlider" inherits="ItemRackOptSliderTemplate"/>
 					<Slider name="ItemRackOptAlphaSlider" inherits="ItemRackOptSliderTemplate"/>
 					<Slider name="ItemRackOptMainScaleSlider" inherits="ItemRackOptSliderTemplate"/>
+					<Slider name="ItemRackOptEquip20ScaleSlider" inherits="ItemRackOptSliderTemplate"/>
 					<Slider name="ItemRackOptMenuScaleSlider" inherits="ItemRackOptSliderTemplate"/>
 					<EditBox name="ItemRackOptButtonSpacing" inherits="ItemRackNumberEditBoxTemplate"/>
 					<EditBox name="ItemRackOptBreakoutSpacing" inherits="ItemRackNumberEditBoxTemplate"/>
 					<EditBox name="ItemRackOptAlpha" inherits="ItemRackNumberEditBoxTemplate"/>
 					<EditBox name="ItemRackOptMainScale" inherits="ItemRackNumberEditBoxTemplate"/>
+					<EditBox name="ItemRackOptEquip20Scale" inherits="ItemRackNumberEditBoxTemplate"/>
 					<EditBox name="ItemRackOptMenuScale" inherits="ItemRackNumberEditBoxTemplate"/>
 					<Slider name="ItemRackOptSetMenuWrapValueSlider" inherits="ItemRackOptSliderTemplate"/>
 					<EditBox name="ItemRackOptSetMenuWrapValue" inherits="ItemRackNumberEditBoxTemplate"/>

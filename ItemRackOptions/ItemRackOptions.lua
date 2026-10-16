@@ -250,42 +250,44 @@ function ItemRackOpt.OnLoad(self)
 	-- combatlock = 1/nil : whether option can be changed in combat (key bindings, hide when ooc, etc)
 	ItemRackOpt.OptInfo = {
 		{type="label",label=(UnitName("player")).."'s Settings"},
-		{type="check",optset=ItemRackUser,variable="Locked",label="Lock Buttons",tooltip="Prevent buttons and menus from being moved."},
-		{type="check",optset=ItemRackUser,variable="EnableEvents",label="Enable events",tooltip="Enable events to automatically swap gear."},
-		{type="check",optset=ItemRackUser,variable="EnableQueues",label="Enable auto queues",tooltip="Enables auto queues to automatically swap gear."},
-		{type="check",optset=ItemRackUser,variable="EnablePerSetQueues",depend="EnableQueues",label="Enable per-set queues",tooltip="Enable individual auto queues per set."},
-		{type="check",optset=ItemRackUser,variable="EnableQueueContextCheck",label="Enable queue context check",tooltip="Inherit auto queues from previously active sets.\nWhen checked, sets that only swap a few slots (like a mount set) will preserve the queue states of the other slots."},
+		{type="check",optset=ItemRackUser,variable="Locked",label="Lock quick-access layout",tooltip="Prevent dragging this character's quick-access buttons and their breakouts; also locks the minimap icon. Does not disable gear swaps. Lock minimap button can keep just the minimap icon locked when this option is off."},
+		{type="check",optset=ItemRackUser,variable="EnableEvents",label="Enable automatic events",tooltip="Allow enabled events on this character to equip and restore sets automatically. Does not disable manual set selection or AutoQueue."},
+		{type="check",optset=ItemRackUser,variable="EnableQueues",label="Enable AutoQueue",tooltip="Allow this character's enabled slot queues to choose and equip items automatically. Does not disable manual swaps or event sets."},
+		{type="check",optset=ItemRackUser,variable="EnablePerSetQueues",depend="EnableQueues",label="Use per-set queues",tooltip="Use queues saved with this character's active set instead of only global queues. Requires Enable AutoQueue. Does not create or enable a queue for every set automatically."},
+		{type="check",optset=ItemRackUser,variable="EnableQueueContextCheck",label="Inherit previous set queues",tooltip="Let partial/event sets on this character inherit queue context from earlier active sets for slots they do not own. Explicit set slots and queue settings remain boundaries. Does not ignore item enchants or change manual equipment choices."},
 		{type="check",optset=ItemRackUser,variable="CustomCharacterIcons",label="Custom icons on character sheet",tooltip="Show queue item icons on your character sheet. Original item links and tooltips are preserved."},
 		{type="check",optset=ItemRackUser,variable="CustomMenuIcons",label="Custom icons in item flyouts",tooltip="Show queue item icons in quick-access and character-sheet item flyouts. Set editing keeps original icons."},
-		{type="number",optset=ItemRackUser,variable="ButtonSpacing",button=ItemRackOptButtonSpacing,label="Button spacing",tooltip="Padding distance between buttons.",combatlock=1},
-		{type="slider",button=ItemRackOptButtonSpacingSlider,variable="ButtonSpacing",label="Button spacing",tooltip="Padding distance between buttons.", min=0, max=24, step=1, form="%d",combatlock=1},
+		{type="number",optset=ItemRackUser,variable="ButtonSpacing",button=ItemRackOptButtonSpacing,label="Button spacing",tooltip="Gap between docked quick-access buttons on this character (0-24 layout units). Does not change spacing inside item breakouts; use Breakout spacing.",combatlock=1},
+		{type="slider",button=ItemRackOptButtonSpacingSlider,variable="ButtonSpacing",label="Button spacing",tooltip="Gap between docked quick-access buttons on this character (0-24 layout units). Does not change spacing inside item breakouts; use Breakout spacing.", min=0, max=24, step=1, form="%d",combatlock=1},
 		{type="number",optset=ItemRackUser,variable="BreakoutSpacing",button=ItemRackOptBreakoutSpacing,label="Breakout spacing",tooltip="Padding between item breakout buttons, independent of main button spacing.",combatlock=1},
 		{type="slider",button=ItemRackOptBreakoutSpacingSlider,variable="BreakoutSpacing",label="Breakout spacing",tooltip="Padding between item breakout buttons, independent of main button spacing.",min=0,max=24,step=1,form="%d",combatlock=1},
 		{type="number",optset=ItemRackUser,variable="Alpha",button=ItemRackOptAlpha,label="Transparency",tooltip="Transparency (alpha) of the buttons and menu."},
 		{type="slider",button=ItemRackOptAlphaSlider,variable="Alpha",label="Transparency",tooltip="Transparency (alpha) of the buttons and menu.", min=.1, max=1, step=.05, form="%.2f"},
-		{type="number",optset=ItemRackUser,variable="MainScale",button=ItemRackOptMainScale,label="Button scale",tooltip="Scale size of the item buttons.",combatlock=1},
-		{type="slider",button=ItemRackOptMainScaleSlider,variable="MainScale",label="Button scale",tooltip="Scale size of the item buttons.", min=.5, max=2, step=.05, form="%.2f",combatlock=1},
+		{type="number",optset=ItemRackUser,variable="MainScale",button=ItemRackOptMainScale,label="Button scale",tooltip="Size of quick-access equipment-slot buttons (0.5-2x). Does not resize the separate current-set button or Options window. Menus use Menu scale relative to their owning button.",combatlock=1},
+		{type="slider",button=ItemRackOptMainScaleSlider,variable="MainScale",label="Button scale",tooltip="Size of quick-access equipment-slot buttons (0.5-2x). Does not resize the separate current-set button or Options window. Menus use Menu scale relative to their owning button.", min=.5, max=2, step=.05, form="%.2f",combatlock=1},
+		{type="number",optset=ItemRackUser,variable="Equip20Scale",button=ItemRackOptEquip20Scale,label="Set button scale",tooltip="Scale only the Equip 20 set button, independently of the equipment-slot buttons.",combatlock=1},
+		{type="slider",button=ItemRackOptEquip20ScaleSlider,variable="Equip20Scale",label="Set button scale",tooltip="Scale only the Equip 20 set button, independently of the equipment-slot buttons.", min=.5, max=4, step=.05, form="%.2f",combatlock=1},
 
-		{type="number",optset=ItemRackUser,variable="MenuScale",button=ItemRackOptMenuScale,label="Menu scale",tooltip="Scale size of the menu in relation to the button it's docked to."},
-		{type="slider",button=ItemRackOptMenuScaleSlider,variable="MenuScale",label="Menu scale",tooltip="Scale size of the menu.", min=.5, max=2, step=.05, form="%.2f"},
+		{type="number",optset=ItemRackUser,variable="MenuScale",button=ItemRackOptMenuScale,label="Menu scale",tooltip="Size of ItemRack item/set menus relative to the button or frame they are docked to (0.5-2x). Does not resize the owning button or Options window; inherited parent scale also affects the on-screen size."},
+		{type="slider",button=ItemRackOptMenuScaleSlider,variable="MenuScale",label="Menu scale",tooltip="Size of ItemRack item/set menus relative to the button or frame they are docked to (0.5-2x). Does not resize the owning button or Options window; inherited parent scale also affects the on-screen size.", min=.5, max=2, step=.05, form="%.2f"},
 
 		{type="check",optset=ItemRackUser,variable="OptSizeDefault",label="Default size",tooltip="Scale options page to 100% (default)."},
 		{type="check",optset=ItemRackUser,variable="OptSizeBigger",label="Bigger",tooltip="Scale options page to 130%."},
 		{type="check",optset=ItemRackUser,variable="OptSizeBiggest",label="Biggest",tooltip="Scale options page to 160%."},
 
-		{type="check",optset=ItemRackUser,variable="SetMenuWrap",label="Quick menu wrap",tooltip="Check this to set a fixed value when the quick access and set menus wrap.  Uncheck to let ItemRack decide."},
+		{type="check",optset=ItemRackUser,variable="SetMenuWrap",label="Quick-access/set menu wrap",tooltip="Use the following wrap count for quick-access breakouts, saved-set menus and Options item menus. Character-sheet slot menus use Char sheet wrap instead. Off chooses a count from the number of items; screen height may limit either mode."},
 
-		{type="number",optset=ItemRackUser,variable="SetMenuWrapValue",depend="SetMenuWrap",button=ItemRackOptSetMenuWrapValue,label="When to wrap",tooltip="When 'Quick menu wrap' checked, this is the number of menu items before wrapping to a new row/column."},
-		{type="slider",optset=ItemRackUser,button=ItemRackOptSetMenuWrapValueSlider,depend="SetMenuWrap",variable="SetMenuWrapValue",label="When to wrap",tooltip="When 'Quick menu wrap' checked, this is the number of menu items before wrapping to a new row/column.", min=1, max=30, step=1, form="%d"},
+		{type="number",optset=ItemRackUser,variable="SetMenuWrapValue",depend="SetMenuWrap",button=ItemRackOptSetMenuWrapValue,label="When to wrap",tooltip="With Quick-access/set menu wrap enabled, items per column for left/right-opening menus or per row for up/down-opening menus. Character-sheet menus use their own wrap count."},
+		{type="slider",optset=ItemRackUser,button=ItemRackOptSetMenuWrapValueSlider,depend="SetMenuWrap",variable="SetMenuWrapValue",label="When to wrap",tooltip="With Quick-access/set menu wrap enabled, items per column for left/right-opening menus or per row for up/down-opening menus. Character-sheet menus use their own wrap count.", min=1, max=30, step=1, form="%d"},
 
 		{type="check",optset=ItemRackUser,variable="CharMenuWrap",label="Char sheet wrap",tooltip="Check this to set a fixed value when the character sheet slot menus wrap.  Uncheck to let ItemRack decide."},
 
 		{type="number",optset=ItemRackUser,variable="CharMenuWrapValue",depend="CharMenuWrap",button=ItemRackOptCharMenuWrapValue,label="When to wrap",tooltip="When 'Char sheet wrap' checked, this is the number of menu items before wrapping to a new row/column."},
 		{type="slider",optset=ItemRackUser,button=ItemRackOptCharMenuWrapValueSlider,depend="CharMenuWrap",variable="CharMenuWrapValue",label="When to wrap",tooltip="When 'Char sheet wrap' checked, this is the number of menu items before wrapping to a new row/column.", min=1, max=30, step=1, form="%d"},
 
-		{type="label",label="Global Settings"},
+		{type="label",label="Account-wide Settings"},
 		{type="check",optset=ItemRackSettings,variable="CombatSetWeapons",label="Full-set hotkeys swap weapons in combat",tooltip="Only saved-set keys assigned with Sets > Bind Key use this option. It does not affect flyout-menu clicks, /itemrack equip macros, events, or queues; those wait until combat ends. Weapon-only bound sets already swap immediately. When enabled, a bound full set equips slots 16-18 during combat and queues its remaining gear. Rune-specific and empty-slot weapon requests still wait until combat ends."},
-		{type="check",optset=ItemRackSettings,variable="MenuOnShift",label="Menu on Shift",tooltip="Only show menu while Shift is held down."},
+		{type="check",optset=ItemRackSettings,variable="MenuOnShift",label="Require Shift for breakouts",tooltip="Require Shift when opening item/set breakouts from quick-access buttons or item breakouts from character-sheet slots. Does not require Shift to open the minimap saved-set list."},
 		{type="check",optset=ItemRackSettings,variable="MenuOnRight",label="Menu on right click",tooltip="Open item and set flyout menus by right clicking buttons.\nWhen unchecked, flyout menus open on hover; Alt+Right-Click opens configuration.",combatlock=1},
 		{type="check",optset=ItemRackSettings,variable="RightClickUse",label="Use on Right-Click",tooltip="Right-clicking an item button uses the item instead of manually advancing its auto queue."},
 		{type="check",optset=ItemRackSettings,variable="HideOOC",label="Hide out of combat",tooltip="Hide the buttons while out of combat.",combatlock=1},
@@ -293,12 +295,12 @@ function ItemRackOpt.OnLoad(self)
 		{type="check",optset=ItemRackSettings,variable="HideArena",label="Hide in arenas",tooltip="Hide the docked quick access buttons and close their menu while inside arena instances.",combatlock=1},
 		{type="check",optset=ItemRackSettings,variable="AllowEmpty",label="Allow empty slots",tooltip="Add an empty slot to menus of equipped items."},
 		{type="check",optset=ItemRackSettings,variable="AllowHidden",label="Allow hidden items",tooltip="Enable Alt+clicking of menu items to hide/show them in the menu.  Hold Alt as you enter a menu to show all."},
-		{type="check",optset=ItemRackSettings,variable="HideTradables",label="Hide tradables",tooltip="Prevent tradable items from showing up in the menu."},
+		{type="check",optset=ItemRackSettings,variable="HideTradables",label="Hide non-soulbound items",tooltip="Filter bag/bank item candidates from item breakouts unless they are soulbound. Does not delete items or remove them from saved sets."},
 		{type="check",optset=ItemRackSettings,variable="DisableAltClick",label="Disable Alt+Click",tooltip="Alt+Click on buttons dragged from the character sheet toggles auto queue for that slot.  Check this to disable that behavior. (ie to use Alt+click to self cast instead.)",combatlock=1},
 
 		{type="label",label="Cooldown Settings"},
 		{type="check",optset=ItemRackSettings,variable="Notify",label="Notify when ready",tooltip="Announce when an item you used comes off cooldown."},
-		{type="check",optset=ItemRackSettings,variable="NotifyThirty",label="Notify at 30",tooltip="Announce when an item you used is at 30 seconds cooldown."},
+		{type="check",optset=ItemRackSettings,variable="NotifyThirty",label="Notify at 30 seconds",tooltip="Announce when a tracked used item's cooldown reaches 30 seconds remaining, not 30 seconds after use."},
 		{type="check",optset=ItemRackSettings,variable="NotifyChatAlso",label="Notify chat also",tooltip="Send cooldown notifications to chat also."},
 		{type="check",optset=ItemRackSettings,variable="CooldownCount",label="Cooldown numbers",tooltip="Display the cooldown time as a number over items."},
 		{type="check",optset=ItemRackSettings,variable="LargeNumbers",depend="CooldownCount",label="Large numbers",tooltip="Use a larger font for cooldown numbers."},
@@ -308,21 +310,22 @@ function ItemRackOpt.OnLoad(self)
 		{type="check",optset=ItemRackSettings,variable="ShowTooltips",label="Show tooltips",tooltip="Show tooltips like the one you're reading now."},
 		{type="check",optset=ItemRackSettings,variable="AlwaysCompareBreakoutItems",depend="ShowTooltips",label="Always compare breakout items",tooltip="Show the currently equipped item beside ItemRack flyout item tooltips without requiring WoW's comparison modifier. Turn this off to follow the WoW client's comparison setting instead. Menu on Shift continues to suppress comparisons while opening a flyout to prevent overlapping tooltips."},
 		{type="check",optset=ItemRackSettings,variable="ShowSetInTooltip",depend="ShowTooltips",label="Show set info in tooltips",tooltip="Show which set an item belongs to in the tooltip."},
-		{type="check",optset=ItemRackSettings,variable="TooltipColorUnEquipped",depend="ShowTooltips",label="Highlight unequipped in tooltip",tooltip="Show items that are in your bags but not currently equipped as Orange in the set tooltip."},
+		{type="check",optset=ItemRackSettings,variable="TooltipColorUnEquipped",depend="ShowTooltips",label="Highlight set mismatches",tooltip="Color saved-set tooltip entries orange when the requested item does not match the equipped item in that slot. This is an equipped-item mismatch indicator, not proof that the item is missing from your bags."},
 		{type="check",optset=ItemRackSettings,variable="TinyTooltips",depend="ShowTooltips",label="Tiny Tooltips",tooltip="Shrink ALL ItemRack tooltips to display only name, cooldown and durability."},
 		{type="check",optset=ItemRackSettings,variable="TinyTooltipsQuickAccess",depend="ShowTooltips",label="Tiny Tooltips on Quick Access Only",tooltip="Apply tiny tooltips only to quick access buttons and their menus (not character sheet popout menus)."},
 		{type="check",optset=ItemRackSettings,variable="TinyTooltipsSubMenusOnly",depend="TinyTooltipsQuickAccess",label="  Quick Access Sub Menus Only",tooltip="Only apply tiny tooltips to the popup sub-menu items (e.g. the list of trinkets you can swap to), not the main slot button itself."},
 		{type="check",optset=ItemRackSettings,variable="DisableTooltipsInCombat",depend="ShowTooltips",label="Disable tooltips in combat",tooltip="Hide item tooltips on ItemRack menus and buttons while you are in combat."},
-		{type="check",optset=ItemRackSettings,variable="TooltipFollow",depend="ShowTooltips",label="Tooltips at pointer",tooltip="Show tooltips near the mouse."},
+		{type="check",optset=ItemRackSettings,variable="TooltipFollow",depend="ShowTooltips",label="Tooltips beside buttons",tooltip="Anchor ItemRack tooltips beside the hovered button instead of WoW's default tooltip corner. Character-sheet breakouts use their own placement to avoid covering the item list. This does not make tooltips follow the mouse cursor."},
 
 		{type="label",label="Interface & Misc"},
 		{type="check",optset=ItemRackSettings,variable="ShowMinimap",label="Show minimap button",tooltip="Show the minimap button to access options or change sets."},
 		{type="check",optset=ItemRackSettings,variable="MinimapTooltip",depend="ShowMinimap",label="Show minimap tooltip",tooltip="If tooltips enabled, show what mouse clicks will do when clicking the minimap button."},
 		{type="check",optset=ItemRackSettings,variable="LockMinimap",depend="ShowMinimap",label="Lock minimap button",tooltip="Prevent the minimap button from being moved."},
-		{type="button",button=ItemRackOptMinimapMenuDir,label="Flyout Menu direction",tooltip="Which way the minimap button's set menu opens. Auto picks up or down by screen position."},
+		{type="button",button=ItemRackOptMinimapMenuDir,label="Minimap set-menu direction",tooltip="Account-wide direction for the saved-set list opened from the minimap icon or broker. Auto chooses up/down from the cursor's screen height. Does not change quick-access item breakouts or character-sheet slot menus."},
+		{type="button",button=ItemRackOptQuickAccessMenuDir,label="Quick-access breakout direction",tooltip="For this character, choose where item lists open from quick-access equipment-slot buttons. Saved keeps each button group's existing dragged direction; Up, Down, Left or Right overrides it when the breakout next opens. Does not change the set button, minimap set list, or character-sheet menus. Choose Saved to resume drag positioning.",combatlock=1},
 		{type="check",optset=ItemRackSettings,variable="TrinketMenuMode",label="TrinketMenu mode",tooltip="When mouseover of either trinket slot, open anchored to the top trinket.  Left click of a menu item will equip to the top trinket.  Right click will equip to the bottom trinket."},
 		{type="check",optset=ItemRackSettings,variable="AnchorOther",depend="TrinketMenuMode",label="Anchor other trinket",tooltip="In TrinketMenu mode, trinket menus dock to the top trinket.  Check this to anchor them to the bottom trinket."},
-		{type="check",optset=ItemRackSettings,variable="EquipToggle",label="Toggle sets on equip",tooltip="When a set is equipped, if it's already equipped, unequip it."},
+		{type="check",optset=ItemRackSettings,variable="EquipToggle",label="Repeat set to restore gear",tooltip="Selecting an already-equipped set through a toggle-aware manual control restores its saved previous gear rather than equipping it again. This is not a cycle between items with different enchants. Secure combat hotkeys remain equip requests."},
 		{type="check",optset=ItemRackSettings,variable="ShowHotKeys",label="Show key bindings",tooltip="Display key bindings on buttons"},
 		{type="check",optset=ItemRackSettings,variable="EquipOnSetPick",label="Equip in options",tooltip="Check this to equip sets and items when selecting items in options or from the dropdown in the Sets tab."},
 		{type="check",optset=ItemRackSettings,variable="CharacterSheetMenus",label="Character sheet menus",tooltip="While this is checked, mouseover of slots on the character sheet will pop out a menu of items that can go in that slot."},
@@ -352,6 +355,7 @@ function ItemRackOpt.OnLoad(self)
 
 	ItemRackOpt.InitializeSliders()
 	ItemRackOpt.UpdateMinimapMenuDir()
+	ItemRackOpt.UpdateQuickAccessMenuDir()
 	ItemRackOpt.TabOnClick(self,1) -- start at tab 1 (config)
 
 	ItemRackOptBindFrame:EnableMouseWheel(true)
@@ -377,7 +381,7 @@ function ItemRackOpt.UpdateMinimapMenuDir()
 	if not drop.fitted then -- size the box to the longest label; point its arrow at our list
 		local widest = 0
 		for _,dir in ipairs(ItemRackOpt.MinimapMenuDirs) do
-			text:SetText("Flyout Menu: "..dir)
+			text:SetText("Minimap: "..dir)
 			widest = math.max(widest,text:GetStringWidth())
 		end
 		text:SetWidth(widest)
@@ -385,7 +389,50 @@ function ItemRackOpt.UpdateMinimapMenuDir()
 		ItemRackOptMinimapMenuDirButton:SetScript("OnClick",ItemRackOpt.ToggleMinimapMenuDirPick)
 		drop.fitted = true
 	end
-	text:SetText("Flyout Menu: "..(ItemRackSettings.MinimapMenuDir or "Auto"))
+	text:SetText("Minimap: "..(ItemRackSettings.MinimapMenuDir or "Auto"))
+end
+
+-- Reuse the minimap picker mechanics with independent character settings.
+function ItemRackOpt.UpdateQuickAccessMenuDir()
+	local drop = ItemRackOptQuickAccessMenuDir
+	local text = ItemRackOptQuickAccessMenuDirText
+	local choices = {"Saved","Up","Down","Left","Right"}
+	local widest = 0
+	for _,dir in ipairs(choices) do
+		text:SetText("Breakout: "..dir)
+		widest = math.max(widest,text:GetStringWidth())
+	end
+	text:SetWidth(widest)
+	drop:SetWidth(widest+22)
+	text:SetText("Breakout: "..(ItemRackUser.QuickAccessMenuDir or "Saved"))
+	ItemRackOptQuickAccessMenuDirButton:SetScript("OnClick",ItemRackOpt.ToggleQuickAccessMenuDirPick)
+end
+
+function ItemRackOpt.ToggleQuickAccessMenuDirPick()
+	local pick = ItemRackOptQuickAccessMenuDirPick
+	local drop = ItemRackOptQuickAccessMenuDir
+	if not pick then
+		pick = CreateFrame("Frame","ItemRackOptQuickAccessMenuDirPick",drop,"BackdropTemplate")
+		pick:SetFrameStrata("HIGH")
+		pick:SetPoint("TOPLEFT",drop,"BOTTOMLEFT",-11,0)
+		pick:SetSize(drop:GetWidth()+20,102)
+		pick:SetBackdrop({bgFile="Interface\\ChatFrame\\ChatFrameBackground",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
+		pick:SetBackdropColor(.1,.1,.1)
+		for i,dir in ipairs({"Saved","Up","Down","Left","Right"}) do
+			local item = CreateFrame("Button","ItemRackOptQuickAccessMenuDirPick"..i,pick,"ItemRackOptEventEditPickTypeTemplate")
+			item:SetPoint("TOPLEFT",10,-6-(i-1)*18)
+			item:SetWidth(drop:GetWidth())
+			item:SetText(dir)
+			item:SetScript("OnClick",function()
+				if InCombatLockdown() then pick:Hide(); return end
+				ItemRackUser.QuickAccessMenuDir = dir
+				pick:Hide()
+				ItemRackOpt.UpdateQuickAccessMenuDir()
+			end)
+		end
+		pick:Hide()
+	end
+	if pick:IsShown() then pick:Hide() else pick:Show() end
 end
 
 function ItemRackOpt.ToggleMinimapMenuDirPick()
@@ -1255,6 +1302,8 @@ function ItemRackOpt.UpdateSlider(name)
 				ItemRack.ReflectMenuScale()
 			elseif name=="MainScale" then
 				ItemRack.ReflectMainScale(1)
+			elseif name=="Equip20Scale" then
+				ItemRack.ReflectEquip20Scale(1)
 			end
 		end
 	end
@@ -1409,16 +1458,25 @@ function ItemRackOpt.OptListCheckButtonOnClick(self,override)
 	ItemRackOpt.ListScrollFrameUpdate()
 end
 
+function ItemRackOpt.GetOptionTooltip(opt)
+	local scope = opt.optset
+	if not scope and opt.type == "slider" then scope = ItemRackUser end
+	if opt.button and opt.button == ItemRackOptMinimapMenuDir then scope = ItemRackSettings end
+	if opt.button and opt.button == ItemRackOptQuickAccessMenuDir then scope = ItemRackUser end
+	local prefix = scope == ItemRackUser and "This character. " or scope == ItemRackSettings and "Account-wide. " or ""
+	return prefix..(opt.tooltip or "")
+end
+
 function ItemRackOpt.OptListOnEnter(self,id)
 	if id and type(id)=="number" then
 		local idx = id + FauxScrollFrame_GetOffset(ItemRackOptListScrollFrame)
 		if ItemRackOpt.OptInfo[idx].tooltip then
-			ItemRack.OnTooltip(self,ItemRackOpt.OptInfo[idx].label,ItemRackOpt.OptInfo[idx].tooltip)
+			ItemRack.OnTooltip(self,ItemRackOpt.OptInfo[idx].label,ItemRackOpt.GetOptionTooltip(ItemRackOpt.OptInfo[idx]))
 		end
 	else
 		for i=1,#(ItemRackOpt.OptInfo) do
 			if ItemRackOpt.OptInfo[i].button==id then
-				ItemRack.OnTooltip(self,ItemRackOpt.OptInfo[i].label,ItemRackOpt.OptInfo[i].tooltip)
+				ItemRack.OnTooltip(self,ItemRackOpt.OptInfo[i].label,ItemRackOpt.GetOptionTooltip(ItemRackOpt.OptInfo[i]))
 				break
 			end
 		end

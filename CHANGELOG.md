@@ -4,6 +4,15 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **Settings clarity and breakout direction**: Clarified main-settings tooltips and character/account scope, especially queue inheritance, layout scales, wrap controls, soulbound filtering and tooltip placement. Renamed and compacted the minimap-only set-menu direction selector. Added an independent character-specific quick-access item-breakout direction: Saved (existing dragged layout), Up, Down, Left or Right. Minimap, set-button and character-sheet directions remain independent; explicit overrides do not overwrite saved docking. Added production direction, selector sizing, persistence, scope and combat-lock regressions. Live font/layout and client interaction acceptance remains pending.
+
+- **Forever combat quick-access breakouts**: Preserve the last successful out-of-combat item snapshot for every equipment-slot breakout on Forever. Entering combat no longer replaces all usable rows with only Empty Slot when restricted live item discovery returns no wearable items; preserved rows retain their exact identities and continue through the existing deferred equip queue. Added the reported build `1.60.1.70338` production-Lua regression for ordinary armor and paired trinket breakouts.
+
+- **Set-button scaling anchor error**: Clear existing anchors before repositioning an undocked button during scaling; docked buttons retain their relative anchors instead of using stale absolute coordinates. Added the reported repeated-4x regression and docking checks. Live anchor-family acceptance remains pending.
+
+- **Set button scale up to 4x**: Extended only the Equip 20 set-button slider to 0.5–4x. Equipment and menu scale limits remain unchanged. Automated coverage checks 4x scaling, preserved screen position and combat deferral.
+
+- **Independent Equip 20 sizing**: Added a character-specific **Set button scale** control for the Equip 20/current-set button. Existing profiles inherit their current button scale on upgrade; later changes affect only slot 20 while equipment-slot and flyout scales remain independent. Scale changes retain screen position and defer safely during combat.
 
 ## [4.55] - 2026-10-13
 ### Bug Fixes & Improvements

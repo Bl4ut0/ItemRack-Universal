@@ -40,6 +40,8 @@ OmniCC_Config/
 !.tools/test_cooldown_state_lua.js
 !.tools/test_cooldown_integration_lua.js
 !.tools/test_inventory_refresh_lua.js
+!.tools/test_button_scales_lua.js
+!.tools/test_forever_combat_menu_lua.js
 !.tools/test_set_bindings_lua.js
 !.tools/test_batch_and_dualspec_lua.js
 !.tools/check_secure_templates.js

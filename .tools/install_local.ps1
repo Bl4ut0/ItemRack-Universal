@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$gameVersions = @('_anniversary_', '_classic_', '_classic_beta_', '_classic_era_', '_classic_era_ptr_')
+$gameVersions = @('_anniversary_', '_classic_', '_classic_beta_', '_classic_era_', '_classic_era_ptr_', '_forever_')
 $sourceRootFull = [System.IO.Path]::GetFullPath($SourceRoot)
 $itemRackSource = Join-Path $sourceRootFull 'ItemRack'
 $optionsSource = Join-Path $sourceRootFull 'ItemRackOptions'

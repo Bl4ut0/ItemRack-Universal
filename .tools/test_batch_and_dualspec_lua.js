@@ -562,6 +562,37 @@ assert(click("Right", 200) == "TOPLEFT>TOPRIGHT:HORIZONTAL", "Right opens to the
 `
 );
 
+// Independent quick-access breakout direction; legacy layouts must survive.
+runLua(String.raw`
+ItemRackUser={Buttons={[13]={},[14]={},[20]={},[1]={MenuDock="BOTTOMRIGHT",MainDock="TOPRIGHT",MenuOrient="VERTICAL"}}}
+ItemRackSettings={TrinketMenuMode="OFF",MinimapMenuDir="Left"}
+ItemRack={FindParent=function() return 1 end}
+for _,i in ipairs({13,14,20}) do _G["ItemRackButton"..i]={id=i} end
+local actual
+function ItemRack.DockWindows(a,owner,b,c,movable) actual={a,b,c,owner.id,movable} end
+${extractFunction('ItemRack/ItemRackButtons.lua','ItemRack.DockMenuToButton')}
+local expected={Up={"BOTTOMLEFT","TOPLEFT","VERTICAL"},Down={"TOPLEFT","BOTTOMLEFT","VERTICAL"},
+  Left={"TOPRIGHT","TOPLEFT","HORIZONTAL"},Right={"TOPLEFT","TOPRIGHT","HORIZONTAL"}}
+for dir,points in pairs(expected) do
+  ItemRackUser.QuickAccessMenuDir=dir; ItemRack.DockMenuToButton(14)
+  assert(actual[1]==points[1] and actual[2]==points[2] and actual[3]==points[3],"quick-access direction must select correct docking: "..dir)
+  assert(actual[4]==14 and actual[5]==14,"direction must preserve hovered button and movable identity")
+  ItemRack.DockMenuToButton(20)
+  assert(actual[1]=="BOTTOMRIGHT" and actual[2]=="TOPRIGHT","set button must retain saved direction")
+end
+for _,dir in ipairs({"Saved","invalid"}) do
+  ItemRackUser.QuickAccessMenuDir=dir; ItemRack.DockMenuToButton(14)
+  assert(actual[1]=="BOTTOMRIGHT" and actual[3]=="VERTICAL","saved/unknown direction must retain drag layout")
+end
+ItemRackUser.QuickAccessMenuDir=nil; ItemRack.DockMenuToButton(14)
+assert(actual[1]=="BOTTOMRIGHT","legacy nil setting must retain drag layout")
+ItemRackSettings.TrinketMenuMode="ON"; ItemRackSettings.AnchorOther="ON"
+ItemRackUser.QuickAccessMenuDir="Right"; ItemRack.DockMenuToButton(13)
+assert(actual[4]==14 and actual[1]=="TOPLEFT","paired trinket anchor must coexist with direction")
+assert(ItemRackUser.Buttons[1].MenuDock=="BOTTOMRIGHT" and ItemRackSettings.MinimapMenuDir=="Left",
+  "override must not mutate saved docking or minimap direction")
+`, 'quick-access-breakout-direction');
+
 // Modern / Forever client ValidBag safety: GetItemFamily moved to C_Item.GetItemFamily
 const validBagFunc = extractFunction('ItemRack/ItemRack.lua', 'ItemRack.ValidBag');
 
@@ -1010,6 +1041,9 @@ function ItemRack.CreateMenuButton(i)
   _G["ItemRackMenu"..i.."Count"]={SetText=noop}
   return b
 end
+ItemRack.IsForever=function() return false end
+ItemRack.StoreMenuSnapshot=function() end
+ItemRack.DiscoverEquipmentMenuItems=${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.DiscoverEquipmentMenuItems').replace('function ItemRack.DiscoverEquipmentMenuItems', 'function')}
 ${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.BuildMenu')}
 for _,orientation in ipairs({"VERTICAL","HORIZONTAL"}) do
   ItemRack.menuOrient=orientation

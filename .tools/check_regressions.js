@@ -14,6 +14,7 @@ const mainToc = read('ItemRack/ItemRack.toc');
 const optionsToc = read('ItemRackOptions/ItemRackOptions.toc');
 const buildScript = read('.tools/build_release_dev.ps1');
 const installScript = read('.tools/install_local.ps1');
+assert.ok(installScript.includes("'_forever_'"), 'local-installer-forever: deployment must discover the Forever client folder');
 const releaseWorkflow = read('.agents/workflows/release.md');
 const technicalChanges = read('docs/TECHNICAL_CHANGES.md');
 const readme = read('README.md');
@@ -270,7 +271,7 @@ check(
   'Button layout/visibility work must use the deduplicating post-combat scheduler.'
 );
 check(
-  ['ConstructLayout', 'ReflectMainScale', 'ReflectRightClickUse', 'RefreshButtonVisibility', 'UpdateDisableAltClick']
+  ['ConstructLayout', 'ReflectMainScale', 'ReflectEquip20Scale', 'ReflectRightClickUse', 'RefreshButtonVisibility', 'UpdateDisableAltClick']
     .every((functionName) => buttons.includes(`queueAfterCombatOnce("${functionName}")`)),
   'Every protected button refresh must coalesce duplicate post-combat work.'
 );
