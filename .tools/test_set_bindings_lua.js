@@ -18,6 +18,7 @@ const queueBindings = extractFunction(coreFile, 'ItemRack.QueueSetBindingsAfterC
 const setBindings = extractFunction(coreFile, 'ItemRack.SetSetBindings');
 const saveBindings = extractFunction(coreFile, 'ItemRack.SaveCurrentBindings');
 const bindingsChanged = extractFunction(coreFile, 'ItemRack.OnBindingsChanged');
+const activeTalentGroupChanged = extractFunction(coreFile, 'ItemRack.OnActiveTalentGroupChanged');
 
 function runCase(name, setup, functions, assertions) {
   runLua(`${setup}\n${functions.join('\n')}\n${assertions}`, `set-binding:${name}`);
@@ -319,9 +320,16 @@ assert(ItemRack.GetWeaponBindingMacro("Weapons")=="","rune-specific requests mus
 ItemRackUser.Sets.Weapons.equip[17]="456\\n/run bad()"
 assert(ItemRack.GetWeaponBindingMacro("Weapons")=="","saved item text must not inject macro commands")
 ItemRackUser.Sets.Weapons.equip[17]="456"
+ItemRackUser.Sets.Weapons.AssociatedSpec=1
+assert(ItemRack.GetWeaponBindingMacro("Weapons")~="","single-spec or active-spec weapon sets must keep their combat weapon macro")
+function GetNumTalentGroups() return 2 end
+function GetActiveTalentGroup() return 1 end
+assert(ItemRack.GetWeaponBindingMacro("Weapons")~="","dual-spec weapon sets matching the active spec must keep their combat weapon macro")
 ItemRackUser.Sets.Weapons.AssociatedSpec=2
-assert(ItemRack.GetWeaponBindingMacro("Weapons")=="","specialization changes must use the planner")
+assert(ItemRack.GetWeaponBindingMacro("Weapons")=="","cross-spec specialization changes must use the planner")
 ItemRackUser.Sets.Weapons.AssociatedSpec=nil
+GetNumTalentGroups=nil
+GetActiveTalentGroup=nil
 ItemRackUser.Sets.Weapons.equip[1]="789"
 ItemRackSettings.CombatSetWeapons="ON"
 combat=false
@@ -349,7 +357,7 @@ combat=true
 scripts.PreClick(); scripts.PostClick()
 assert(ItemRack.PendingSetBindingRequest.intent=="equip","rejected or wrong-copy weapon actions must retain an after-combat repair request")
 `);
-checks += 13;
+checks += 15;
 
 // GitHub #30 follow-up (y00, 4.54-beta1): a full-set secure hotkey equipped
 // slots 16-18 in combat and retained the remaining gear, but neither the
@@ -460,5 +468,73 @@ assert(#saves == 2 and saves[2] == 1 and ItemRack.BindingSavePending == nil,
 );
 checks += 5;
 
+
+// User log report (v4.56-beta1): weapon-only set "temp" (slot 16 = "1383::::::::6:1485::11:::::::")
+// had AssociatedSpec=1 and CombatSetWeapons="OFF". Pressing the bound key in combat
+// deferred the weapon swap until combat ended instead of executing the secure macro.
+runCase(
+  'reported-weapon-only-associated-spec-combat-keybind',
+  `
+local combat = false
+local activeSpec = 1
+local numGroups = 1
+local reconciles = 0
+ItemRackUser = {
+  Sets = {
+    temp = {
+      oldset = "temp2",
+      key = "9",
+      equip = { [16] = "1383::::::::6:1485::11:::::::" },
+      AssociatedSpec = 1,
+      icon = 132611,
+      old = { [16] = "37::::::::7:1485::75:::::::" },
+    },
+  },
+}
+ItemRackSettings = { EquipToggle = "OFF", CombatSetWeapons = "OFF" }
+ItemRack = {
+  SetBindingButtons = {},
+  SetBindingRequestSequence = 0,
+  Debug = function() end,
+  IsSetEquipped = function() return false end,
+  IsPlayerReallyDead = function() return false end,
+  UpdateClassSpecificStuff = function() end,
+  SetSetBindings = function() reconciles = reconciles + 1 end,
+  iSPatternItemFieldsFromIR = "^(%-?%d+:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*)",
+}
+${extractFunction(coreFile, 'ItemRack.IRStringToItemString')}
+function InCombatLockdown() return combat end
+function GetActiveTalentGroup() return activeSpec end
+function GetNumTalentGroups() return numGroups end
+local attributes, scripts = {}, {}
+local button = {
+  GetName = function() return "ItemRackSetBinding_temp" end,
+  SetAttribute = function(_, key, value) attributes[key] = value end,
+  SetScript = function(_, key, value) scripts[key] = value end,
+}
+`,
+  [beginBinding, configureButton, runBinding, processBinding, activeTalentGroupChanged],
+  `
+ItemRack.ConfigureSetBindingButton(button, "temp")
+assert(attributes.macrotext == "/stopmacro [nocombat]\\n/equipslot 16 item:1383:::::::",
+  "reported weapon-only set with AssociatedSpec=1 and CombatSetWeapons=OFF must still build a secure equipslot macro")
+combat = true
+scripts.PreClick()
+ItemRack.IsSetEquipped = function() return true end
+scripts.PostClick()
+assert(ItemRack.PendingSetBindingRequest == nil,
+  "completed combat weapon swap for AssociatedSpec=1 set must not leave a deferred post-combat request")
+combat = false
+numGroups = 2
+activeSpec = 2
+ItemRack.ConfigureSetBindingButton(button, "temp")
+assert(attributes.macrotext == "",
+  "when dual-spec is active and AssociatedSpec differs from current spec, weapon macro must defer to the spec-switching planner")
+ItemRack.OnActiveTalentGroupChanged()
+assert(reconciles == 1,
+  "changing active talent group must reconcile set bindings so active-spec weapon macros stay in sync")
+`
+);
+checks += 4;
 
 console.log(`[SET BINDING LUA] ${checks} intent, containment, and reconciliation checks passed.`);
