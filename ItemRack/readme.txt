@@ -264,10 +264,95 @@ Scope terms used below:
 * Fresh-profile default is the value used before an existing saved setting or
   Blizzard setting overrides it.
 
-Character settings:
+Quick-Access Buttons:
 
 * Lock quick-access layout [Character-specific; Fresh-profile default: OFF] Prevents
   quick-access buttons, menus, and the minimap button from being moved.
+* Button scale [Character-specific; Fresh-profile default: 1.00; range:
+  0.50-2.00] Scales dockable equipment-slot buttons. It is combat locked.
+* Set button scale [Character-specific; Fresh-profile default: 1.00; range:
+  0.50-4.00] Independently scales only the Equip 20 set button. Existing
+  profiles initially inherit their current Button scale. It is combat locked.
+* Button spacing [Character-specific; Fresh-profile default: 4; range: 0-24]
+  Sets padding between docked quick-access buttons. It is combat locked.
+* Transparency [Character-specific; Fresh-profile default: 1.00; range:
+  0.10-1.00] Sets quick-access button and menu opacity.
+* Show key bindings [Account-wide; Fresh-profile default: OFF] Draws assigned
+  keys on ItemRack quick-access buttons.
+* Use on Right-Click [Account-wide; Fresh-profile default: OFF] Uses the equipped
+  item when an equipment button is right-clicked instead of advancing its queue.
+* Disable Alt+Click [Account-wide; Fresh-profile default: OFF] Stops Alt-click on
+  quick-access equipment buttons from toggling their Auto Queue, allowing that
+  key combination to be used for actions such as self-cast. It is combat locked.
+* Hide out of combat [Account-wide; Fresh-profile default: OFF] Hides docked
+  quick-access buttons when the character is not in combat. It is combat locked.
+* Hide during pet battles [Account-wide; Fresh-profile default: ON] Hides
+  quick-access buttons during pet battles.
+* Hide in arenas [Account-wide; Fresh-profile default: OFF] Hides docked buttons
+  and closes their flyout in arena instances. It is combat locked.
+
+Breakouts & Flyout Menus:
+
+* Quick-access breakout side [Character-specific; Fresh-profile default:
+  Saved] Saved retains each button group's dragged side. Top, Bottom, Left,
+  or Right chooses which edge of quick-access equipment buttons item lists
+  attach to, combining with Quick-access breakout direction and menu wrapping
+  so wrapped rows or columns advance outward away from the button. It is combat
+  locked.
+* Quick-access breakout direction [Character-specific; Fresh-profile default:
+  Saved] Saved retains each button group's dragged direction. Up, Down, Left,
+  or Right overrides which direction item lists grow from quick-access equipment
+  buttons. It does not affect the set button, minimap list, or character-sheet
+  menus and is combat locked.
+* Menu scale [Character-specific; Fresh-profile default: 0.85; range:
+  0.50-2.00] Scales flyouts relative to their owner button.
+* Breakout spacing [Character-specific; Fresh-profile default: 4; range: 0-24]
+  Sets padding between flyout entries independently of Button spacing. It is
+  combat locked.
+* Quick-access/set menu wrap [Character-specific; Fresh-profile default: OFF] Uses a fixed
+  row or column length for quick-access and saved-set flyouts instead of the
+  automatic screen-aware layout.
+* When to wrap [Character-specific; Fresh-profile default: 3; range: 1-30]
+  Supplies the fixed item count for Quick-access/set menu wrap or Char sheet
+  wrap control beside it.
+* Require Shift for breakouts [Account-wide; Fresh-profile default: OFF] Opens flyouts only
+  while Shift is held.
+* Menu on right click [Account-wide; Fresh-profile default: OFF] Opens item and
+  set flyouts with right-click rather than hover. Enabling it disables Menu on
+  Shift; Alt-right-click remains the configuration action.
+* TrinketMenu mode [Account-wide; Fresh-profile default: OFF] Combines both
+  trinket flyouts: left-click equips the upper slot and right-click the lower.
+* Anchor other trinket [Account-wide; Fresh-profile default: OFF; requires
+  TrinketMenu mode] Anchors that combined flyout to the lower trinket instead.
+* Allow empty slots [Account-wide; Fresh-profile default: ON] Adds an unequip
+  choice to applicable item flyouts.
+* Allow hidden items [Account-wide; Fresh-profile default: ON] Allows Alt-click
+  to hide or reveal flyout entries; holding Alt while opening includes hidden
+  entries.
+* Hide non-soulbound items [Account-wide; Fresh-profile default: OFF] Omits currently
+  tradable gear from equipment flyouts.
+* Custom icons in item flyouts [Character-specific; Fresh-profile default: OFF]
+  Shows queue custom icons in quick-access and character-sheet flyouts; set
+  editing continues to show the real item artwork.
+
+Character Sheet:
+
+* Character sheet menus [Account-wide; Fresh-profile default: ON] Opens ItemRack
+  item flyouts while hovering character equipment slots.
+* Left slots: menu on right [Account-wide; Fresh-profile default: ON; requires
+  Character sheet menus] Opens left-column character-slot flyouts inward on the
+  right side.
+* Right slots: menu on left [Account-wide; Fresh-profile default: OFF; requires
+  Character sheet menus] Opens right-column character-slot flyouts inward on the
+  left side.
+* Char sheet wrap [Character-specific; Fresh-profile default: OFF] Uses a fixed
+  row or column length for character-sheet slot flyouts.
+* Custom icons on character sheet [Character-specific; Fresh-profile default:
+  OFF] Replaces ItemRack-managed character-slot artwork with the active queue
+  item's custom icon without changing item identity or tooltips.
+
+Sets, AutoQueue & Events:
+
 * Enable automatic events [Character-specific; Fresh-profile default: ON] Enables the
   character's configured automatic gear events. Individual events must also be
   enabled.
@@ -279,82 +364,20 @@ Character settings:
 * Inherit previous set queues [Character-specific; Fresh-profile default: ON]
   Lets partial sets inherit queue context for untouched slots from the prior
   active set.
-* Custom icons on character sheet [Character-specific; Fresh-profile default:
-  OFF] Replaces ItemRack-managed character-slot artwork with the active queue
-  item's custom icon without changing item identity or tooltips.
-* Custom icons in item flyouts [Character-specific; Fresh-profile default: OFF]
-  Shows queue custom icons in quick-access and character-sheet flyouts; set
-  editing continues to show the real item artwork.
-* Button spacing [Character-specific; Fresh-profile default: 4; range: 0-24]
-  Sets padding between docked quick-access buttons. It is combat locked.
-* Breakout spacing [Character-specific; Fresh-profile default: 4; range: 0-24]
-  Sets padding between flyout entries independently of Button spacing. It is
-  combat locked.
-* Transparency [Character-specific; Fresh-profile default: 1.00; range:
-  0.10-1.00] Sets quick-access button and menu opacity.
-* Button scale [Character-specific; Fresh-profile default: 1.00; range:
-  0.50-2.00] Scales dockable equipment-slot buttons. It is combat locked.
-* Set button scale [Character-specific; Fresh-profile default: 1.00; range:
-  0.50-4.00] Independently scales only the Equip 20 set button. Existing
-  profiles initially inherit their current Button scale. It is combat locked.
-* Menu scale [Character-specific; Fresh-profile default: 0.85; range:
-  0.50-2.00] Scales flyouts relative to their owner button.
-* Default size [Character-specific; Fresh-profile default: ON] Uses 100 percent
-  Options-window scale. Default size, Bigger, and Biggest are mutually
-  exclusive.
-* Bigger [Character-specific; Fresh-profile default: OFF] Uses 130 percent
-  Options-window scale.
-* Biggest [Character-specific; Fresh-profile default: OFF] Uses 160 percent
-  Options-window scale.
-* Quick-access/set menu wrap [Character-specific; Fresh-profile default: OFF] Uses a fixed
-  row or column length for quick-access and saved-set flyouts instead of the
-  automatic screen-aware layout.
-* When to wrap [Character-specific; Fresh-profile default: 3; range: 1-30]
-  Supplies the fixed item count for Quick-access/set menu wrap or Char sheet
-  wrap control beside it.
-* Char sheet wrap [Character-specific; Fresh-profile default: OFF] Uses a fixed
-  row or column length for character-sheet slot flyouts.
-
-Account-wide Settings:
-
 * Full-set hotkeys swap weapons in combat [Account-wide; Fresh-profile default:
   OFF] Applies only to saved-set keys assigned with Sets > Bind Key. Weapon-only
   bound sets already use a secure combat action. When enabled, a bound full set
   equips slots 16-18 immediately and queues its other gear. Flyout clicks,
   /itemrack equip macros, events, and queues still wait until combat ends.
   Rune-specific and empty-slot weapon requests also wait.
-* Require Shift for breakouts [Account-wide; Fresh-profile default: OFF] Opens flyouts only
-  while Shift is held.
-* Menu on right click [Account-wide; Fresh-profile default: OFF] Opens item and
-  set flyouts with right-click rather than hover. Enabling it disables Menu on
-  Shift; Alt-right-click remains the configuration action.
-* Use on Right-Click [Account-wide; Fresh-profile default: OFF] Uses the equipped
-  item when an equipment button is right-clicked instead of advancing its queue.
-* Hide out of combat [Account-wide; Fresh-profile default: OFF] Hides docked
-  quick-access buttons when the character is not in combat. It is combat locked.
-* Hide during pet battles [Account-wide; Fresh-profile default: ON] Hides
-  quick-access buttons during pet battles.
-* Hide in arenas [Account-wide; Fresh-profile default: OFF] Hides docked buttons
-  and closes their flyout in arena instances. It is combat locked.
-* Allow empty slots [Account-wide; Fresh-profile default: ON] Adds an unequip
-  choice to applicable item flyouts.
-* Allow hidden items [Account-wide; Fresh-profile default: ON] Allows Alt-click
-  to hide or reveal flyout entries; holding Alt while opening includes hidden
-  entries.
-* Hide non-soulbound items [Account-wide; Fresh-profile default: OFF] Omits currently
-  tradable gear from equipment flyouts.
-* Disable Alt+Click [Account-wide; Fresh-profile default: OFF] Stops Alt-click on
-  quick-access equipment buttons from toggling their Auto Queue, allowing that
-  key combination to be used for actions such as self-cast. It is combat locked.
+* Repeat set to restore gear [Account-wide; Fresh-profile default: OFF] Makes an
+  already-equipped set request restore its remembered prior gear. Secure combat
+  hotkey presses always retain equip intent.
+* Equip in options [Account-wide; Fresh-profile default: OFF] Equips items and
+  sets when they are selected in the Sets editor.
 
-Cooldown Settings:
+Cooldowns & Notifications:
 
-* Notify when ready [Account-wide; Fresh-profile default: ON] Announces when an
-  ItemRack-tracked used item becomes ready.
-* Notify at 30 seconds [Account-wide; Fresh-profile default: OFF] Announces when a
-  tracked cooldown reaches 30 seconds.
-* Notify chat also [Account-wide; Fresh-profile default: OFF] Copies enabled
-  cooldown notices to chat in addition to floating combat text when available.
 * Cooldown numbers [Account-wide; Fresh-profile default: OFF] Draws remaining
   cooldown time over ItemRack item buttons.
 * Large numbers [Account-wide; Fresh-profile default: OFF; requires Cooldown
@@ -362,11 +385,19 @@ Cooldown Settings:
 * Countdown at 90 [Account-wide; Fresh-profile default: OFF; requires Cooldown
   numbers] Changes the display from minutes to seconds at 90 seconds rather than
   at 60 seconds.
+* Notify when ready [Account-wide; Fresh-profile default: ON] Announces when an
+  ItemRack-tracked used item becomes ready.
+* Notify at 30 seconds [Account-wide; Fresh-profile default: OFF] Announces when a
+  tracked cooldown reaches 30 seconds.
+* Notify chat also [Account-wide; Fresh-profile default: OFF] Copies enabled
+  cooldown notices to chat in addition to floating combat text when available.
 
-Tooltip Settings:
+Tooltips:
 
 * Show tooltips [Account-wide; Fresh-profile default: ON] Enables ItemRack-owned
   tooltips.
+* Tooltips beside buttons [Account-wide; Fresh-profile default: OFF; requires Show
+  tooltips] Anchors ItemRack tooltips near the cursor.
 * Always compare breakout items [Account-wide; Fresh-profile default: ON;
   requires Show tooltips] Requests the equipped-item comparison beside ItemRack
   flyout rows even when the WoW client normally requires its comparison
@@ -390,10 +421,8 @@ Tooltip Settings:
   rows rather than the owning slot button.
 * Disable tooltips in combat [Account-wide; Fresh-profile default: OFF; requires
   Show tooltips] Suppresses ItemRack button and flyout tooltips during combat.
-* Tooltips beside buttons [Account-wide; Fresh-profile default: OFF; requires Show
-  tooltips] Anchors ItemRack tooltips near the cursor.
 
-Interface & Misc:
+Minimap & Options Window:
 
 * Show minimap button [Account-wide; Fresh-profile default: ON] Shows the
   LibDataBroker minimap launcher.
@@ -405,32 +434,21 @@ Interface & Misc:
   Chooses Auto, Up, Down, Left, or Right for the minimap or broker saved-set
   list. Auto chooses up or down from the cursor's screen height and does not
   affect item breakouts or character-sheet menus.
-* Quick-access breakout direction [Character-specific; Fresh-profile default:
-  Saved] Saved retains each button group's dragged direction. Up, Down, Left,
-  or Right overrides where item lists open from quick-access equipment buttons.
-  It does not affect the set button, minimap list, or character-sheet menus and
-  is combat locked.
-* TrinketMenu mode [Account-wide; Fresh-profile default: OFF] Combines both
-  trinket flyouts: left-click equips the upper slot and right-click the lower.
-* Anchor other trinket [Account-wide; Fresh-profile default: OFF; requires
-  TrinketMenu mode] Anchors that combined flyout to the lower trinket instead.
-* Repeat set to restore gear [Account-wide; Fresh-profile default: OFF] Makes an
-  already-equipped set request restore its remembered prior gear. Secure combat
-  hotkey presses always retain equip intent.
-* Show key bindings [Account-wide; Fresh-profile default: OFF] Draws assigned
-  keys on ItemRack quick-access buttons.
-* Equip in options [Account-wide; Fresh-profile default: OFF] Equips items and
-  sets when they are selected in the Sets editor.
-* Character sheet menus [Account-wide; Fresh-profile default: ON] Opens ItemRack
-  item flyouts while hovering character equipment slots.
-* Left slots: menu on right [Account-wide; Fresh-profile default: ON; requires
-  Character sheet menus] Opens left-column character-slot flyouts inward on the
-  right side.
-* Right slots: menu on left [Account-wide; Fresh-profile default: OFF; requires
-  Character sheet menus] Opens right-column character-slot flyouts inward on the
-  left side.
+* Default size [Character-specific; Fresh-profile default: ON] Uses 100 percent
+  Options-window scale. Default size, Bigger, and Biggest are mutually
+  exclusive.
+* Bigger [Character-specific; Fresh-profile default: OFF] Uses 130 percent
+  Options-window scale.
+* Biggest [Character-specific; Fresh-profile default: OFF] Uses 160 percent
+  Options-window scale.
+
+Actions & Maintenance:
+
 * Slot Key Bindings [Character-specific action] Opens the equipment-slot binding
   picker. Saved-set bindings instead use the Sets-tab Bind Key button.
+* Sound Settings [Account-wide] Opens the event sound editor. Disable Swap Sounds
+  silences automatic swap sounds globally; Per-event sound selects an
+  optional LibSoundIndex sound for one event. LibSoundIndex is optional.
 * Reset Buttons [Character-specific destructive action] Removes quick-access
   buttons and restores their layout, opacity, and scale defaults; it does not
   delete saved sets.
@@ -438,9 +456,6 @@ Interface & Misc:
   event definitions and character event assignments.
 * Reset Everything [Character and account destructive action] Erases ItemRack
   settings, sets, queues, and events and reloads the UI.
-* Sound Settings [Account-wide] Opens the event sound editor. Disable Swap Sounds
-  silences automatic swap sounds globally; Per-event sound selects an
-  optional LibSoundIndex sound for one event. LibSoundIndex is optional.
 
 Set editor:
 

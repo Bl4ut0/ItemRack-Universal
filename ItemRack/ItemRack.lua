@@ -720,6 +720,7 @@ function ItemRack.AuditSavedVariables(printToChat)
 		EnableQueueContextCheck = "ON",
 		ButtonSpacing = 4,
 		BreakoutSpacing = 4,
+		QuickAccessMenuSide = "Saved",
 		QuickAccessMenuDir = "Saved",
 		Alpha = 1,
 		MainScale = 1,
@@ -3777,6 +3778,8 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 		local menuCount = #(ItemRack.Menu)
 		local max_cols, button, icon
 		local isCharSheet = (masqueGroup == 3) or (ItemRack.menuDockedTo and string.find(ItemRack.menuDockedTo, "^Character"))
+		local isPrimaryX = (ItemRack.menuOrient == "VERTICAL" or ItemRack.menuOrient == "HORIZONTAL_ROW")
+		local isSingleFlow = (ItemRack.menuOrient == "HORIZONTAL" or ItemRack.menuOrient == "HORIZONTAL_ROW")
 		if isCharSheet then
 			if ItemRackUser.CharMenuWrap=="ON" then
 				max_cols = math.floor(tonumber(ItemRackUser.CharMenuWrapValue) or 3)
@@ -3797,6 +3800,20 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 		else
 			if ItemRackUser.SetMenuWrap=="ON" then
 				max_cols = math.floor(tonumber(ItemRackUser.SetMenuWrapValue) or 3)
+			elseif ItemRack.menuOrient == "HORIZONTAL_ROW" or ItemRack.menuOrient == "VERTICAL_COL" then
+				-- When an explicit Breakout Side + Direction flow is active and wrapping is OFF,
+				-- grow along the chosen primary direction before wrapping outward.
+				if menuCount > 24 then
+					max_cols = math.ceil(menuCount / 6)
+				elseif menuCount > 12 then
+					max_cols = math.ceil(menuCount / 4)
+				elseif menuCount > 8 then
+					max_cols = math.ceil(menuCount / 3)
+				elseif menuCount > 4 then
+					max_cols = math.ceil(menuCount / 2)
+				else
+					max_cols = menuCount
+				end
 			else
 				-- Dynamic wrap based on count to keep popups compact but manageable
 				if menuCount > 24 then
@@ -3819,13 +3836,13 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 		local screenHeight = GetScreenHeight() * UIParent:GetEffectiveScale() / menuScale
 		local availableRows = math.max(1,math.floor((screenHeight - 80) / stride))
 		max_cols = math.max(1,max_cols)
-		if ItemRack.menuOrient == "HORIZONTAL" then
-			-- In horizontal mode, max_cols is the HEIGHT in buttons
+		if not isPrimaryX then
+			-- Primary Y growth: max_cols is the HEIGHT in buttons
 			if (max_cols * stride + stride) > screenHeight then
 				max_cols = availableRows
 			end
 		else
-			-- In vertical mode, height grows with rows (menuCount / max_cols)
+			-- Primary X growth: height grows with wrapped rows (menuCount / max_cols)
 			local rows = math.ceil(menuCount / max_cols)
 			if (rows * stride + stride) > screenHeight then
 				max_cols = math.ceil(menuCount / availableRows)
@@ -3853,7 +3870,7 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 				end
 			end
 
-			if ItemRack.menuOrient=="VERTICAL" then
+			if isPrimaryX then
 				xpos = xpos + ItemRack.DockInfo[ItemRack.currentDock].xdir*stride
 				col = col + 1
 				if col>=max_cols then
@@ -3897,12 +3914,13 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 			row = row-1
 		end
 
-		if ItemRack.menuOrient=="VERTICAL" then
-			ItemRackMenuFrame:SetWidth(12+(max_cols*stride))
+		local usedCols = (row == 0 and col > 0) and col or max_cols
+		if isPrimaryX then
+			ItemRackMenuFrame:SetWidth(12+(usedCols*stride))
 			ItemRackMenuFrame:SetHeight(12+((row+1)*stride))
 		else
 			ItemRackMenuFrame:SetWidth(12+((row+1)*stride))
-			ItemRackMenuFrame:SetHeight(12+(max_cols*stride))
+			ItemRackMenuFrame:SetHeight(12+(usedCols*stride))
 		end
 
 		ItemRack.StartTimer("MenuMouseover")

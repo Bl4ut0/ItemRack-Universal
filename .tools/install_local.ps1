@@ -106,8 +106,9 @@ Assert-ReleaseSourceManifest -Root $sourceRootFull
 
 $destinations = @(
     foreach ($versionFolder in $gameVersions) {
-        $addOnsPath = [System.IO.Path]::GetFullPath((Join-Path $WowRoot (Join-Path $versionFolder 'Interface\AddOns')))
-        if (Test-Path -LiteralPath $addOnsPath -PathType Container) {
+        $clientPath = [System.IO.Path]::GetFullPath((Join-Path $WowRoot $versionFolder))
+        $addOnsPath = [System.IO.Path]::GetFullPath((Join-Path $clientPath 'Interface\AddOns'))
+        if ((Test-Path -LiteralPath $addOnsPath -PathType Container) -or (Test-Path -LiteralPath $clientPath -PathType Container)) {
             [pscustomobject]@{ VersionFolder = $versionFolder; AddOnsPath = $addOnsPath }
         }
     }
@@ -133,6 +134,9 @@ foreach ($destination in $destinations) {
     )
 
     if ($PSCmdlet.ShouldProcess($addOnsPath, "Replace ItemRack and ItemRackOptions from $sourceRootFull")) {
+        if (-not (Test-Path -LiteralPath $addOnsPath -PathType Container)) {
+            New-Item -ItemType Directory -Path $addOnsPath -Force | Out-Null
+        }
         foreach ($entry in $targets) {
             $target = [System.IO.Path]::GetFullPath((Join-Path $addOnsPath $entry.Name))
             $addOnsPrefix = $addOnsPath.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar

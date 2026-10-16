@@ -10,11 +10,12 @@ const buttonsFile = 'ItemRack/ItemRackButtons.lua';
 // Settings clarity and dropdown wiring use the actual Options functions.
 runLua(String.raw`
 ItemRackOpt={MinimapMenuDirs={"Auto","Up","Down","Left","Right"}}
-ItemRackSettings={MinimapMenuDir="Left"}; ItemRackUser={QuickAccessMenuDir="Saved"}
+ItemRackSettings={MinimapMenuDir="Left"}; ItemRackUser={QuickAccessMenuSide="Saved",QuickAccessMenuDir="Saved"}
 local function control() return {SetWidth=function(s,v) s.width=v end,GetWidth=function(s) return s.width end,
  SetScript=function(s,k,v) s[k]=v end,SetText=function(s,v) s.text=v end,
  GetStringWidth=function(s) return #s.text*6 end} end
 ItemRackOptMinimapMenuDir=control(); ItemRackOptMinimapMenuDirText=control(); ItemRackOptMinimapMenuDirButton=control()
+ItemRackOptQuickAccessMenuSide=control(); ItemRackOptQuickAccessMenuSideText=control(); ItemRackOptQuickAccessMenuSideButton=control()
 ItemRackOptQuickAccessMenuDir=control(); ItemRackOptQuickAccessMenuDirText=control(); ItemRackOptQuickAccessMenuDirButton=control()
 local combat=false
 function InCombatLockdown() return combat end
@@ -27,19 +28,29 @@ function CreateFrame(_,name)
  return f
 end
 ${extractFunction('ItemRackOptions/ItemRackOptions.lua','ItemRackOpt.UpdateMinimapMenuDir')}
+${extractFunction('ItemRackOptions/ItemRackOptions.lua','ItemRackOpt.UpdateQuickAccessMenuSide')}
+${extractFunction('ItemRackOptions/ItemRackOptions.lua','ItemRackOpt.ToggleQuickAccessMenuSidePick')}
 ${extractFunction('ItemRackOptions/ItemRackOptions.lua','ItemRackOpt.UpdateQuickAccessMenuDir')}
 ${extractFunction('ItemRackOptions/ItemRackOptions.lua','ItemRackOpt.ToggleQuickAccessMenuDirPick')}
 ${extractFunction('ItemRackOptions/ItemRackOptions.lua','ItemRackOpt.GetOptionTooltip')}
-ItemRackOpt.UpdateMinimapMenuDir(); ItemRackOpt.UpdateQuickAccessMenuDir()
-assert(ItemRackOptMinimapMenuDirText.text=="Minimap: Left" and ItemRackOptMinimapMenuDir.width==106,
+ItemRackOpt.UpdateMinimapMenuDir(); ItemRackOpt.UpdateQuickAccessMenuSide(); ItemRackOpt.UpdateQuickAccessMenuDir()
+assert(ItemRackOptMinimapMenuDirText.text=="Minimap: Left" and ItemRackOptMinimapMenuDir.width==102,
  "minimap label must identify source and fit longest compact direction label")
-assert(ItemRackOptQuickAccessMenuDirText.text=="Breakout: Saved" and ItemRackOptQuickAccessMenuDir.width==112,
+assert(ItemRackOptQuickAccessMenuSideText.text=="Side: Saved" and ItemRackOptQuickAccessMenuSide.width==90,
+ "breakout side selector must fit all choices")
+assert(ItemRackOptQuickAccessMenuDirText.text=="Breakout: Saved" and ItemRackOptQuickAccessMenuDir.width==108,
  "breakout selector must fit all choices")
+ItemRackOpt.ToggleQuickAccessMenuSidePick(); ItemRackOptQuickAccessMenuSidePick2.OnClick()
+assert(ItemRackUser.QuickAccessMenuSide=="Top" and ItemRackUser.QuickAccessMenuDir=="Saved",
+ "breakout side selection must save independently of direction and minimap")
 ItemRackOpt.ToggleQuickAccessMenuDirPick(); ItemRackOptQuickAccessMenuDirPick5.OnClick()
-assert(ItemRackUser.QuickAccessMenuDir=="Right" and ItemRackSettings.MinimapMenuDir=="Left",
+assert(ItemRackUser.QuickAccessMenuDir=="Right" and ItemRackUser.QuickAccessMenuSide=="Top" and ItemRackSettings.MinimapMenuDir=="Left",
  "breakout selection must save independently and not change minimap")
-combat=true; ItemRackOptQuickAccessMenuDirPick2.OnClick()
-assert(ItemRackUser.QuickAccessMenuDir=="Right","an open picker must not change combat-locked setting")
+combat=true; ItemRackOptQuickAccessMenuSidePick3.OnClick(); ItemRackOptQuickAccessMenuDirPick2.OnClick()
+assert(ItemRackUser.QuickAccessMenuSide=="Top" and ItemRackUser.QuickAccessMenuDir=="Right",
+ "an open picker must not change combat-locked side or direction settings")
+assert(ItemRackOpt.GetOptionTooltip({button=ItemRackOptQuickAccessMenuSide,tooltip="SideTest"})=="This character. SideTest",
+ "breakout side option must report character scope")
 assert(ItemRackOpt.GetOptionTooltip({optset=ItemRackUser,tooltip="Test"})=="This character. Test","character scope must be explicit")
 assert(ItemRackOpt.GetOptionTooltip({optset=ItemRackSettings,tooltip="Test"})=="Account-wide. Test","account scope must be explicit")
 `, 'settings-direction-and-clarity');
