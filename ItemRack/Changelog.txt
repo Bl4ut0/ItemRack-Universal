@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.56.1 - By Bl4ut0 __
 - Fixed weapon-only set hotkeys failing to swap weapons in combat when "Full-set hotkeys swap weapons in combat" is OFF and the set has a specialization checkbox assigned to the current spec or on a single-spec character. Weapon-only sets now keep their immediate combat macro unless equipping the set requires switching talent groups, and set bindings refresh when the active talent group changes.
 
 __ New in 4.56 - By Bl4ut0 __
