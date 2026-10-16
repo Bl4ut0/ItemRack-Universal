@@ -143,6 +143,9 @@ function ItemRack.InitButtons()
 	ItemRack.UpdateCombatQueue()
 	ItemRack.KeyBindingsChanged()
 	ItemRack.UpdateDisableAltClick()
+	if ItemRack.RefreshQuickAccessMenuSnapshots then
+		ItemRack.RefreshQuickAccessMenuSnapshots()
+	end
 end
 
 local function queueAfterCombatOnce(functionName)
@@ -208,6 +211,9 @@ function ItemRack.AddButton(id)
 	ItemRack.UpdateButtonCooldowns()
 	if ItemRack.RefreshButtonVisibility then
 		ItemRack.RefreshButtonVisibility()
+	end
+	if ItemRack.RefreshQuickAccessMenuSnapshots then
+		ItemRack.RefreshQuickAccessMenuSnapshots(id)
 	end
 	if id==20 then
 		ItemRack.UpdateCurrentSet()
@@ -520,6 +526,60 @@ function ItemRack.DockMenuToButton(button)
 	local menuDock = (ItemRackUser.Buttons[parent] and ItemRackUser.Buttons[parent].MenuDock) or "BOTTOMLEFT"
 	local mainDock = (ItemRackUser.Buttons[parent] and ItemRackUser.Buttons[parent].MainDock) or "TOPLEFT"
 	local menuOrient = (ItemRackUser.Buttons[parent] and ItemRackUser.Buttons[parent].MenuOrient) or "VERTICAL"
+	-- Item-slot quick-access breakouts only. Keep saved drag docking and the set
+	-- button (20), minimap and character-sheet menus independent.
+	if button < 20 then
+		local side = ItemRackUser.QuickAccessMenuSide
+		local dir = ItemRackUser.QuickAccessMenuDir
+		local validSides = { Top=true, Bottom=true, Left=true, Right=true }
+		local validDirs = { Up=true, Down=true, Left=true, Right=true }
+		if not validSides[side] then side = nil end
+		if not validDirs[dir] then dir = nil end
+
+		if side or dir then
+			if not side then
+				local defaultSideForDir = { Up="Top", Down="Bottom", Left="Left", Right="Right" }
+				side = defaultSideForDir[dir]
+			elseif not dir then
+				local defaultDirForSide = { Top="Up", Bottom="Down", Left="Left", Right="Right" }
+				dir = defaultDirForSide[side]
+			end
+
+			if side == "Top" then
+				if dir == "Right" then
+					menuDock,mainDock,menuOrient = "BOTTOMLEFT","TOPLEFT","HORIZONTAL_ROW"
+				elseif dir == "Left" then
+					menuDock,mainDock,menuOrient = "BOTTOMRIGHT","TOPRIGHT","HORIZONTAL_ROW"
+				else
+					menuDock,mainDock,menuOrient = "BOTTOMLEFT","TOPLEFT","VERTICAL"
+				end
+			elseif side == "Bottom" then
+				if dir == "Right" then
+					menuDock,mainDock,menuOrient = "TOPLEFT","BOTTOMLEFT","HORIZONTAL_ROW"
+				elseif dir == "Left" then
+					menuDock,mainDock,menuOrient = "TOPRIGHT","BOTTOMRIGHT","HORIZONTAL_ROW"
+				else
+					menuDock,mainDock,menuOrient = "TOPLEFT","BOTTOMLEFT","VERTICAL"
+				end
+			elseif side == "Right" then
+				if dir == "Up" then
+					menuDock,mainDock,menuOrient = "BOTTOMLEFT","BOTTOMRIGHT","VERTICAL_COL"
+				elseif dir == "Down" then
+					menuDock,mainDock,menuOrient = "TOPLEFT","TOPRIGHT","VERTICAL_COL"
+				else
+					menuDock,mainDock,menuOrient = "TOPLEFT","TOPRIGHT","HORIZONTAL"
+				end
+			elseif side == "Left" then
+				if dir == "Up" then
+					menuDock,mainDock,menuOrient = "BOTTOMRIGHT","BOTTOMLEFT","VERTICAL_COL"
+				elseif dir == "Down" then
+					menuDock,mainDock,menuOrient = "TOPRIGHT","TOPLEFT","VERTICAL_COL"
+				else
+					menuDock,mainDock,menuOrient = "TOPRIGHT","TOPLEFT","HORIZONTAL"
+				end
+			end
+		end
+	end
 	ItemRack.DockWindows(menuDock,_G["ItemRackButton"..button],mainDock,menuOrient,button)
 end
 
@@ -873,28 +933,44 @@ function ItemRack.ButtonMenuOnClick(self)
 	end
 end
 
+function ItemRack.SetButtonScale(buttonIndex,scale,changing)
+	local button = ItemRackUser.Buttons[buttonIndex]
+	local frame = _G["ItemRackButton"..buttonIndex]
+	-- Docked buttons retain their relative anchor; stale saved absolute
+	-- coordinates must not reconnect them to UIParent while scaling.
+	local docked = button and button.DockTo and ItemRackUser.Buttons[button.DockTo]
+	if not changing or not button or not button.Left or docked then
+		frame:SetScale(scale)
+	else
+		local oldscale = frame:GetScale() or 1
+		local framex = frame:GetLeft()*oldscale
+		local framey = frame:GetTop()*oldscale
+		frame:SetScale(scale)
+		frame:ClearAllPoints()
+		frame:SetPoint("TOPLEFT",UIParent,"BOTTOMLEFT",framex/scale,framey/scale)
+		button.Left = framex/scale
+		button.Top = framey/scale
+	end
+end
+
+function ItemRack.ReflectEquip20Scale(changing)
+	if InCombatLockdown() then
+		queueAfterCombatOnce("ReflectEquip20Scale")
+		return
+	end
+	ItemRack.SetButtonScale(20,ItemRackUser.Equip20Scale or ItemRackUser.MainScale or 1,changing)
+end
+
 function ItemRack.ReflectMainScale(changing)
 	if InCombatLockdown() then
 		queueAfterCombatOnce("ReflectMainScale")
 		return
 	end
 	local scale = ItemRackUser.MainScale or 1
-	local button
-	for i=0,20 do
-		button = ItemRackUser.Buttons[i]
-		if not changing or not button or not button.Left then
-			_G["ItemRackButton"..i]:SetScale(scale)
-		else
-			local frame = _G["ItemRackButton"..i]
-			local oldscale = frame:GetScale() or 1
-			local framex = frame:GetLeft()*oldscale
-			local framey = frame:GetTop()*oldscale
-			frame:SetScale(scale)
-			frame:SetPoint("TOPLEFT",UIParent,"BOTTOMLEFT",framex/scale,framey/scale)
-			ItemRackUser.Buttons[i].Left = framex/scale -- frame:GetLeft()
-			ItemRackUser.Buttons[i].Top = framey/scale -- frame:GetTop()
-		end
+	for i=0,19 do
+		ItemRack.SetButtonScale(i,scale,changing)
 	end
+	ItemRack.ReflectEquip20Scale(changing)
 end
 
 function ItemRack.ReflectRightClickUse()
@@ -1053,6 +1129,7 @@ function ItemRack.ResetButtons()
 	ItemRackUser.Alpha = 1
 	ItemRackUser.Locked = "OFF"
 	ItemRackUser.MainScale = 1
+	ItemRackUser.Equip20Scale = 1
 	ItemRackUser.MenuScale = .85
 	ItemRackUser.OptScale = 1
 	ItemRackUser.OptSizeDefault = "ON"
@@ -1060,11 +1137,16 @@ function ItemRack.ResetButtons()
 	ItemRackUser.OptSizeBiggest = "OFF"
 	ItemRackUser.CharMenuWrap = "OFF"
 	ItemRackUser.CharMenuWrapValue = 3
+	ItemRackUser.QuickAccessMenuSide = "Saved"
+	ItemRackUser.QuickAccessMenuDir = "Saved"
 	if ItemRackOpt then
 		ItemRackOpt.UpdateSlider("Alpha")
 		ItemRackOpt.UpdateSlider("MenuScale")
 		ItemRackOpt.UpdateSlider("MainScale")
+		ItemRackOpt.UpdateSlider("Equip20Scale")
 		ItemRackOpt.UpdateSlider("CharMenuWrapValue")
+		if ItemRackOpt.UpdateQuickAccessMenuSide then ItemRackOpt.UpdateQuickAccessMenuSide() end
+		if ItemRackOpt.UpdateQuickAccessMenuDir then ItemRackOpt.UpdateQuickAccessMenuDir() end
 		ItemRackOpt.ReflectOptScale()
 		ItemRackOpt.ListScrollFrameUpdate()
 	end

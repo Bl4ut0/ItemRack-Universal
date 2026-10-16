@@ -46,6 +46,57 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+October 16 settings-clarity request: old Flyout Menu direction label did not
+identify the minimap source, and quick-access breakouts lacked a direction control.
+`settings-direction-and-clarity` in `.tools/test_button_scales_lua.js` fails with
+the old production minimap label/width code and passes compact source-specific
+label sizing, independent saved selection, combat-locked selection and explicit
+character/account tooltip scope. Font widths are modeled, not live pixels.
+`quick-access-breakout-direction` in `.tools/test_batch_and_dualspec_lua.js`
+executes production docking for four directions, Saved/nil/unknown legacy
+fallback, trinket anchor selection, set-button exclusion and unchanged minimap
+and saved docking. Existing geometry tests cover both wrap orientations.
+Acceptance: scroll Options at 100/130/160 percent and check label/arrow/list fit,
+hover row/control tooltips, select every direction on quick-access item buttons,
+reload to check persistence, return to Saved to resume prior dragged directions,
+and confirm minimap, broker, set-button and character-sheet menus stay independent.
+Check scaled screen edges and entering combat with a picker already open.
+
+October 16, 2026 Forever build 1.60.1.70338 / ItemRack 4.54 report:
+every quick-access equipment breakout lost its usable rows during combat. The
+supplied runtime dump captured slot 13 with the menu visible and correctly
+parented, but `ItemRack.Menu` contained only entry `0` (Empty Slot); debug logs
+showed live combat rebuilds for slots 6, 8, 13 and 14 without a selection ever
+reaching `CombatQueue`. Named `forever-combat-quick-access-menu-context` in
+`.tools/test_forever_combat_menu_lua.js` executes production menu construction
+and click routing. It caches successful out-of-combat exact IDs, makes live bag
+enumeration empty during lockdown, and requires both ordinary armor and paired
+trinket rows to survive. A preserved trinket click must retain its exact ID and
+reach the existing deferred queue path. In-game acceptance: open several armor,
+weapon and trinket quick-access breakouts out of combat; enter combat and verify
+all rows remain, left/right trinket routing queues slots 13/14, pending overlays
+appear, and combat exit equips once without stale rows, Lua errors or taint.
+
+October 13 local report: 25x SetButtonScale line 886 anchor-family error while
+Equip20 scale=oldscale=4; saved Left=223.500122 and Top=61.5. The permanent
+`reported-set-scale-anchor-family` assertions in `.tools/test_button_scales_lua.js`
+fail before correction because old anchors are retained during absolute SetPoint.
+The stricter frame mock checks anchor replacement, repeated reported coordinates,
+4x position preservation, unchanged equipment scales, retained docking metadata
+and combat deferral. Native anchor-family behavior is not emulated. Exact client
+build and live anchor graph were not supplied. Acceptance: move the slider
+repeatedly through 0.5-4x with Equip20 undocked, docked and owning docked children;
+verify position/docking, reload persistence and no SetPoint or protected errors.
+
+The character-specific `Set button scale` feature is covered by
+`.tools/test_button_scales_lua.js`. The production-Lua test keeps slots 0-19 on
+the shared Button scale while Equip 20 follows its independent value, preserves
+the set button's physical screen position, and defers both protected scale paths
+during combat. Live acceptance: dock and undock Equip 20, test 0.50, 1.00 and
+2.00 at several UI scales, reload, enter combat while moving the slider, and
+confirm equipment buttons, flyouts, click targets, text and cooldown artwork do
+not change size or position unexpectedly.
+
 Every reproducible user-reported bug must leave a permanent regression in the
 standard suite before its fix is considered complete:
 

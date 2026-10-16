@@ -232,6 +232,10 @@ function ItemRack.IsClassic()
 	return WOW_PROJECT_CLASSIC and WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
 end
 
+function ItemRack.IsForever()
+	return wowtoc >= 16000 and wowtoc < 17000
+end
+
 function ItemRack.IsBCC()
 	-- TBC 2.5.5 Anniversary Edition: check TOC version (20000-29999) or project ID
 	if wowtoc >= 20000 and wowtoc < 30000 then
@@ -406,8 +410,10 @@ ItemRackUser = {
 	EnableQueueContextCheck = "ON",
 	ButtonSpacing = 4, -- padding between docked buttons
 	BreakoutSpacing = 4, -- independent padding between item breakout buttons
+	QuickAccessMenuDir = "Saved", -- preserve each button group's dragged direction by default
 	Alpha = 1, -- alpha of buttons
 	MainScale = 1, -- scale of the dockable buttons
+	Equip20Scale = 1, -- independent scale of the set button (slot 20)
 	MenuScale = .85, -- scale of the menu in relation to docked buttons
 	OptScale = 1, -- scale of the options frame
 	OptSizeDefault = "ON",
@@ -479,6 +485,7 @@ ItemRack.CooldownProxies = {
 }
 
 ItemRack.Menu = {}
+ItemRack.MenuSnapshots = {}
 ItemRack.LockList = {} -- index -2 to 11, flag whether item is tagged already for swap
 if ItemRack.IsClassic() then
 	ItemRack.BankSlots = { -1,5,6,7,8,9,10 }
@@ -713,8 +720,13 @@ function ItemRack.AuditSavedVariables(printToChat)
 		EnableQueueContextCheck = "ON",
 		ButtonSpacing = 4,
 		BreakoutSpacing = 4,
+		QuickAccessMenuSide = "Saved",
+		QuickAccessMenuDir = "Saved",
 		Alpha = 1,
 		MainScale = 1,
+		-- Preserve the set button's current apparent size when upgrading an
+		-- existing profile; the new control becomes independent afterward.
+		Equip20Scale = ItemRackUser.MainScale or 1,
 		MenuScale = .85,
 		OptScale = 1,
 		OptSizeDefault = "ON",
@@ -1714,6 +1726,9 @@ function ItemRack.FlushInventoryRefresh()
 	refresh.dirtyEvents = 0
 
 	if ItemRack.UpdateButtons then ItemRack.UpdateButtons() end
+	if ItemRack.RefreshQuickAccessMenuSnapshots and not InCombatLockdown() then
+		ItemRack.RefreshQuickAccessMenuSnapshots()
+	end
 	if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.BuildMenu then
 		ItemRack.BuildMenu()
 	end
@@ -2046,6 +2061,9 @@ end
 
 function ItemRack.OnLeavingCombatOrDeath()
 	ItemRack.inCombat = InCombatLockdown()
+	if not ItemRack.inCombat and ItemRack.RefreshQuickAccessMenuSnapshots then
+		ItemRack.RefreshQuickAccessMenuSnapshots()
+	end
 	ItemRack.Debug("Combat", "OnLeavingCombatOrDeath: InCombatLockdown="..tostring(InCombatLockdown()))
 	if ItemRack.NowCasting then
 		return
@@ -2167,6 +2185,12 @@ function ItemRack.ProcessCombatQueue()
 end
 
 function ItemRack.OnEnteringCombat()
+	-- Forever 1.60.1.70338 fires this event before lockdown becomes visible to
+	-- Lua. Capture one final public-data view when that window is available;
+	-- other builds retain the latest normal inventory-refresh snapshot.
+	if ItemRack.RefreshQuickAccessMenuSnapshots and not InCombatLockdown() then
+		ItemRack.RefreshQuickAccessMenuSnapshots()
+	end
 	ItemRack.inCombat = 1
 	ItemRack.Debug("Combat", "OnEnteringCombat: InCombatLockdown="..tostring(InCombatLockdown()))
 	if ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
@@ -3615,6 +3639,90 @@ function ItemRack.AddToMenu(itemID)
 	end
 end
 
+function ItemRack.GetMenuSnapshotKey(id,menuInclude)
+	return tostring(id)..":"..(menuInclude and "included" or "bags")
+end
+
+function ItemRack.StoreMenuSnapshot(id,menuInclude)
+	if type(id)~="number" or id<0 or id>=20 then return false end
+	ItemRack.MenuSnapshots = ItemRack.MenuSnapshots or {}
+	local snapshot = {}
+	for i=1,#(ItemRack.Menu) do
+		local item = ItemRack.Menu[i]
+		if item~="MENU" then
+			snapshot[#snapshot+1] = item
+		end
+	end
+	ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(id,menuInclude)] = snapshot
+	return true
+end
+
+function ItemRack.RestoreMenuSnapshot(id,menuInclude)
+	local snapshots = ItemRack.MenuSnapshots
+	local snapshot = snapshots and snapshots[ItemRack.GetMenuSnapshotKey(id,menuInclude)]
+	if type(snapshot)~="table" then return false end
+	for i=1,#snapshot do
+		ItemRack.Menu[#ItemRack.Menu+1] = snapshot[i]
+	end
+	return true
+end
+
+function ItemRack.DiscoverEquipmentMenuItems(id,menuInclude)
+	local itemID,itemName,equipSlot,itemTexture
+	if menuInclude then
+		itemID = ItemRack.GetID(id)
+		if itemID~=0 then
+			ItemRack.AddToMenu(itemID)
+		end
+		if ItemRack.SlotInfo[id].other then
+			itemID = ItemRack.GetID(ItemRack.SlotInfo[id].other)
+			if itemID~=0 then
+				ItemRack.AddToMenu(itemID)
+			end
+		end
+	end
+	for i=0,4 do
+		for j=1,GetContainerNumSlots(i) do
+			itemID = ItemRack.GetID(i,j)
+			itemName,itemTexture,equipSlot = ItemRack.GetInfoByID(itemID)
+			if ItemRack.SlotInfo[id][equipSlot] and ItemRack.PlayerCanWear(id,i,j) and (ItemRackSettings.HideTradables=="OFF" or ItemRack.IsSoulbound(i,j)) then
+				if id~=0 or not ItemRack.AlreadyInMenu(itemID) then
+					ItemRack.AddToMenu(itemID)
+				end
+			end
+		end
+	end
+	if ItemRack.BankOpen then
+		for _,i in pairs(ItemRack.BankSlots) do
+			for j=1,GetContainerNumSlots(i) do
+				itemID = ItemRack.GetID(i,j)
+				itemName,itemTexture,equipSlot = ItemRack.GetInfoByID(itemID)
+				if ItemRack.SlotInfo[id][equipSlot] and ItemRack.PlayerCanWear(id,i,j) and (ItemRackSettings.HideTradables=="OFF" or ItemRack.IsSoulbound(i,j)) then
+					if id~=0 or not ItemRack.AlreadyInMenu(itemID) then
+						ItemRack.AddToMenu(itemID)
+					end
+				end
+			end
+		end
+	elseif ItemRack.GetID(id)~=0 and ItemRackSettings.AllowEmpty=="ON" then
+		table.insert(ItemRack.Menu,0)
+	end
+end
+
+function ItemRack.RefreshQuickAccessMenuSnapshots(onlySlot)
+	if not ItemRack.IsForever() or InCombatLockdown() then return false end
+	local activeMenu = ItemRack.Menu
+	for id in pairs(ItemRackUser.Buttons or {}) do
+		if id<20 and (onlySlot==nil or onlySlot==id) then
+			ItemRack.Menu = {}
+			ItemRack.DiscoverEquipmentMenuItems(id,nil)
+			ItemRack.StoreMenuSnapshot(id,nil)
+		end
+	end
+	ItemRack.Menu = activeMenu
+	return true
+end
+
 -- builds a popout menu for slots or set button
 -- id = 0-19 for inventory slots, or 20 for set, or nil for last defined slot/set menu (ItemRack.menuOpen)
 -- before calling ItemRack.BuildMenu, you should call ItemRack.DockWindows
@@ -3630,7 +3738,8 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 		masqueGroup = ItemRack.menuMasqueGroup
 	end
 
-	ItemRack.Debug("UI", "BuildMenu called. id:", id, "InCombat:", InCombatLockdown(), "menuOpen:", ItemRack.menuOpen)
+	local inCombat = InCombatLockdown()
+	ItemRack.Debug("UI", "BuildMenu called. id:", id, "InCombat:", inCombat, "menuOpen:", ItemRack.menuOpen)
 
 	local showButtonMenu = (ItemRackButtonMenu and ItemRack.menuMovable) and (IsAltKeyDown() or ItemRackUser.Locked=="OFF")
 
@@ -3640,44 +3749,14 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 
 	local itemLink,itemID,itemName,equipSlot,itemTexture
 
-	if id<20 then
-		if menuInclude then
-			itemID = ItemRack.GetID(id)
-			if itemID~=0 then
-				ItemRack.AddToMenu(itemID)
-			end
-			if ItemRack.SlotInfo[id].other then
-				itemID = ItemRack.GetID(ItemRack.SlotInfo[id].other)
-				if itemID~=0 then
-					ItemRack.AddToMenu(itemID)
-				end
-			end
-		end
-		for i=0,4 do
-			for j=1,GetContainerNumSlots(i) do
-				itemID = ItemRack.GetID(i,j)
-				itemName,itemTexture,equipSlot = ItemRack.GetInfoByID(itemID)
-				if ItemRack.SlotInfo[id][equipSlot] and ItemRack.PlayerCanWear(id,i,j) and (ItemRackSettings.HideTradables=="OFF" or ItemRack.IsSoulbound(i,j)) then
-					if id~=0 or not ItemRack.AlreadyInMenu(itemID) then
-						ItemRack.AddToMenu(itemID)
-					end
-				end
-			end
-		end
-		if ItemRack.BankOpen then
-			for _,i in pairs(ItemRack.BankSlots) do
-				for j=1,GetContainerNumSlots(i) do
-					itemID = ItemRack.GetID(i,j)
-					itemName,itemTexture,equipSlot = ItemRack.GetInfoByID(itemID)
-					if ItemRack.SlotInfo[id][equipSlot] and ItemRack.PlayerCanWear(id,i,j) and (ItemRackSettings.HideTradables=="OFF" or ItemRack.IsSoulbound(i,j)) then
-						if id~=0 or not ItemRack.AlreadyInMenu(itemID) then
-							ItemRack.AddToMenu(itemID)
-						end
-					end
-				end
-			end
-		elseif ItemRack.GetID(id)~=0 and ItemRackSettings.AllowEmpty=="ON" then
-			table.insert(ItemRack.Menu,0)
+	local restoredCombatSnapshot = id<20 and inCombat and ItemRack.IsForever()
+	and ItemRack.RestoreMenuSnapshot(id,menuInclude)
+	if restoredCombatSnapshot then
+		ItemRack.Debug("UI", "BuildMenu restored Forever combat snapshot. id:", id, "items:", #(ItemRack.Menu))
+	elseif id<20 then
+		ItemRack.DiscoverEquipmentMenuItems(id,menuInclude)
+		if not inCombat then
+			ItemRack.StoreMenuSnapshot(id,menuInclude)
 		end
 	else
 		for i in pairs(ItemRackUser.Sets) do
@@ -3699,6 +3778,8 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 		local menuCount = #(ItemRack.Menu)
 		local max_cols, button, icon
 		local isCharSheet = (masqueGroup == 3) or (ItemRack.menuDockedTo and string.find(ItemRack.menuDockedTo, "^Character"))
+		local isPrimaryX = (ItemRack.menuOrient == "VERTICAL" or ItemRack.menuOrient == "HORIZONTAL_ROW")
+		local isSingleFlow = (ItemRack.menuOrient == "HORIZONTAL" or ItemRack.menuOrient == "HORIZONTAL_ROW")
 		if isCharSheet then
 			if ItemRackUser.CharMenuWrap=="ON" then
 				max_cols = math.floor(tonumber(ItemRackUser.CharMenuWrapValue) or 3)
@@ -3719,6 +3800,20 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 		else
 			if ItemRackUser.SetMenuWrap=="ON" then
 				max_cols = math.floor(tonumber(ItemRackUser.SetMenuWrapValue) or 3)
+			elseif ItemRack.menuOrient == "HORIZONTAL_ROW" or ItemRack.menuOrient == "VERTICAL_COL" then
+				-- When an explicit Breakout Side + Direction flow is active and wrapping is OFF,
+				-- grow along the chosen primary direction before wrapping outward.
+				if menuCount > 24 then
+					max_cols = math.ceil(menuCount / 6)
+				elseif menuCount > 12 then
+					max_cols = math.ceil(menuCount / 4)
+				elseif menuCount > 8 then
+					max_cols = math.ceil(menuCount / 3)
+				elseif menuCount > 4 then
+					max_cols = math.ceil(menuCount / 2)
+				else
+					max_cols = menuCount
+				end
 			else
 				-- Dynamic wrap based on count to keep popups compact but manageable
 				if menuCount > 24 then
@@ -3741,13 +3836,13 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 		local screenHeight = GetScreenHeight() * UIParent:GetEffectiveScale() / menuScale
 		local availableRows = math.max(1,math.floor((screenHeight - 80) / stride))
 		max_cols = math.max(1,max_cols)
-		if ItemRack.menuOrient == "HORIZONTAL" then
-			-- In horizontal mode, max_cols is the HEIGHT in buttons
+		if not isPrimaryX then
+			-- Primary Y growth: max_cols is the HEIGHT in buttons
 			if (max_cols * stride + stride) > screenHeight then
 				max_cols = availableRows
 			end
 		else
-			-- In vertical mode, height grows with rows (menuCount / max_cols)
+			-- Primary X growth: height grows with wrapped rows (menuCount / max_cols)
 			local rows = math.ceil(menuCount / max_cols)
 			if (rows * stride + stride) > screenHeight then
 				max_cols = math.ceil(menuCount / availableRows)
@@ -3775,7 +3870,7 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 				end
 			end
 
-			if ItemRack.menuOrient=="VERTICAL" then
+			if isPrimaryX then
 				xpos = xpos + ItemRack.DockInfo[ItemRack.currentDock].xdir*stride
 				col = col + 1
 				if col>=max_cols then
@@ -3819,12 +3914,13 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 			row = row-1
 		end
 
-		if ItemRack.menuOrient=="VERTICAL" then
-			ItemRackMenuFrame:SetWidth(12+(max_cols*stride))
+		local usedCols = (row == 0 and col > 0) and col or max_cols
+		if isPrimaryX then
+			ItemRackMenuFrame:SetWidth(12+(usedCols*stride))
 			ItemRackMenuFrame:SetHeight(12+((row+1)*stride))
 		else
 			ItemRackMenuFrame:SetWidth(12+((row+1)*stride))
-			ItemRackMenuFrame:SetHeight(12+(max_cols*stride))
+			ItemRackMenuFrame:SetHeight(12+(usedCols*stride))
 		end
 
 		ItemRack.StartTimer("MenuMouseover")
@@ -6429,7 +6525,9 @@ function ItemRack.SlashHandler(arg1)
 				{ name = "ItemRackUser.ButtonSpacing", val = ItemRackUser.ButtonSpacing },
 				{ name = "ItemRackUser.Alpha", val = ItemRackUser.Alpha },
 				{ name = "ItemRackUser.MainScale", val = ItemRackUser.MainScale },
+				{ name = "ItemRackUser.Equip20Scale", val = ItemRackUser.Equip20Scale },
 				{ name = "ItemRackUser.MenuScale", val = ItemRackUser.MenuScale },
+				{ name = "ItemRackUser.QuickAccessMenuDir", val = ItemRackUser.QuickAccessMenuDir },
 				{ name = "ItemRackUser.OptScale", val = ItemRackUser.OptScale },
 				{ name = "ItemRackUser.SetMenuWrap", val = ItemRackUser.SetMenuWrap },
 				{ name = "ItemRackUser.SetMenuWrapValue", val = ItemRackUser.SetMenuWrapValue },

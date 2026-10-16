@@ -562,6 +562,67 @@ assert(click("Right", 200) == "TOPLEFT>TOPRIGHT:HORIZONTAL", "Right opens to the
 `
 );
 
+// Independent quick-access breakout side + direction; legacy layouts must survive.
+runLua(String.raw`
+ItemRackUser={Buttons={[13]={},[14]={},[20]={},[1]={MenuDock="BOTTOMRIGHT",MainDock="TOPRIGHT",MenuOrient="VERTICAL"}}}
+ItemRackSettings={TrinketMenuMode="OFF",MinimapMenuDir="Left"}
+ItemRack={FindParent=function() return 1 end}
+for _,i in ipairs({13,14,20}) do _G["ItemRackButton"..i]={id=i} end
+local actual
+function ItemRack.DockWindows(a,owner,b,c,movable) actual={a,b,c,owner.id,movable} end
+${extractFunction('ItemRack/ItemRackButtons.lua','ItemRack.DockMenuToButton')}
+local expected={Up={"BOTTOMLEFT","TOPLEFT","VERTICAL"},Down={"TOPLEFT","BOTTOMLEFT","VERTICAL"},
+  Left={"TOPRIGHT","TOPLEFT","HORIZONTAL"},Right={"TOPLEFT","TOPRIGHT","HORIZONTAL"}}
+for dir,points in pairs(expected) do
+  ItemRackUser.QuickAccessMenuSide="Saved"
+  ItemRackUser.QuickAccessMenuDir=dir; ItemRack.DockMenuToButton(14)
+  assert(actual[1]==points[1] and actual[2]==points[2] and actual[3]==points[3],"quick-access direction must select correct docking: "..dir)
+  assert(actual[4]==14 and actual[5]==14,"direction must preserve hovered button and movable identity")
+  ItemRack.DockMenuToButton(20)
+  assert(actual[1]=="BOTTOMRIGHT" and actual[2]=="TOPRIGHT","set button must retain saved direction")
+end
+-- Combined Side + Direction matrix
+local comboExpected={
+  ["Top:Right"]={"BOTTOMLEFT","TOPLEFT","HORIZONTAL_ROW"},
+  ["Top:Left"]={"BOTTOMRIGHT","TOPRIGHT","HORIZONTAL_ROW"},
+  ["Top:Up"]={"BOTTOMLEFT","TOPLEFT","VERTICAL"},
+  ["Top:Saved"]={"BOTTOMLEFT","TOPLEFT","VERTICAL"},
+  ["Bottom:Right"]={"TOPLEFT","BOTTOMLEFT","HORIZONTAL_ROW"},
+  ["Bottom:Left"]={"TOPRIGHT","BOTTOMRIGHT","HORIZONTAL_ROW"},
+  ["Bottom:Down"]={"TOPLEFT","BOTTOMLEFT","VERTICAL"},
+  ["Bottom:Saved"]={"TOPLEFT","BOTTOMLEFT","VERTICAL"},
+  ["Right:Up"]={"BOTTOMLEFT","BOTTOMRIGHT","VERTICAL_COL"},
+  ["Right:Down"]={"TOPLEFT","TOPRIGHT","VERTICAL_COL"},
+  ["Right:Right"]={"TOPLEFT","TOPRIGHT","HORIZONTAL"},
+  ["Right:Saved"]={"TOPLEFT","TOPRIGHT","HORIZONTAL"},
+  ["Left:Up"]={"BOTTOMRIGHT","BOTTOMLEFT","VERTICAL_COL"},
+  ["Left:Down"]={"TOPRIGHT","TOPLEFT","VERTICAL_COL"},
+  ["Left:Left"]={"TOPRIGHT","TOPLEFT","HORIZONTAL"},
+  ["Left:Saved"]={"TOPRIGHT","TOPLEFT","HORIZONTAL"},
+}
+for key,points in pairs(comboExpected) do
+  local side,dir = key:match("^([^:]+):([^:]+)$")
+  ItemRackUser.QuickAccessMenuSide=side
+  ItemRackUser.QuickAccessMenuDir=dir
+  ItemRack.DockMenuToButton(14)
+  assert(actual[1]==points[1] and actual[2]==points[2] and actual[3]==points[3],
+    "side+dir "..key.." must select "..table.concat(points,",").." got "..table.concat({actual[1],actual[2],actual[3]},","))
+end
+for _,val in ipairs({"Saved","invalid"}) do
+  ItemRackUser.QuickAccessMenuSide=val
+  ItemRackUser.QuickAccessMenuDir=val; ItemRack.DockMenuToButton(14)
+  assert(actual[1]=="BOTTOMRIGHT" and actual[3]=="VERTICAL","saved/unknown side+direction must retain drag layout")
+end
+ItemRackUser.QuickAccessMenuSide=nil; ItemRackUser.QuickAccessMenuDir=nil; ItemRack.DockMenuToButton(14)
+assert(actual[1]=="BOTTOMRIGHT","legacy nil setting must retain drag layout")
+ItemRackSettings.TrinketMenuMode="ON"; ItemRackSettings.AnchorOther="ON"
+ItemRackUser.QuickAccessMenuSide="Top"; ItemRackUser.QuickAccessMenuDir="Right"; ItemRack.DockMenuToButton(13)
+assert(actual[4]==14 and actual[1]=="BOTTOMLEFT" and actual[2]=="TOPLEFT" and actual[3]=="HORIZONTAL_ROW",
+  "paired trinket anchor must coexist with side+direction")
+assert(ItemRackUser.Buttons[1].MenuDock=="BOTTOMRIGHT" and ItemRackSettings.MinimapMenuDir=="Left",
+  "override must not mutate saved docking or minimap direction")
+`, 'quick-access-breakout-direction');
+
 // Modern / Forever client ValidBag safety: GetItemFamily moved to C_Item.GetItemFamily
 const validBagFunc = extractFunction('ItemRack/ItemRack.lua', 'ItemRack.ValidBag');
 
@@ -1010,6 +1071,9 @@ function ItemRack.CreateMenuButton(i)
   _G["ItemRackMenu"..i.."Count"]={SetText=noop}
   return b
 end
+ItemRack.IsForever=function() return false end
+ItemRack.StoreMenuSnapshot=function() end
+ItemRack.DiscoverEquipmentMenuItems=${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.DiscoverEquipmentMenuItems').replace('function ItemRack.DiscoverEquipmentMenuItems', 'function')}
 ${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.BuildMenu')}
 for _,orientation in ipairs({"VERTICAL","HORIZONTAL"}) do
   ItemRack.menuOrient=orientation
@@ -1035,6 +1099,21 @@ screenHeight=180; scale=2
 ItemRackUser.BreakoutSpacing=24
 ItemRack.BuildMenu(13,false,3)
 assert(ItemRackMenuFrame.height==72,"scaled short screens must wrap without division by zero")
+
+-- Verify Side=Top + Direction=Right (HORIZONTAL_ROW on TOPLEFTBOTTOMLEFT) grows Right (+x) and wraps Up (+y)
+screenHeight=1080; scale=1
+ItemRack.DockInfo.TOPLEFTBOTTOMLEFT={xoff=-8, yoff=0, xdir=1, ydir=1, xstart=8, ystart=44}
+ItemRack.currentDock="TOPLEFTBOTTOMLEFT"
+ItemRack.menuDock="BOTTOMLEFT"
+ItemRack.menuOrient="HORIZONTAL_ROW"
+ItemRackUser.BreakoutSpacing=4
+ItemRackUser.SetMenuWrap="ON"; ItemRackUser.SetMenuWrapValue=2
+ItemRack.BuildMenu(13,false,2)
+assert(buttons[1].x==8 and buttons[1].y==44,"button 1 starts at bottom-left of top breakout")
+assert(buttons[2].x==48 and buttons[2].y==44,"button 2 grows right (+40) on same row")
+assert(buttons[3].x==8 and buttons[3].y==84,"button 3 wraps up (+40) to row above")
+assert(buttons[4].x==48 and buttons[4].y==84,"button 4 grows right (+40) on second row")
+assert(buttons[5].x==8 and buttons[5].y==124,"button 5 wraps up (+40) to third row")
 `, 'reported-breakout-spacing');
 
 // GitHub #30, y00: TBC Anniversary 4.53. Reported weapon/shield/relic IDs.

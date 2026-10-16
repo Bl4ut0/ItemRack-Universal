@@ -1,5 +1,16 @@
 __ Development __
 
+__ New in 4.56-beta1 - By Bl4ut0 __
+- Reorganized the main Settings list by feature area (Quick-Access Buttons, Breakouts & Flyout Menus, Character Sheet, Sets/AutoQueue/Events, Cooldowns, Tooltips, Minimap & Options Window, and Actions) while keeping character/account scope explicit in tooltips. Added character-specific Quick-access breakout side (Saved/Top/Bottom/Left/Right) and Quick-access breakout direction (Saved/Up/Down/Left/Right) selectors with a compact settings-row dropdown frame so item breakouts can attach to a chosen button edge, grow along a chosen direction, and wrap outward away from the button (e.g. Side: Top + Breakout: Right wraps upward) without changing minimap, set-button or character-sheet directions or saved drag docking. Added side+direction, wrap-geometry, selector and tooltip-scope regressions; live layout acceptance is pending.
+
+- Forever build 1.60.1.70338: quick-access equipment breakouts now preserve their last successful out-of-combat item list during combat instead of collapsing to only Empty Slot when live item data becomes restricted. The fix covers every equipment slot, retains exact item identities, and uses the existing deferred combat queue.
+
+- Fixed scale changes reusing old button anchors: clear anchors before absolute repositioning and preserve docking relationships. Added reported 4x repeat and docking regression coverage; live verification is pending.
+
+- Set button scale now supports 0.5-4x; equipment and menu scale limits are unchanged. Added 4x position-preservation and combat-deferral coverage.
+
+- Added a character-specific Set button scale control for the Equip 20/current-set button. Existing profiles inherit their current button scale; later changes affect only slot 20, preserve its screen position, and defer safely during combat.
+
 __ New in 4.55 - By Bl4ut0 __
 - Venruki's Forever report: added an account-wide, default-on Always compare breakout items option so users see equipped-item comparisons on ItemRack flyout rows without holding the client comparison modifier. It does not change WoW's account CVar; turning it off restores native behavior. Menu on Shift suppression and missing-API safety are preserved, with permanent production-Lua coverage.
 
