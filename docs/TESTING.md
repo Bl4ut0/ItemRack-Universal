@@ -46,6 +46,28 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+October 16 combat-breakout diagnostic follow-up: the original support dump had
+the correct slot but only `Menu={0}`, without evidence identifying which
+discovery check failed. The `breakout-diagnostics-*` cases in the existing
+`.tools/test_forever_combat_menu_lua.js` execute production discovery and the
+actual PlayerCanWear tooltip filter. They distinguish normal discovery,
+unresolved links on occupied slots versus empty bag space, nil equipment data,
+slot mismatches, red-tooltip rejection, hidden/soulbound policies, snapshot
+replacement/restoration, unit-combat/lockdown transition differences, provider
+exceptions and populated models interrupted during cooldown rendering.
+They also check bounded history, retained combat evidence after OOC activity,
+exact client and custom-icon fields, loaded addon names, and redaction without
+stringifying secret values. Substituting HEAD's pre-instrumentation discovery
+function fails `breakout-diagnostics-success`; current production passes.
+This verifies the new evidence, not the still-unidentified live failure.
+Acceptance: on a working and an affected Forever client, hover a configured
+breakout before combat, enter combat, hover the same button, then run
+`/itemrack dump` before reload/relog. Check the BREAKOUT DISCOVERY DIAGNOSTICS
+section contains both states, distinguishes real items from Empty Slot, and
+captures the rejection/unfinished stage. Repeat with debug OFF and after combat
+exit; confirm recording does not change menus, item selection, swaps or errors.
+`/itemrack debug clear` intentionally discards these records for a fresh capture.
+
 October 16 settings-clarity request: old Flyout Menu direction label did not
 identify the minimap source, and quick-access breakouts lacked a direction control.
 `settings-direction-and-clarity` in `.tools/test_button_scales_lua.js` fails with
@@ -63,6 +85,13 @@ and confirm minimap, broker, set-button and character-sheet menus stay independe
 Check scaled screen edges and entering combat with a picker already open.
 
 October 16, 2026 Forever build 1.60.1.70338 / ItemRack 4.54 report:
+Status correction after the owner retested 4.56/4.56.1: this report remains
+unresolved for some Forever clients. The regression below models empty bag
+enumeration; that cause was not measured on the original client. It stubs the
+wearability filter and renderer, and therefore does not verify the original
+failure. See the Retail ItemRack comparison and evidence requirements in
+`TECHNICAL_CHANGES.md` before claiming another fix.
+
 every quick-access equipment breakout lost its usable rows during combat. The
 supplied runtime dump captured slot 13 with the menu visible and correctly
 parented, but `ItemRack.Menu` contained only entry `0` (Empty Slot); debug logs

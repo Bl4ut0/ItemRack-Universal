@@ -6,6 +6,142 @@ This document records the compatibility and reliability changes shared by Classi
 
 The supported clients expose different mixtures of legacy globals, modern namespaces, protected values, and UI frames. ItemRack ships one source tree and one universal archive. Runtime feature detection selects the available API; client-specific source branches and packages are intentionally retired.
 
+## Open investigation: Forever combat breakouts and Retail ItemRack
+
+Status on October 16, 2026: unresolved in the client. The owner reports the
+failure still occurs for some Forever clients on 4.56 and 4.56.1. Their menu
+contains no actual item candidates and shows one empty-slot choice. Do not
+describe the 4.56 snapshot workaround or its green tests as verification that
+this report is resolved. The original failure predates that workaround.
+
+### Source references and scope
+
+- Retail **ItemRack 3.46**, maintained by Kharthus/Gello: saved source under
+  `.versions/Retail/ItemRack/`, compared with `.versions/Retail/ItemRack-3.46.zip`.
+  Extracted Lua/XML/TOC/text contents were checked against the ZIP entries.
+  Archive SHA-256: `09a8eb9c1defa31d55bf2bb7a730dc71c501ca8f8a785df19a8d2fd076ba2b53`.
+  [Publisher page](https://www.curseforge.com/wow/addons/itemrack) identifies this
+  as the Retail addon; the saved TOC targets interface 120005. Source inspection
+  is not an in-client demonstration of its current combat behavior.
+- ItemRack Universal: reviewed current `dev` at
+  `248e902` and the `v4.56..v4.56.1` runtime diff. That diff changes saved-set
+  weapon binding/spec handling, not the item-breakout discovery path.
+- Blizzard Retail UI: Gethe export revision
+  `18c6d677b605b312f3d813d498404631fb941977`.
+- Blizzard Forever UI: Gethe export revision
+  `b401e0332adfbf0460d319b06d8ea29279a941f1`, including the **Camelot**
+  EquipmentFlyout and PaperDollFrame variants, not only Mainline files.
+
+### What Retail ItemRack actually does
+
+`ItemRackButtons.lua:386` routes quick-access hover through `DockMenuToButton`
+and `BuildMenu`. In `ItemRack.lua:876`, BuildMenu clears the menu, scans bags
+0-4, reads the full bag item link, resolves equipment type with
+`C_Item.GetItemInfo`, matches SlotInfo, calls PlayerCanWear, applies optional
+soulbound/hidden filtering, and then creates/draws the rows. It appends `0`
+when AllowEmpty is enabled and the destination is occupied. There is no separate
+Retail combat loader or combat inventory snapshot in this implementation.
+
+| Behavior | Retail ItemRack 3.46 | Universal 4.56/4.56.1 |
+|---|---|---|
+| Candidate enumeration | Bag scan through C_Container | Same bag scan through locally bound compatibility APIs |
+| Item identity | Full bag link converted to ItemRack ID | Same source plus rune support |
+| Equipment type | C_Item.GetItemInfo | Captured legacy GetItemInfo if present, otherwise C_Item.GetItemInfo; itemstring conversion strips later fields |
+| Wearability | Hidden tooltip colors/text | Essentially the same hidden-tooltip algorithm |
+| Menu parent | XML UIParent; SetParent(relativeTo) commented out | DockWindows reparents to the hovered slot/button |
+| Rows | ActionButtonTemplate | ItemRack-owned visual-only template |
+| Combat behavior | Live discovery; item selection deferred for non-swappable slots | Restore snapshot if present; otherwise live discovery; ordinary selections defer |
+
+Retail ItemRack's PlayerCanWear (`ItemRack.lua:687`) and Universal's equivalent
+reject red tooltip lines unless the text matches the durability or skill
+requirement exceptions. A temporary red combat-context line is therefore capable
+of being treated as permanent inability to wear an item. Production-function
+checks confirmed this rejection for both sources with modeled tooltip lines.
+The supplied client evidence does **not** contain the actual rejected line, so
+this is a tested candidate mechanism, not the confirmed client root cause.
+
+Retail's disabled SetParent is a concrete upstream difference worth preserving
+in the review. It does not by itself explain a Lua menu containing only `0`:
+the original capture proved the model lost its candidates, not just that icons
+failed to draw. Do not call the parent difference the proven cause.
+
+### What Blizzard's native flyout does differently
+
+Both Retail and Forever/Camelot PaperDollFrameItemFlyout_GetItems delegate to
+`GetInventoryItemsForSlot`, rather than ItemRack's tooltip-based eligibility
+scan. EquipmentFlyout receives candidate locations, binds them to rows, and
+then resolves display data. The paper-doll click handler checks combat
+eligibility separately from discovery. A native row being displayed does not
+mean an addon may perform its equip action during combat.
+
+References: [Retail PaperDollFrame](https://github.com/Gethe/wow-ui-source/blob/18c6d677b605b312f3d813d498404631fb941977/Interface/AddOns/Blizzard_UIPanels_Game/Mainline/PaperDollFrame.lua),
+[Forever PaperDollFrame](https://github.com/Gethe/wow-ui-source/blob/b401e0332adfbf0460d319b06d8ea29279a941f1/Interface/AddOns/Blizzard_UIPanels_Game/Camelot/PaperDollFrame.lua),
+[Forever EquipmentFlyout](https://github.com/Gethe/wow-ui-source/blob/b401e0332adfbf0460d319b06d8ea29279a941f1/Interface/AddOns/Blizzard_FrameXML/Camelot/EquipmentFlyout.lua).
+Availability and results of GetInventoryItemsForSlot from ordinary addon code
+must be verified on the affected build before adopting it. Do not infer addon
+permissions from Blizzard-owned UI behavior.
+
+### Established report versus remaining gaps
+
+The original 4.54/build 1.60.1.70338 captures show actual lockdown true,
+menuOpen=13, the menu shown with parent ItemRackButton13, #Menu=1, and Menu[1]=0.
+Debug logs show combat BuildMenu calls for 13/14. The owner later confirmed all
+quick-access equipment breakouts are affected for some users. These observations
+establish zero accepted candidates before queue insertion. They do not establish
+which individual API/filter returned empty/false. HideTradables was OFF, excluding
+IsSoulbound as the rejection in that supplied profile; ShowTooltips OFF does not
+disable the separate hidden tooltip used by PlayerCanWear.
+
+The exact latest failing build's menu/snapshot counts and filter results remain
+uncaptured. Prior claims that bag enumeration was restricted were assumptions;
+no supplied capture measured container slot counts or links inside combat.
+
+### Problems introduced or left uncovered by the snapshot workaround
+
+1. StoreMenuSnapshot accepts empty/Empty-Slot-only discoveries without recording
+   whether item data was complete. RefreshQuickAccessMenuSnapshots can overwrite
+   a useful list with one containing only `0`.
+2. OnEnteringCombat refreshes whenever InCombatLockdown is false. The original
+   log has that value false at entry, but it does not prove all discovery data
+   and tooltip semantics remain out of combat at that moment.
+3. An ephemeral production-Lua check changed item-info reads to nil before
+   lockdown, refreshed the snapshot, then entered combat. The existing retained-row
+   assertion failed because only `0` was restored. This proves a workaround
+   defect under incomplete metadata, not the original client's trigger.
+4. Discovery swaps the global Menu table while preparing snapshots and does not
+   restore it if a provider errors. No such error was captured in this report.
+5. Snapshots contain IDs only; icon/cooldown rendering still reads live APIs.
+   This is a separate rendering risk and does not explain the owner's clarified
+   zero-candidate symptom.
+6. The current permanent test stubs GetID, GetInfoByID, PlayerCanWear, frame
+   operations and cooldown rendering. It tests snapshot restoration and actual
+   queue insertion, but not the original client discovery/filter failure.
+
+### Next correction requirements
+
+Capture one known wearable bag item's path before and during combat: bag slot
+count, public link/ID, equipment type, slot match, PlayerCanWear result, and the
+specific tooltip line/color responsible for a rejection. Also record active
+menu count, selected slot, snapshot count and scan stage counts. Guard secret
+values before logging them. Compare a working and failing Forever client with
+the same item/profile and record other tooltip/inventory addons.
+
+Then correct the demonstrated boundary: prefer native candidate enumeration
+where available and proven suitable, or a capability-based structured item
+query that separates permanent wearability from temporary combat eligibility.
+Preserve exact-copy IDs, hidden/soulbound policies, paired-slot routing and the
+deferred queue. Do not simply remove every red-text restriction or copy Retail's
+protected equip actions. Replace/remove the snapshot workaround if it provides
+no demonstrated value; any retained fallback needs completeness/invalidation
+rules and must not overwrite good data during combat transition.
+
+Extend the existing focused suite with the measured rejection and real
+discovery/filter functions. Require failing-before/passing-after evidence for
+all equipment slots, fresh login without pre-hover, combat transition,
+post-combat refresh, and exact queued choices. Keep native taint, addon
+interaction and client rendering as explicit acceptance checks. No further
+runtime correction or release is claimed by this review.
+
 ## Tooltip Post-Hook Taint Containment
 **File:** `ItemRack/ItemRack.lua` — `ItemRack.ListSetsHavingItem`
 

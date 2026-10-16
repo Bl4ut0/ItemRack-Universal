@@ -240,6 +240,14 @@ SLASH COMMANDS
   recent diagnostics. Review the report before sharing because it can include
   set names and item information.
 
+  Breakout discovery is recorded automatically, even with debug off. For a
+  combat-only empty menu, hover the same button before and during combat, then
+  run /itemrack dump before reloading or relogging. The report keeps per-slot
+  discovery/filter results and sampled public tooltip rejection text, cache
+  changes, rendering stages, client build, custom-icon switches and loaded
+  addon names. Secret/inaccessible values are marked rather than printed.
+  /itemrack debug clear intentionally clears this evidence for a fresh test.
+
 
 MACRO FUNCTIONS
 ---------------

@@ -1727,7 +1727,7 @@ function ItemRack.FlushInventoryRefresh()
 
 	if ItemRack.UpdateButtons then ItemRack.UpdateButtons() end
 	if ItemRack.RefreshQuickAccessMenuSnapshots and not InCombatLockdown() then
-		ItemRack.RefreshQuickAccessMenuSnapshots()
+		ItemRack.RefreshQuickAccessMenuSnapshots(nil,"inventory_refresh")
 	end
 	if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.BuildMenu then
 		ItemRack.BuildMenu()
@@ -2062,7 +2062,7 @@ end
 function ItemRack.OnLeavingCombatOrDeath()
 	ItemRack.inCombat = InCombatLockdown()
 	if not ItemRack.inCombat and ItemRack.RefreshQuickAccessMenuSnapshots then
-		ItemRack.RefreshQuickAccessMenuSnapshots()
+		ItemRack.RefreshQuickAccessMenuSnapshots(nil,"combat_exit_refresh")
 	end
 	ItemRack.Debug("Combat", "OnLeavingCombatOrDeath: InCombatLockdown="..tostring(InCombatLockdown()))
 	if ItemRack.NowCasting then
@@ -2189,7 +2189,7 @@ function ItemRack.OnEnteringCombat()
 	-- Lua. Capture one final public-data view when that window is available;
 	-- other builds retain the latest normal inventory-refresh snapshot.
 	if ItemRack.RefreshQuickAccessMenuSnapshots and not InCombatLockdown() then
-		ItemRack.RefreshQuickAccessMenuSnapshots()
+		ItemRack.RefreshQuickAccessMenuSnapshots(nil,"combat_entry_refresh")
 	end
 	ItemRack.inCombat = 1
 	ItemRack.Debug("Combat", "OnEnteringCombat: InCombatLockdown="..tostring(InCombatLockdown()))
@@ -3394,7 +3394,7 @@ function ItemRack.IsRed(which)
 	end
 end
 
-function ItemRack.PlayerCanWear(invslot,bag,slot)
+function ItemRack.PlayerCanWear(invslot,bag,slot,diagnostic)
 	local found = false
 	local txt = false
 
@@ -3409,14 +3409,23 @@ function ItemRack.PlayerCanWear(invslot,bag,slot)
 
 	for i=2,ItemRackTooltip:NumLines() do
 		txt = _G["ItemRackTooltipTextLeft"..i]:GetText()
+		if diagnostic then
+			diagnostic.stage = "tooltip_filter"
+			diagnostic.tooltipLine = i
+			diagnostic.tooltipText = ItemRack.MenuDiagnosticValue(txt)
+		end
 		-- if either left or right text is red and this isn't a Durability x/x line, this item can't be worn
-		if (ItemRack.IsRed("Left"..i) or ItemRack.IsRed("Right"..i)) and not string.find(txt,ItemRack.DURABILITY_PATTERN) and not string.match(txt,ItemRack.REQUIRES_PATTERN) then
+		local red = ItemRack.IsRed("Left"..i) or ItemRack.IsRed("Right"..i)
+		if diagnostic then diagnostic.tooltipRed=ItemRack.MenuDiagnosticValue(red) end
+		if red and not string.find(txt,ItemRack.DURABILITY_PATTERN) and not string.match(txt,ItemRack.REQUIRES_PATTERN) then
+			if diagnostic then diagnostic.wearReason="red_tooltip" end
 			return nil
 		end
 	end
 
 	local _,_,itemType = ItemRack.GetInfoByID(ItemRack.GetID(bag,slot))
 	if (itemType=="INVTYPE_WEAPON" or itemType=="INVTYPE_WEAPONOFFHAND") and invslot==17 and not ItemRack.CanWearOneHandOffHand then
+		if diagnostic then diagnostic.wearReason="offhand_capability" end
 		-- if this is a One-Hand going to offhand, and player can't wear one-hand offhands, this item can't be worn
 		return nil
 	end
@@ -3636,6 +3645,141 @@ function ItemRack.AlreadyInMenu(id)
 	end
 end
 
+-- Bounded, always-on menu evidence. Only public scalars enter this recorder;
+-- recording does not rescan inventory or alter discovery/equip decisions.
+function ItemRack.MenuDiagnosticValue(value)
+	if issecretvalue then
+		local ok,secret = pcall(issecretvalue,value)
+		if not ok then return "<unavailable>" end
+		if secret then return "<secret>" end
+	end
+	if canaccessvalue then
+		local ok,accessible = pcall(canaccessvalue,value)
+		if not ok or not accessible then return "<inaccessible>" end
+	end
+	local kind = type(value)
+	if kind=="string" then return string.sub(value,1,180) end
+	if kind=="number" or kind=="boolean" then return value end
+	if kind=="nil" then return "<nil>" end
+	return "<"..kind..">"
+end
+
+function ItemRack.MenuDiagnosticCall(callback,...)
+	if type(callback)~="function" then return "<missing>" end
+	local ok,value = pcall(callback,...)
+	if not ok then return "<error>" end
+	return ItemRack.MenuDiagnosticValue(value)
+end
+
+function ItemRack.MenuDiagnosticCounts(items)
+	local counts = { rows=0,items=0,empty=0,configuration=0,inaccessible=0 }
+	for _,item in ipairs(items or {}) do
+		local value = ItemRack.MenuDiagnosticValue(item)
+		counts.rows = counts.rows+1
+		if value==0 then counts.empty=counts.empty+1
+		elseif value=="MENU" then counts.configuration=counts.configuration+1
+		elseif value=="<secret>" or value=="<inaccessible>" or value=="<unavailable>" then
+			counts.inaccessible=counts.inaccessible+1
+		else counts.items=counts.items+1 end
+	end
+	return counts
+end
+
+function ItemRack.BeginMenuDiagnostic(slot,menuInclude,source)
+	local state = ItemRack.MenuDiagnostics or { sequence=0,recent={},latest={} }
+	ItemRack.MenuDiagnostics = state
+	state.sequence = state.sequence+1
+	local record = {
+		sequence=state.sequence, time=ItemRack.MenuDiagnosticCall(GetTime),
+		slot=slot, included=menuInclude and true or false, source=source,
+		lockdown=ItemRack.MenuDiagnosticCall(InCombatLockdown),
+		unitCombat=ItemRack.MenuDiagnosticCall(UnitAffectingCombat,"player"),
+		internalCombat=ItemRack.MenuDiagnosticValue(ItemRack.inCombat),
+		owner=ItemRack.MenuDiagnosticValue(ItemRack.menuDockedTo),
+		allowHidden=ItemRack.MenuDiagnosticValue(ItemRackSettings.AllowHidden),
+		hideTradables=ItemRack.MenuDiagnosticValue(ItemRackSettings.HideTradables),
+		customMenuIcons=ItemRack.MenuDiagnosticValue(ItemRackUser.CustomMenuIcons),
+		stage="begin", completed=false, visited=0,missingIDs=0,missingMetadata=0,
+		emptyBagSlots=0,unresolvedLinks=0,idProviderUnavailable=0,nonEquipment=0,
+		slotMismatch=0,wearRejected=0,soulboundRejected=0,hiddenRejected=0,
+		duplicates=0,accepted=0,bagSlots={},samples={},
+	}
+	local phase = record.lockdown==true and "combat" or
+		((record.unitCombat==true or record.internalCombat==1 or record.internalCombat==true) and "transition" or "ooc")
+	record.phase = phase
+	state.latest[tostring(slot)..":"..(menuInclude and "included" or "bags")..":"..phase] = record
+	state.recent[#state.recent+1] = record
+	if #state.recent>24 then table.remove(state.recent,1) end
+	return record
+end
+
+function ItemRack.MenuDiagnosticReject(record,reason,itemID,detail)
+	if not record then return end
+	record[reason] = (record[reason] or 0)+1
+	if #record.samples>=6 then return end
+	local value = ItemRack.MenuDiagnosticValue(itemID)
+	local base = type(value)=="string" and string.match(value,"^%-?%d+") or value
+	record.samples[#record.samples+1] = {
+		reason=reason,bag=record.bag,position=record.position,item=base,
+		detail=ItemRack.MenuDiagnosticValue(detail),
+		tooltipLine=reason=="wearRejected" and record.tooltipLine or nil,
+		tooltipText=reason=="wearRejected" and record.tooltipText or nil,
+		tooltipRed=reason=="wearRejected" and record.tooltipRed or nil,
+	}
+end
+
+function ItemRack.FinishMenuDiagnostic(record)
+	if not record then return end
+	record.result = ItemRack.MenuDiagnosticCounts(ItemRack.Menu)
+	record.completed = true
+	record.stage = "complete"
+end
+
+function ItemRack.GetMenuDiagnosticReport()
+	local state = ItemRack.MenuDiagnostics or { recent={},latest={} }
+	local frame = ItemRackMenuFrame
+	local parent = frame and frame.GetParent and frame:GetParent()
+	local snapshots = {}
+	for key,items in pairs(ItemRack.MenuSnapshots or {}) do
+		snapshots[key] = ItemRack.MenuDiagnosticCounts(items)
+	end
+	local addons = {}
+	local count = ItemRack.MenuDiagnosticCall(GetNumAddOns)
+	if type(count)=="number" then
+		for i=1,count do
+			if ItemRack.MenuDiagnosticCall(IsAddOnLoaded,i)==true then
+				local name = ItemRack.MenuDiagnosticCall(GetAddOnInfo,i)
+				if type(name)=="string" and not string.match(name,"^Blizzard_") then
+					addons[#addons+1] = name
+					if #addons>=100 then break end
+				end
+			end
+		end
+	end
+	return {
+		schema=1,clientVersion=wowver,clientBuild=wowbuild,interface=wowtoc,
+		locale=ItemRack.MenuDiagnosticCall(GetLocale),
+		durabilityPattern=ItemRack.MenuDiagnosticValue(ItemRack.DURABILITY_PATTERN),
+		requiresPattern=ItemRack.MenuDiagnosticValue(ItemRack.REQUIRES_PATTERN),
+		project=ItemRack.MenuDiagnosticValue(WOW_PROJECT_ID),
+		lockdown=ItemRack.MenuDiagnosticCall(InCombatLockdown),
+		unitCombat=ItemRack.MenuDiagnosticCall(UnitAffectingCombat,"player"),
+		menuSlot=ItemRack.menuOpen,menu=ItemRack.MenuDiagnosticCounts(ItemRack.Menu),
+		shown=frame and ItemRack.MenuDiagnosticCall(frame.IsShown,frame),
+		protected=frame and ItemRack.MenuDiagnosticCall(frame.IsProtected,frame),
+		parent=parent and ItemRack.MenuDiagnosticCall(parent.GetName,parent),
+		parentProtected=parent and ItemRack.MenuDiagnosticCall(parent.IsProtected,parent),
+		customMenuIcons=ItemRackUser.CustomMenuIcons,customCharacterIcons=ItemRackUser.CustomCharacterIcons,
+		providers={
+			itemInfoNamespaced=C_Item and GetItemInfo==C_Item.GetItemInfo or false,
+			itemInfoGlobalChanged=type(_G.GetItemInfo)=="function" and GetItemInfo~=_G.GetItemInfo or false,
+			containerNamespaced=C_Container and GetContainerNumSlots==C_Container.GetContainerNumSlots or false,
+			nativeCandidates=type(GetInventoryItemsForSlot)=="function",
+		},
+		snapshots=snapshots,latest=state.latest,recent=state.recent,loadedAddons=addons,
+	}
+end
+
 function ItemRack.AddToMenu(itemID)
 	if ItemRackSettings.AllowHidden=="OFF" or (IsAltKeyDown() or not ItemRack.IsHidden(itemID)) then
 		table.insert(ItemRack.Menu,itemID)
@@ -3646,9 +3790,12 @@ function ItemRack.GetMenuSnapshotKey(id,menuInclude)
 	return tostring(id)..":"..(menuInclude and "included" or "bags")
 end
 
-function ItemRack.StoreMenuSnapshot(id,menuInclude)
+function ItemRack.StoreMenuSnapshot(id,menuInclude,diagnostic)
 	if type(id)~="number" or id<0 or id>=20 then return false end
 	ItemRack.MenuSnapshots = ItemRack.MenuSnapshots or {}
+	if diagnostic then
+		diagnostic.snapshotPrevious = ItemRack.MenuDiagnosticCounts(ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(id,menuInclude)])
+	end
 	local snapshot = {}
 	for i=1,#(ItemRack.Menu) do
 		local item = ItemRack.Menu[i]
@@ -3657,6 +3804,7 @@ function ItemRack.StoreMenuSnapshot(id,menuInclude)
 		end
 	end
 	ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(id,menuInclude)] = snapshot
+	if diagnostic then diagnostic.snapshotWritten=ItemRack.MenuDiagnosticCounts(snapshot) end
 	return true
 end
 
@@ -3670,7 +3818,66 @@ function ItemRack.RestoreMenuSnapshot(id,menuInclude)
 	return true
 end
 
-function ItemRack.DiscoverEquipmentMenuItems(id,menuInclude)
+function ItemRack.ConsiderMenuCandidate(id,bag,position,diagnostic)
+	if diagnostic then
+		diagnostic.visited=diagnostic.visited+1
+		diagnostic.bag,diagnostic.position=bag,position
+		diagnostic.stage="item_link"
+	end
+	local itemID = ItemRack.GetID(bag,position)
+	if diagnostic then
+		diagnostic.stage="item_metadata"
+		diagnostic.tooltipLine,diagnostic.tooltipText,diagnostic.tooltipRed=nil,nil,nil
+		if ItemRack.MenuDiagnosticValue(itemID)==0 then
+			diagnostic.missingIDs=diagnostic.missingIDs+1
+			-- Distinguish a genuinely empty bag slot from an occupied slot whose
+			-- link could not be resolved. This extra read is evidence only.
+			local numericID = ItemRack.MenuDiagnosticCall(GetContainerItemID,bag,position)
+			if type(numericID)=="number" and numericID>0 then
+				ItemRack.MenuDiagnosticReject(diagnostic,"unresolvedLinks",numericID)
+			elseif numericID=="<nil>" or numericID==0 then
+				diagnostic.emptyBagSlots=diagnostic.emptyBagSlots+1
+			else diagnostic.idProviderUnavailable=diagnostic.idProviderUnavailable+1 end
+		end
+	end
+	local itemName,itemTexture,equipSlot = ItemRack.GetInfoByID(itemID)
+	if diagnostic then
+		diagnostic.equipType=ItemRack.MenuDiagnosticValue(equipSlot)
+		diagnostic.stage="slot_match"
+		if ItemRack.MenuDiagnosticValue(itemID)~=0 and diagnostic.equipType=="<nil>" then
+			ItemRack.MenuDiagnosticReject(diagnostic,"missingMetadata",itemID)
+		elseif diagnostic.equipType=="" then
+			diagnostic.nonEquipment=diagnostic.nonEquipment+1
+		end
+	end
+	if not ItemRack.SlotInfo[id][equipSlot] then
+		if diagnostic then diagnostic.slotMismatch=diagnostic.slotMismatch+1 end
+		return
+	end
+	if diagnostic then diagnostic.stage="wearability"; diagnostic.wearReason=nil end
+	if not ItemRack.PlayerCanWear(id,bag,position,diagnostic) then
+		ItemRack.MenuDiagnosticReject(diagnostic,"wearRejected",itemID,diagnostic and diagnostic.wearReason)
+		return
+	end
+	if diagnostic then diagnostic.stage="soulbound_filter" end
+	if ItemRackSettings.HideTradables~="OFF" and not ItemRack.IsSoulbound(bag,position) then
+		ItemRack.MenuDiagnosticReject(diagnostic,"soulboundRejected",itemID)
+		return
+	end
+	if id==0 and ItemRack.AlreadyInMenu(itemID) then
+		if diagnostic then diagnostic.duplicates=diagnostic.duplicates+1 end
+		return
+	end
+	local before = #(ItemRack.Menu)
+	if diagnostic then diagnostic.stage="hidden_filter" end
+	ItemRack.AddToMenu(itemID)
+	if diagnostic then
+		if #(ItemRack.Menu)>before then diagnostic.accepted=diagnostic.accepted+1
+		else ItemRack.MenuDiagnosticReject(diagnostic,"hiddenRejected",itemID) end
+	end
+end
+
+function ItemRack.DiscoverEquipmentMenuItems(id,menuInclude,diagnostic)
 	local itemID,itemName,equipSlot,itemTexture
 	if menuInclude then
 		itemID = ItemRack.GetID(id)
@@ -3685,26 +3892,20 @@ function ItemRack.DiscoverEquipmentMenuItems(id,menuInclude)
 		end
 	end
 	for i=0,4 do
-		for j=1,GetContainerNumSlots(i) do
-			itemID = ItemRack.GetID(i,j)
-			itemName,itemTexture,equipSlot = ItemRack.GetInfoByID(itemID)
-			if ItemRack.SlotInfo[id][equipSlot] and ItemRack.PlayerCanWear(id,i,j) and (ItemRackSettings.HideTradables=="OFF" or ItemRack.IsSoulbound(i,j)) then
-				if id~=0 or not ItemRack.AlreadyInMenu(itemID) then
-					ItemRack.AddToMenu(itemID)
-				end
-			end
+		if diagnostic then diagnostic.stage="bag_slots"; diagnostic.bag=i end
+		local slots = GetContainerNumSlots(i)
+		if diagnostic then diagnostic.bagSlots[i]=ItemRack.MenuDiagnosticValue(slots) end
+		for j=1,slots do
+			ItemRack.ConsiderMenuCandidate(id,i,j,diagnostic)
 		end
 	end
 	if ItemRack.BankOpen then
 		for _,i in pairs(ItemRack.BankSlots) do
-			for j=1,GetContainerNumSlots(i) do
-				itemID = ItemRack.GetID(i,j)
-				itemName,itemTexture,equipSlot = ItemRack.GetInfoByID(itemID)
-				if ItemRack.SlotInfo[id][equipSlot] and ItemRack.PlayerCanWear(id,i,j) and (ItemRackSettings.HideTradables=="OFF" or ItemRack.IsSoulbound(i,j)) then
-					if id~=0 or not ItemRack.AlreadyInMenu(itemID) then
-						ItemRack.AddToMenu(itemID)
-					end
-				end
+			if diagnostic then diagnostic.stage="bag_slots"; diagnostic.bag=i end
+			local slots = GetContainerNumSlots(i)
+			if diagnostic then diagnostic.bagSlots[i]=ItemRack.MenuDiagnosticValue(slots) end
+			for j=1,slots do
+				ItemRack.ConsiderMenuCandidate(id,i,j,diagnostic)
 			end
 		end
 	elseif ItemRack.GetID(id)~=0 and ItemRackSettings.AllowEmpty=="ON" then
@@ -3712,14 +3913,16 @@ function ItemRack.DiscoverEquipmentMenuItems(id,menuInclude)
 	end
 end
 
-function ItemRack.RefreshQuickAccessMenuSnapshots(onlySlot)
+function ItemRack.RefreshQuickAccessMenuSnapshots(onlySlot,reason)
 	if not ItemRack.IsForever() or InCombatLockdown() then return false end
 	local activeMenu = ItemRack.Menu
 	for id in pairs(ItemRackUser.Buttons or {}) do
 		if id<20 and (onlySlot==nil or onlySlot==id) then
+			local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,nil,reason or "snapshot_refresh")
 			ItemRack.Menu = {}
-			ItemRack.DiscoverEquipmentMenuItems(id,nil)
-			ItemRack.StoreMenuSnapshot(id,nil)
+			ItemRack.DiscoverEquipmentMenuItems(id,nil,diagnostic)
+			ItemRack.StoreMenuSnapshot(id,nil,diagnostic)
+			if diagnostic then ItemRack.FinishMenuDiagnostic(diagnostic) end
 		end
 	end
 	ItemRack.Menu = activeMenu
@@ -3742,6 +3945,7 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 	end
 
 	local inCombat = InCombatLockdown()
+	local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,menuInclude,"build")
 	ItemRack.Debug("UI", "BuildMenu called. id:", id, "InCombat:", inCombat, "menuOpen:", ItemRack.menuOpen)
 
 	local showButtonMenu = (ItemRackButtonMenu and ItemRack.menuMovable) and (IsAltKeyDown() or ItemRackUser.Locked=="OFF")
@@ -3755,11 +3959,13 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 	local restoredCombatSnapshot = id<20 and inCombat and ItemRack.IsForever()
 	and ItemRack.RestoreMenuSnapshot(id,menuInclude)
 	if restoredCombatSnapshot then
+		if diagnostic then diagnostic.restoredSnapshot=true end
 		ItemRack.Debug("UI", "BuildMenu restored Forever combat snapshot. id:", id, "items:", #(ItemRack.Menu))
 	elseif id<20 then
-		ItemRack.DiscoverEquipmentMenuItems(id,menuInclude)
+		if diagnostic then diagnostic.restoredSnapshot=false end
+		ItemRack.DiscoverEquipmentMenuItems(id,menuInclude,diagnostic)
 		if not inCombat then
-			ItemRack.StoreMenuSnapshot(id,menuInclude)
+			ItemRack.StoreMenuSnapshot(id,menuInclude,diagnostic)
 		end
 	else
 		for i in pairs(ItemRackUser.Sets) do
@@ -3771,6 +3977,10 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 	end
 	if showButtonMenu then
 		table.insert(ItemRack.Menu,"MENU")
+	end
+	if diagnostic then
+		diagnostic.result=ItemRack.MenuDiagnosticCounts(ItemRack.Menu)
+		diagnostic.stage="render"
 	end
 
 	if #(ItemRack.Menu)<1 then
@@ -3853,6 +4063,7 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 		end
 
 		for i=1,#(ItemRack.Menu) do
+			if diagnostic then diagnostic.renderRow=i end
 			button = ItemRack.CreateMenuButton(i,ItemRack.Menu[i]) or ItemRackButtonMenu
 			button:SetPoint("TOPLEFT",ItemRackMenuFrame,ItemRack.menuDock,xpos,ypos)
 			button:SetFrameLevel(ItemRackMenuFrame:GetFrameLevel()+1)
@@ -3928,7 +4139,9 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 
 		ItemRack.StartTimer("MenuMouseover")
 		ItemRackMenuFrame:Show()
+		if diagnostic then diagnostic.stage="cooldowns" end
 		ItemRack.UpdateMenuCooldowns()
+		if diagnostic then diagnostic.stage="row_overlays" end
 		local count
 		local border
 		for i=1,#(ItemRack.Menu) do
@@ -3963,6 +4176,7 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 			ItemRack.SetRuneIconOverlay(_G["ItemRackMenu"..i],runeItemID,_G["ItemRackMenu"..i.."Icon"],16,"BOTTOMLEFT")
 		end
 	end
+	if diagnostic then ItemRack.FinishMenuDiagnostic(diagnostic) end
 end
 
 -- Renderer projection for menu item cooldowns (keyed by baseID). The shared
@@ -6308,7 +6522,8 @@ function ItemRack.SlashHandler(arg1)
 		elseif subcmd == "clear" then
 			ItemRack.LogBuffer = {}
 			ItemRack.ClearQueueDiagnostics()
-			ItemRack.Print("Diagnostic log and AutoQueue trace buffers cleared.")
+			ItemRack.MenuDiagnostics = nil
+			ItemRack.Print("Diagnostic log, AutoQueue and breakout recorders cleared.")
 		elseif subcmd == "status" then
 			ItemRack.PrintDebugStatus()
 		elseif subcmd == "audit" then
@@ -6322,6 +6537,7 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.Print("  /itemrack debug audit : Scans and repairs SavedVariables issues")
 			ItemRack.Print("  /itemrack debug <tag> : Toggles specific tag (Available: events, equip, queue, combatqueue, api, ui, combat)")
 			ItemRack.Print("  /itemrack dump : Opens a support dump; the AutoQueue recorder is populated only while Queue debug is enabled")
+			ItemRack.Print("  Breakout discovery records are collected automatically, even with debug disabled.")
 		elseif subcmd then
 			-- Toggle specific tag (case insensitive match against known tags)
 			local foundTag
@@ -6464,6 +6680,14 @@ function ItemRack.SlashHandler(arg1)
 				table.insert(tempQueueTrace, queueTrace[i])
 			end
 			dumpText = dumpText .. "\n\n=== AUTOQUEUE FLIGHT RECORDER (Last 250 entries) ===\n" .. table.concat(tempQueueTrace, "\n")
+			-- Failure in optional evidence collection must not suppress the support dump.
+			local menuOK,menuReport = pcall(ItemRack.GetMenuDiagnosticReport)
+			dumpText = dumpText .. "\n\n=== BREAKOUT DISCOVERY DIAGNOSTICS ===\n"
+			if menuOK then
+				dumpText = dumpText .. ItemRackLogFrame.Serialize(menuReport)
+			else
+				dumpText = dumpText .. "Breakout report unavailable; other diagnostic sections are retained."
+			end
 			
 			dumpText = dumpText .. "\n\n=== RUNTIME STATE DUMP ===\n"
 			dumpText = dumpText .. "ItemRack.Version = " .. tostring(ItemRack.Version) .. "\n"

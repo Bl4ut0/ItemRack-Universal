@@ -4,6 +4,7 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **Combat breakout diagnostics**: `/itemrack dump` now includes an always-on, bounded breakout recorder with per-slot out-of-combat, combat-entry and combat results. Reports distinguish empty bags, unresolved item links/metadata, equipment-type mismatches, tooltip wearability rejection (including sampled public text), hidden/soulbound filtering, snapshot replacement/restoration and incomplete rendering stages. Exact client build, API-provider selection, custom-icon switches and loaded addon names support comparisons between working and failing Forever clients. Secret/inaccessible values are redacted, sampled item IDs omit player GUIDs, and diagnostic collection failures do not abort the support dump. This adds evidence for the still-unresolved blank-combat-breakout report; it does not claim a new fix.
 
 ## [4.56.1] - 2026-10-16
 ### Bug Fixes & Improvements
