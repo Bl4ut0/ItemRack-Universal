@@ -1,6 +1,6 @@
 __ Development __
 
-__ New in 4.56-beta1 - By Bl4ut0 __
+__ New in 4.56 - By Bl4ut0 __
 - Reorganized the main Settings list by feature area (Quick-Access Buttons, Breakouts & Flyout Menus, Character Sheet, Sets/AutoQueue/Events, Cooldowns, Tooltips, Minimap & Options Window, and Actions) while keeping character/account scope explicit in tooltips. Added character-specific Quick-access breakout side (Saved/Top/Bottom/Left/Right) and Quick-access breakout direction (Saved/Up/Down/Left/Right) selectors with a compact settings-row dropdown frame so item breakouts can attach to a chosen button edge, grow along a chosen direction, and wrap outward away from the button (e.g. Side: Top + Breakout: Right wraps upward) without changing minimap, set-button or character-sheet directions or saved drag docking. Added side+direction, wrap-geometry, selector and tooltip-scope regressions; live layout acceptance is pending.
 
 - Forever build 1.60.1.70338: quick-access equipment breakouts now preserve their last successful out-of-combat item list during combat instead of collapsing to only Empty Slot when live item data becomes restricted. The fix covers every equipment slot, retains exact item identities, and uses the existing deferred combat queue.
