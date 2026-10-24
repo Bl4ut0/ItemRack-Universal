@@ -362,6 +362,18 @@ check(CharacterSlot9.ItemRackCustomIcon.texture==808 and CharacterSlot9.icon.tex
   "character opt-in must use own overlay and preserve original texture")
 ItemRackUser.CustomCharacterIcons="OFF"; ItemRack.RefreshCustomItemIcons()
 check(not CharacterSlot9.ItemRackCustomIcon.visible,"disabling character styling must immediately remove overlay")
+CharacterSlot9:SetID(9)
+ItemRackUser.CustomCharacterIcons="ON"
+CharacterSlot9.ItemRackCustomIcon.texture = nil
+ItemRack.RefreshCustomItemIcons(CharacterSlot9)
+check(CharacterSlot9.ItemRackCustomIcon.texture==808 and CharacterSlot9.ItemRackCustomIcon.visible,
+  "targeted PaperDoll slot button update must refresh the specific slot overlay")
+local dummyButton = CreateFrame("Button","CharacterSlot1")
+dummyButton:SetID(1)
+ItemRackUser.CustomCharacterIcons="OFF"
+ItemRack.RefreshCustomItemIcons(dummyButton)
+check(dummyButton.ItemRackCustomIcon == nil,
+  "targeted update without custom icons enabled must exit without creating overlay")
 ItemRack.menuOpen=9
 local menu=ItemRack.CreateMenuButton(1,wanted)
 check(menu.icon.texture=="original","flyout default must retain original texture")

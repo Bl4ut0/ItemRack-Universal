@@ -1681,16 +1681,18 @@ function ItemRack.ReconcileEquippedSnapshot(fromInventoryEvent)
 				ItemRack.EquippedSnapshot[i] = currentID
 				stateChanged = true
 			else
+				local isNewTransition = false
 				if not previousID or previousID == 0 or not ItemRack.SameExactID(previousID, currentID) then
 					ItemRack.QueueDiagnostic("equip_transition", { current = currentID, previous = previousID, slot = i })
 					if ItemRack.RecordEquipTime then
 						ItemRack.RecordEquipTime(i, currentID, transitionTime)
 					end
 					stateChanged = true
+					isNewTransition = true
 				end
 				ItemRack.EquippedSnapshot[i] = currentID
 				local record = ItemRack.EquipTimers and ItemRack.EquipTimers[i]
-				if record and record.pending and ItemRack.SameExactID(record.id, currentID)
+				if not isNewTransition and record and record.pending and ItemRack.SameExactID(record.id, currentID)
 				and ItemRack.RecordEquipTime then
 					ItemRack.RecordEquipTime(i, currentID, record.transitionTime or record.time)
 				end
@@ -1793,7 +1795,46 @@ function ItemRack.FlushInventoryRefresh()
 	return true
 end
 
+function ItemRack.CheckCombatQueue()
+	if not ItemRack.CombatQueue or not next(ItemRack.CombatQueue) then
+		return
+	end
+	ItemRack.Debug("CombatQueue", "checking CombatQueue entries")
+	local dirty = false
+	for slot, queuedID in pairs(ItemRack.CombatQueue) do
+		local equippedState, equippedID = ItemRack.GetEquippedSlotState(slot)
+		local match = equippedState == "resolved" and queuedID and ItemRack.MatchesStoredItemID(queuedID, equippedID)
+		ItemRack.Debug("CombatQueue", "  slot="..tostring(slot).." queued="..tostring(queuedID).." equipped="..tostring(equippedID).." match="..tostring(match))
+		if match then
+			ItemRack.CombatQueue[slot] = nil
+			ItemRack.ClearCombatQueueMetadata(slot)
+			dirty = true
+		end
+	end
+	if dirty then
+		ItemRack.Debug("CombatQueue", "cleared fulfilled entries")
+		ItemRack.UpdateCombatQueue()
+	end
+end
+
 function ItemRack.OnEquipmentTransactionFinalized(request)
+	if ItemRack.QueueStateReady == true and ItemRack.ReconcileEquippedSnapshot then
+		local unresolved, changed, readinessRestored = ItemRack.ReconcileEquippedSnapshot(false)
+		if unresolved and ItemRack.ScheduleEquippedStateRetry then
+			ItemRack.ScheduleEquippedStateRetry()
+		end
+		if readinessRestored then
+			if ItemRack.TryEquipPendingQueueSet then
+				ItemRack.TryEquipPendingQueueSet()
+			end
+			if ItemRack.RunAllEvents then
+				ItemRack.RunAllEvents("Equipped item data resolved")
+			end
+		end
+	end
+	if ItemRack.CheckCombatQueue then
+		ItemRack.CheckCombatQueue()
+	end
 	ItemRack.RequestInventoryRefresh("transaction_"..tostring(request and request.status or "finished"))
 end
 
@@ -2045,7 +2086,7 @@ function ItemRack.OnUnitInventoryChanged(self,event,unit)
 		end
 
 		local unresolvedSlot, readinessRestored
-		if stateWasReady then
+		if stateWasReady and not ItemRack.ActiveEquipmentTransaction then
 			local _
 			unresolvedSlot, _, readinessRestored = ItemRack.ReconcileEquippedSnapshot(true)
 		end
@@ -2059,23 +2100,8 @@ function ItemRack.OnUnitInventoryChanged(self,event,unit)
 			end
 		end
 		-- Clear any CombatQueue entries that have been fulfilled by the swap
-		if next(ItemRack.CombatQueue) then
-			ItemRack.Debug("CombatQueue", "OnUnitInventoryChanged: checking CombatQueue entries")
-			local dirty = false
-			for slot, queuedID in pairs(ItemRack.CombatQueue) do
-				local equippedState, equippedID = ItemRack.GetEquippedSlotState(slot)
-				local match = equippedState == "resolved" and queuedID and ItemRack.MatchesStoredItemID(queuedID, equippedID)
-				ItemRack.Debug("CombatQueue", "  slot="..tostring(slot).." queued="..tostring(queuedID).." equipped="..tostring(equippedID).." match="..tostring(match))
-				if match then
-					ItemRack.CombatQueue[slot] = nil
-					ItemRack.ClearCombatQueueMetadata(slot)
-					dirty = true
-				end
-			end
-			if dirty then
-				ItemRack.Debug("CombatQueue", "OnUnitInventoryChanged: cleared fulfilled entries")
-				ItemRack.UpdateCombatQueue()
-			end
+		if not ItemRack.ActiveEquipmentTransaction and ItemRack.CheckCombatQueue then
+			ItemRack.CheckCombatQueue()
 		end
 		-- Secure set macros can update weapon slots after PostClick has projected
 		-- the full pending set. Refresh that projection on the observed inventory
@@ -5390,6 +5416,12 @@ end
 
 function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style ID
 	if ItemRackSettings.ShowTooltips ~= "ON" then return end
+	if not itemID or itemID == 0 or itemID == "0" then
+		ItemRack.AnchorTooltip(self)
+		GameTooltip:SetText(EMPTY or "Empty Slot")
+		GameTooltip:Show()
+		return
+	end
 	exactOnly = exactOnly and not ItemRack.IsBareItemID(itemID)
 	-- Clear any stale character-sheet tooltip anchor so it doesn't interfere
 	ItemRack.pendingTooltipAnchor = nil
@@ -5429,6 +5461,7 @@ function ItemRack.ClearTooltip(self)
 	GameTooltip:Hide()
 	ItemRack.StopTimer("TooltipUpdate")
 	ItemRack.TooltipType = nil
+	ItemRack.TooltipOwner = nil
 	if type(ResetCursor) == "function" then
 		ResetCursor()
 	end

@@ -486,8 +486,46 @@ end
 
 --[[ Menu ]]
 
-function ItemRack.RefreshCustomItemIcons()
+function ItemRack.RefreshCustomItemIcons(targetButton)
 	if not ItemRackUser then return end
+	if targetButton and type(targetButton) == "table" then
+		if ItemRackUser.CustomCharacterIcons ~= "ON" and not targetButton.ItemRackCustomIcon then
+			return
+		end
+		local slot = targetButton.GetID and targetButton:GetID()
+		if not slot or not ItemRack.SlotInfo[slot] then
+			local btnName = targetButton.GetName and targetButton:GetName()
+			if btnName then
+				for s, info in pairs(ItemRack.SlotInfo) do
+					if "Character"..info.name == btnName then
+						slot = s
+						break
+					end
+				end
+			end
+		end
+		if slot and ItemRack.SlotInfo[slot] then
+			local custom = ItemRackUser.CustomCharacterIcons == "ON"
+				and ItemRack.GetCustomItemIcon(slot,ItemRack.GetID(slot))
+			local overlay = targetButton.ItemRackCustomIcon
+			if custom and not overlay then
+				-- Own texture only; never replace Blizzard's icon or secure methods.
+				local original = targetButton.icon or targetButton.Icon or (targetButton.GetName and _G[targetButton:GetName().."IconTexture"])
+				if original then
+					overlay = targetButton:CreateTexture(nil,"ARTWORK",nil,1)
+					overlay:SetAllPoints(original)
+					overlay:SetTexCoord(original:GetTexCoord())
+					targetButton.ItemRackCustomIcon = overlay
+				end
+			end
+			if overlay then
+				if custom then overlay:SetTexture(custom); overlay:Show()
+				else overlay:Hide() end
+			end
+		end
+		return
+	end
+
 	for slot=0,19 do
 		local buttonIcon = _G["ItemRackButton"..slot.."ItemRackIcon"]
 		if buttonIcon and ItemRackUser.Buttons and ItemRackUser.Buttons[slot] then

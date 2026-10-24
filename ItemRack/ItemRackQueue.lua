@@ -374,14 +374,27 @@ function ItemRack.RecordEquipTime(slot, exactID, transitionTime, attempt)
 	and type(pendingUse.deadline) == "number" and now <= pendingUse.deadline
 	and duration and duration >= 29 and duration <= 31
 
+	local itemLink = GetInventoryItemLink and GetInventoryItemLink("player", slot)
+	local hasOnUse = (ItemRack.GetProxyBuff and ItemRack.GetProxyBuff(exactBaseID))
+		or (GetItemSpell and (
+			GetItemSpell(exactID)
+			or (exactBaseID and GetItemSpell(exactBaseID))
+			or (itemLink and GetItemSpell(itemLink))
+			or (ItemRack.IRStringToItemString and GetItemSpell(ItemRack.IRStringToItemString(exactID)))
+		))
+		or (ItemRack.ResolveProxy and ItemRack.ResolveProxy(exactID or exactBaseID))
+		or (ItemRack.GetObservedItemCooldown and ItemRack.GetObservedItemCooldown(exactID, exactBaseID))
+
+	local itemInfoPending = GetItemInfo and exactBaseID and GetItemInfo(exactBaseID) == nil
+	local couldHavePenalty = hasOnUse or useCheckPending or itemInfoPending
+
 	-- Blizzard can publish UNIT_INVENTORY_CHANGED before the new inventory
-	-- cooldown is visible. Keep this transition protected while the cooldown
-	-- settles; treating 0/nil as "no penalty" here can make AutoQueue undo a
-	-- valid equip before its 30-second penalty appears. If an item-use hook is
-	-- simultaneously resolving the same ambiguous 30-second cooldown, let the
-	-- hook compare its start against the transition before classifying it.
-	if (not start or not duration or (start == 0 and duration == 0) or useCheckPending)
-	and attempt < 12 then
+	-- cooldown is visible for on-use items. Keep this transition protected while
+	-- the cooldown settles; treating 0/nil as "no penalty" here can make AutoQueue
+	-- undo a valid equip before its 30-second penalty appears. Passive items
+	-- without on-use effects never incur an equip cooldown in WoW and settle immediately.
+	if couldHavePenalty and (not start or not duration or (start == 0 and duration == 0) or useCheckPending)
+	and attempt < 4 then
 		local pendingRecord = {
 			id = exactID,
 			time = referenceTime,
@@ -400,7 +413,7 @@ function ItemRack.RecordEquipTime(slot, exactID, transitionTime, attempt)
 		end
 
 		local generation = ItemRack.QueueStateGeneration
-		local deadline = now + 0.75
+		local deadline = now + 0.25
 		local retry
 		retry = function()
 			if generation ~= ItemRack.QueueStateGeneration

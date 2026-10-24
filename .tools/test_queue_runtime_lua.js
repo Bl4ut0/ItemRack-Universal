@@ -12,6 +12,8 @@ const shouldHold = extractFunction(queueFile, 'ItemRack.ShouldHoldEquippedItem')
 const isSetEquipped = extractFunction(equipFile, 'ItemRack.IsSetEquipped');
 const itemRackFile = 'ItemRack/ItemRack.lua';
 const findPlayerAura = extractFunction(itemRackFile, 'ItemRack.FindPlayerAura');
+const recordEquipTime = extractFunction(queueFile, 'ItemRack.RecordEquipTime');
+const isRecentEquip = extractFunction(queueFile, 'ItemRack.IsRecentEquip');
 
 runLua(String.raw`
 local activeList = { { id="100" } }
@@ -65,6 +67,8 @@ ${resolveProxy}
 ${shouldHold}
 ${isSetEquipped}
 ${findPlayerAura}
+${recordEquipTime}
+${isRecentEquip}
 
 local checks = 0
 local function check(value,message) assert(value,message); checks = checks + 1 end
@@ -196,6 +200,103 @@ local priorityCandidate, priorityCandidateID = ItemRack.AutoQueueItemToEquip(14,
 check(tostring(priorityCandidateID) == "23206",
   "Issue #33: priority=true queue item must be able to swap out active ready item")
 set2List[1].priority = false
+
+
+-- Set swap performance regression:
+-- Passive items without on-use effects must settle immediately on attempt 0
+-- without scheduling C_Timer retry loops or spamming equip_timer_pending diagnostics.
+local timerCallbacks = {}
+C_Timer = {
+  After = function(delay, callback)
+    table.insert(timerCallbacks, callback)
+  end
+}
+GetItemSpell = function(id)
+  if tostring(id) == "21180" or tostring(id) == "99999" then return "Earthstrike" end
+  return nil
+end
+GetItemInfo = function(id) return "Item " .. tostring(id) end
+GetInventoryItemLink = function(unit, slot) return nil end
+ItemRack.GetEquippedSlotState = function(slot)
+  return "resolved", slotExactIDs and slotExactIDs[slot] or "12345"
+end
+ItemRack.ClearEquipTimer = function(slot)
+  if ItemRackUser and ItemRackUser.EquipTimers then
+    ItemRackUser.EquipTimers[slot] = nil
+  end
+  ItemRack.EquipTimers = ItemRackUser and ItemRackUser.EquipTimers
+end
+
+slotExactIDs = {
+  [1] = "12345",  -- passive helm
+  [14] = "21180", -- active trinket (Earthstrike)
+  [13] = "99999", -- active trinket
+}
+slotCooldowns = {
+  [1] = { start = 0, duration = 0, enable = 1 },
+  [14] = { start = 0, duration = 0, enable = 1 },
+  [13] = { start = 0, duration = 0, enable = 1 },
+}
+GetInventoryItemCooldown = function(unit, slot)
+  if slotCooldowns and slotCooldowns[slot] then
+    return slotCooldowns[slot].start, slotCooldowns[slot].duration, slotCooldowns[slot].enable
+  end
+  return 0, 0, 1
+end
+
+-- A. Passive item (helm slot 1) has no on-use effect. It must settle immediately.
+${isRecentEquip}
+diagnosticEvents = {}
+timerCallbacks = {}
+ItemRack.RecordEquipTime(1, "12345", 100)
+check(ItemRackUser.EquipTimers[1] ~= nil, "EquipTimers[1] must be recorded")
+check(ItemRackUser.EquipTimers[1].pending == nil, "Passive item must not be pending")
+check(ItemRackUser.EquipTimers[1].hasPenalty == false, "Passive item must have hasPenalty = false")
+check(ItemRackUser.EquipTimers[1].used == true, "Passive item must have used = true")
+check(#timerCallbacks == 0, "Passive item must not schedule any C_Timer retries")
+check(not ItemRack.IsRecentEquip(1, "12345"), "Passive item must not be held by IsRecentEquip")
+check(#diagnosticEvents == 1 and diagnosticEvents[1].event == "equip_timer_recorded",
+  "Passive item must record immediately without equip_timer_pending events")
+
+-- B. On-use item (trinket slot 14) has on-use spell.
+-- Initially start=0, duration=0 while cooldown settles. It must register pending and retry.
+diagnosticEvents = {}
+timerCallbacks = {}
+ItemRack.RecordEquipTime(14, "21180", 100)
+check(ItemRackUser.EquipTimers[14] ~= nil, "EquipTimers[14] must be recorded")
+check(ItemRackUser.EquipTimers[14].pending == true, "On-use item must be pending while cooldown settles")
+check(#timerCallbacks == 1, "On-use item must schedule a C_Timer retry")
+check(#diagnosticEvents == 1 and diagnosticEvents[1].event == "equip_timer_pending",
+  "On-use item must log equip_timer_pending on initial attempt")
+
+-- Cooldown appears on next tick (30s equip penalty)
+slotCooldowns[14] = { start = 100, duration = 30, enable = 1 }
+local retry = table.remove(timerCallbacks, 1)
+retry()
+check(ItemRackUser.EquipTimers[14].pending == nil, "On-use item must resolve pending status")
+check(ItemRackUser.EquipTimers[14].hasPenalty == true, "On-use item must record hasPenalty = true")
+check(ItemRackUser.EquipTimers[14].used == false, "On-use item must record used = false")
+check(ItemRack.IsRecentEquip(14, "21180") == true, "On-use item must be held by IsRecentEquip")
+
+-- C. On-use item that never receives a cooldown must cap at attempt 4 instead of spinning to 12
+timerCallbacks = {}
+ItemRack.RecordEquipTime(13, "99999", 100, 0)
+check(#timerCallbacks == 1, "attempt 0 schedules retry")
+local retry1 = table.remove(timerCallbacks, 1)
+retry1()
+check(#timerCallbacks == 1, "attempt 1 schedules retry")
+local retry2 = table.remove(timerCallbacks, 1)
+retry2()
+check(#timerCallbacks == 1, "attempt 2 schedules retry")
+local retry3 = table.remove(timerCallbacks, 1)
+retry3()
+check(#timerCallbacks == 1, "attempt 3 schedules retry")
+local retry4 = table.remove(timerCallbacks, 1)
+retry4()
+check(#timerCallbacks == 0, "attempt 4 must settle without scheduling further retries")
+check(ItemRackUser.EquipTimers[13].pending == nil, "attempt 4 must settle pending status")
+check(ItemRackUser.EquipTimers[13].hasPenalty == false, "attempt 4 without cooldown must have hasPenalty = false")
+check(ItemRackUser.EquipTimers[13].used == true, "attempt 4 without cooldown must have used = true")
 
 print(string.format("[QUEUE RUNTIME LUA] %d purity and provenance checks passed.",checks))
 `, 'queue-runtime');
