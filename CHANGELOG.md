@@ -3,6 +3,9 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+
+
+## [4.57-beta4] - 2026-10-24
 - **Set swap performance & UI hitch reduction**: Resolved performance impacts and frame stutter experienced during gear swaps (especially with AutoQueue enabled or the Character Frame open):
   - **AutoQueue passive item settling**: `ItemRack.RecordEquipTime` previously scheduled 12 asynchronous retry timers (600ms) for any equipped item with zero initial cooldown, causing passive armor slots (helm, neck, shoulders, chest, waist, legs, gloves, boots, back) to repeatedly query cooldowns and slot states. Passive items without on-use effects now settle immediately on attempt 0 (`hasPenalty = false, used = true`) with zero retry timers, while genuine on-use items cap retries at 4 attempts (200ms). Added 23 production-Lua assertions in `.tools/test_queue_runtime_lua.js`.
   - **Single transition dispatch**: Guarded against immediate duplicate `RecordEquipTime` dispatches on the same inventory transition event.

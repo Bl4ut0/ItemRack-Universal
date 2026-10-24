@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.57-beta4 - By Bl4ut0 __
 - Resolved performance impacts and frame stutter experienced during gear swaps (especially with AutoQueue enabled or the Character Frame open):
   * AutoQueue passive item settling: ItemRack.RecordEquipTime previously scheduled 12 asynchronous retry timers (600ms) for any equipped item with zero initial cooldown, causing passive armor slots to repeatedly query cooldowns and slot states. Passive items without on-use effects now settle immediately on attempt 0 with zero retry timers, while on-use items cap retries at 4 attempts (200ms).
   * Single transition dispatch: Guarded against immediate duplicate RecordEquipTime dispatches on the same inventory transition event.
