@@ -2535,7 +2535,7 @@ function ItemRack.ProcessBuffEvent()
 			if eventData.Anymount then
 				underlyingBuff = currentlyMounted
 			else
-				underlyingBuff = eventData.Buff and AuraUtil.FindAuraByName(eventData.Buff,"player") and true or false
+				underlyingBuff = eventData.Buff and (ItemRack.FindPlayerAura and ItemRack.FindPlayerAura(eventData.Buff) or (AuraUtil and AuraUtil.FindAuraByName and AuraUtil.FindAuraByName(eventData.Buff,"player"))) and true or false
 			end
 		end
 		local ownsFrame = state.byEvent[eventName] ~= nil

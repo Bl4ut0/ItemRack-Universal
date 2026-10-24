@@ -50,6 +50,7 @@ function ItemRack.ButtonOnLoad(self)
 	self.HotKey = _G[name.."HotKey"]
 	self.Name = _G[name.."Name"]
 	self.Cooldown = _G[name.."Cooldown"]
+	self.UpdateTooltip = ItemRack.OnEnterButton
 
 	for _,fontString in ipairs({self.Count,self.HotKey,self.Name}) do
 		if fontString then

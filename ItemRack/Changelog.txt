@@ -1,5 +1,9 @@
 __ Development __
 
+- GitHub #34 follow-up: fixed breakout item tooltips dropping when pressing Shift (compare) or Ctrl (inspect) while mousing over character sheet breakout rows. Popout buttons now define .UpdateTooltip callbacks, match GameTooltip ownership to the hovered button, update synchronously, and retain tooltip context on zero-cooldown items so modifier key changes refresh in-place without closing the tooltip.
+- GitHub #32: protected against AuraUtil.lua:25 attempt to call a nil value errors when Edit Mode is engaged on modern/Retail clients by routing buff checks through safe ItemRack.FindPlayerAura(buff) with pcall fallbacks across all WoW versions.
+- GitHub #33: fixed passive trinket queues not equipping preferred passive trinkets when switching between sets with blank trinket slots (e.g. Hand of Justice not yielding to Mark of the Champion). The queue engine now recognizes passive equipped items and allows unqueued passive items to yield to the active set's top queue item while maintaining hold protection for ready on-use trinkets.
+
 __ New in 4.57-beta1 - By Bl4ut0 __
 - Improved /itemrack dump with automatic, bounded combat-breakout diagnostics. Capture each slot's discovery/filter counts, sampled tooltip rejection text, cache changes and incomplete rendering stages, plus client build, API providers, custom-icon switches and loaded addons. Public item samples omit player GUIDs; secret/inaccessible values are redacted. Reproduce the empty breakout and send one dump before reloading. The underlying Forever combat-breakout issue remains under investigation.
 

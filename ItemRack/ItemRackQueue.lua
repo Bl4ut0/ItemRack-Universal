@@ -652,7 +652,7 @@ function ItemRack.ProcessAutoQueue(slot)
 	
 	-- Visual updates logic (keep/delay/buff checks)
 	local buff = ItemRack.GetProxyBuff(baseID) or GetItemSpell(baseID)
-	if buff and AuraUtil.FindAuraByName(buff,"player") then
+	if buff and (ItemRack.FindPlayerAura and ItemRack.FindPlayerAura(buff) or (AuraUtil and AuraUtil.FindAuraByName and AuraUtil.FindAuraByName(buff,"player"))) then
 		if icon then icon:SetDesaturated(true) end
 		return
 	end
@@ -740,7 +740,7 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 	if currentMatchIndex then
 		local currentEntry = list[currentMatchIndex]
 		local buff = ItemRack.GetProxyBuff(baseID) or GetItemSpell(baseID)
-		if buff and AuraUtil.FindAuraByName(buff,"player") then
+		if buff and (ItemRack.FindPlayerAura and ItemRack.FindPlayerAura(buff) or (AuraUtil and AuraUtil.FindAuraByName and AuraUtil.FindAuraByName(buff,"player"))) then
 			return nil
 		end
 		-- Pause Queue: item is flagged to stay equipped indefinitely
@@ -785,7 +785,24 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 		elseif ready and i == currentMatchIndex then
 			return nil
 		else
+			local itemSpell = (ItemRack.GetProxyBuff and ItemRack.GetProxyBuff(baseID))
+				or (GetItemSpell and (GetItemSpell(exactID) or GetItemSpell(baseID)))
+				or (ItemRack.ResolveProxy and ItemRack.ResolveProxy(exactID or baseID))
+			local hasObservedCooldown = ItemRack.GetObservedItemCooldown and ItemRack.GetObservedItemCooldown(exactID,baseID)
+			local isEquippedActive = itemSpell ~= nil or (hasObservedCooldown and hasObservedCooldown.duration and hasObservedCooldown.duration > 1.5)
+			if not isEquippedActive and tonumber(enable) == 1 then
+				isEquippedActive = true
+			elseif not isEquippedActive and enable == nil and GetInventoryItemCooldown and slot then
+				local _, _, slotEnable = GetInventoryItemCooldown("player", slot)
+				if tonumber(slotEnable) == 1 then
+					isEquippedActive = true
+				end
+			end
+
 			local canSwap = not ready or list[i].priority
+			if not canSwap and not matchedCurrent and not isEquippedActive and not manualHold then
+				canSwap = true
+			end
 			if manualHold and ready and i ~= currentMatchIndex then
 				canSwap = false
 			end

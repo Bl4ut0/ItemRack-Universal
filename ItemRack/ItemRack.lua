@@ -143,17 +143,52 @@ if not GetNumTalentTabs and C_SpecializationInfo and C_SpecializationInfo.GetNum
 	end
 end
 
+-- Safe aura lookup for player across all client versions (Retail/Classic/TBC/Wrath/Cata).
+-- Protected against nil-unpack errors in Blizzard's AuraUtil during Edit Mode or UI transitions.
+function ItemRack.FindPlayerAura(buff)
+	if not buff then return nil end
+	if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellName then
+		local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellName, buff)
+		if ok and aura then
+			return aura.name or buff
+		end
+	end
+	if AuraUtil and AuraUtil.FindAuraByName then
+		local ok, result = pcall(AuraUtil.FindAuraByName, buff, "player")
+		if ok and result then
+			return result
+		end
+	end
+	if UnitBuff then
+		local ok, result = pcall(function()
+			for i = 1, 40 do
+				local name = UnitBuff("player", i)
+				if not name then break end
+				if name == buff then return name end
+			end
+			return nil
+		end)
+		if ok and result then
+			return result
+		end
+	end
+	return nil
+end
+
 -- Compatibility shim for AuraUtil.FindAuraByName (may not exist in TBC 2.5.5)
 if not AuraUtil or not AuraUtil.FindAuraByName then
 	AuraUtil = AuraUtil or {}
 	AuraUtil.FindAuraByName = function(name, unit, filter)
+		if unit == "player" then
+			return ItemRack.FindPlayerAura(name)
+		end
 		for i = 1, 40 do
-			local buffName = UnitBuff(unit, i, filter)
+			local buffName = UnitBuff and UnitBuff(unit, i, filter)
 			if not buffName then break end
 			if buffName == name then return buffName end
 		end
 		for i = 1, 40 do
-			local debuffName = UnitDebuff(unit, i, filter)
+			local debuffName = UnitDebuff and UnitDebuff(unit, i, filter)
 			if not debuffName then break end
 			if debuffName == name then return debuffName end
 		end
@@ -607,6 +642,7 @@ function ItemRack.InitEventHandlers()
 		handler.ENGRAVING_MODE_CHANGED = ItemRack.OnRuneUpdated
 		handler.CVAR_UPDATE = ItemRack.OnRuneIconsCVarUpdate
 	end
+	handler.MODIFIER_STATE_CHANGED = ItemRack.OnModifierStateChanged
 --	handler.PET_BATTLE_OPENING_START = ItemRack.OnEnteringPetBattle
 --	handler.PET_BATTLE_CLOSE = ItemRack.OnLeavingPetBattle
 end
@@ -2522,6 +2558,7 @@ function ItemRack.InitCore()
 		ItemRackFrame:RegisterEvent("ENGRAVING_MODE_CHANGED")
 		ItemRackFrame:RegisterEvent("CVAR_UPDATE")
 	end
+	ItemRackFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
 	--end
 	ItemRack.StartTimer("CooldownUpdate")
 	ItemRack.ReflectAlpha()
@@ -4307,6 +4344,7 @@ function ItemRack.CreateMenuButton(idx,itemID)
 		button:SetScript("OnClick",ItemRack.MenuOnClick)
 		button:SetScript("OnEnter",ItemRack.MenuTooltip)
 		button:SetScript("OnLeave",ItemRack.ClearTooltip)
+		button.UpdateTooltip = ItemRack.MenuTooltip
 		button.icon = _G["ItemRackMenu"..idx.."Icon"]
 		CreateFrame("Frame",nil,button,"ItemRackTimeTemplate")
 
@@ -4331,6 +4369,9 @@ function ItemRack.CreateMenuButton(idx,itemID)
 		_G["ItemRackMenu"..idx.."Icon"]:SetTexture(select(2,GetInventorySlotInfo(ItemRack.SlotInfo[ItemRack.menuOpen].name)))
 	end
 	button = _G["ItemRackMenu"..idx]
+	if button and not button.UpdateTooltip then
+		button.UpdateTooltip = ItemRack.MenuTooltip
+	end
 	return button
 end
 
@@ -5285,6 +5326,23 @@ function ItemRack.InventoryTooltip(self)
 end
 
 -- request a tooltip of a menu item (called when hovering over a button in the popout menu of SET NAMES that comes up when clicking the minimap button or bar addon plugin, this is NOT the "Sets" dropdown INSIDE ItemRack's GUI)
+function ItemRack.OnModifierStateChanged(self, event, ...)
+	if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.TooltipOwner then
+		local owner = ItemRack.TooltipOwner
+		if owner.UpdateTooltip and type(owner.IsVisible) == "function" and owner:IsVisible() then
+			local isOver = false
+			if type(MouseIsOver) == "function" then
+				isOver = MouseIsOver(owner)
+			elseif type(GetMouseFocus) == "function" then
+				isOver = (GetMouseFocus() == owner)
+			end
+			if isOver then
+				owner:UpdateTooltip()
+			end
+		end
+	end
+end
+
 function ItemRack.MenuTooltip(self)
 	if ItemRackSettings.ShowTooltips ~= "ON" then return end
 	if ItemRackSettings.DisableTooltipsInCombat == "ON" and ItemRack.inCombat then return end
@@ -5297,9 +5355,21 @@ function ItemRack.MenuTooltip(self)
 		local invMaybe
 		invMaybe,ItemRack.TooltipBag,ItemRack.TooltipSlot = ItemRack.FindItem(ItemRack.Menu[self:GetID()])
 		if ItemRack.TooltipBag and ItemRack.TooltipSlot then
-			ItemRack.StartTimer("TooltipUpdate",0)
+			ItemRack.TooltipUpdate()
 		else -- if invMaybe then
 			ItemRack.IDTooltip(self,ItemRack.Menu[id])
+		end
+	end
+
+	if type(IsModifiedClick) == "function" and IsModifiedClick("DRESSUP") then
+		if type(ShowInspectCursor) == "function" then
+			ShowInspectCursor()
+		elseif type(CursorUpdate) == "function" then
+			CursorUpdate(self)
+		end
+	else
+		if type(ResetCursor) == "function" then
+			ResetCursor()
 		end
 	end
 end
@@ -5312,6 +5382,98 @@ function ItemRack.ShowBreakoutComparison(owner)
 	if not string.match(ownerName, "^ItemRackMenu%d+$") then return end
 	if type(GameTooltip_ShowCompareItem) == "function" then
 		GameTooltip_ShowCompareItem(GameTooltip)
+	end
+	if ItemRack.AdjustBreakoutComparisonTooltips then
+		ItemRack.AdjustBreakoutComparisonTooltips(GameTooltip)
+	end
+end
+
+function ItemRack.AdjustBreakoutComparisonTooltips(tooltip)
+	tooltip = tooltip or GameTooltip
+	if not (tooltip and tooltip.IsShown and tooltip:IsShown()) then return end
+	if not (ItemRackMenuFrame and ItemRackMenuFrame:IsVisible()) then return end
+
+	local owner = tooltip:GetOwner()
+	local ownerName = (owner and type(owner.GetName) == "function") and owner:GetName() or ""
+	local isMenuButton = string.match(ownerName, "^ItemRackMenu%d+$")
+	local isMenuFrame = (owner == ItemRackMenuFrame)
+	if not (isMenuButton or isMenuFrame) then return end
+
+	-- Disable mouse capture on comparison tooltips so they cannot intercept the cursor
+	-- and trigger an OnLeave -> ClearTooltip loop on the underlying ItemRack menu button.
+	if ShoppingTooltip1 and ShoppingTooltip1.EnableMouse then ShoppingTooltip1:EnableMouse(false) end
+	if ShoppingTooltip2 and ShoppingTooltip2.EnableMouse then ShoppingTooltip2:EnableMouse(false) end
+	if ShoppingTooltip3 and ShoppingTooltip3.EnableMouse then ShoppingTooltip3:EnableMouse(false) end
+
+	local s1 = ShoppingTooltip1 and ShoppingTooltip1:IsShown() and ShoppingTooltip1
+	local s2 = ShoppingTooltip2 and ShoppingTooltip2:IsShown() and ShoppingTooltip2
+	local s3 = ShoppingTooltip3 and ShoppingTooltip3:IsShown() and ShoppingTooltip3
+	if not (s1 or s2 or s3) then return end
+
+	-- Determine anchor direction relative to ItemRackMenuFrame.
+	-- We always position comparison tooltips away from ItemRackMenuFrame so they
+	-- never occlude the breakout buttons or collide with the mouse cursor.
+	local anchor = ItemRack.pendingTooltipAnchor
+	if not anchor then
+		local menuCenter = ItemRackMenuFrame:GetCenter() or 0
+		local tipCenter = tooltip:GetCenter() or 0
+		if tipCenter >= menuCenter then
+			anchor = "ANCHOR_RIGHT"
+		else
+			anchor = "ANCHOR_LEFT"
+		end
+	end
+
+	local uiWidth = UIParent and UIParent:GetWidth() or (type(GetScreenWidth) == "function" and GetScreenWidth() or 1920)
+
+	if anchor == "ANCHOR_RIGHT" then
+		-- Main tooltip is to the RIGHT of ItemRackMenuFrame.
+		-- Comparison tooltips must cascade further RIGHT to keep the menu clear.
+		if s1 then
+			s1:ClearAllPoints()
+			s1:SetPoint("TOPLEFT", tooltip, "TOPRIGHT", 0, -10)
+			if s2 then
+				s2:ClearAllPoints()
+				local s1Width = s1:GetWidth() or 260
+				local s2Width = s2:GetWidth() or 260
+				local tipRight = tooltip:GetRight() or 0
+				-- If two comparison tooltips side-by-side would exceed screen width,
+				-- stack the second comparison below the first so both remain visible.
+				if (tipRight + s1Width + s2Width) > uiWidth then
+					s2:SetPoint("TOPLEFT", s1, "BOTTOMLEFT", 0, -5)
+				else
+					s2:SetPoint("TOPLEFT", s1, "TOPRIGHT", 0, 0)
+				end
+				if s3 then
+					s3:ClearAllPoints()
+					s3:SetPoint("TOPLEFT", s2, "BOTTOMLEFT", 0, -5)
+				end
+			end
+		end
+	else
+		-- Main tooltip is to the LEFT of ItemRackMenuFrame.
+		-- Comparison tooltips must cascade further LEFT to keep the menu clear.
+		if s1 then
+			s1:ClearAllPoints()
+			s1:SetPoint("TOPRIGHT", tooltip, "TOPLEFT", 0, -10)
+			if s2 then
+				s2:ClearAllPoints()
+				local s1Width = s1:GetWidth() or 260
+				local s2Width = s2:GetWidth() or 260
+				local tipLeft = tooltip:GetLeft() or 0
+				-- If two comparison tooltips side-by-side would exceed the left screen edge,
+				-- stack the second comparison below the first so both remain visible.
+				if (tipLeft - s1Width - s2Width) < 0 then
+					s2:SetPoint("TOPRIGHT", s1, "BOTTOMRIGHT", 0, -5)
+				else
+					s2:SetPoint("TOPRIGHT", s1, "TOPLEFT", 0, 0)
+				end
+				if s3 then
+					s3:ClearAllPoints()
+					s3:SetPoint("TOPRIGHT", s2, "BOTTOMRIGHT", 0, -5)
+				end
+			end
+		end
 	end
 end
 
@@ -5356,6 +5518,9 @@ function ItemRack.ClearTooltip(self)
 	GameTooltip:Hide()
 	ItemRack.StopTimer("TooltipUpdate")
 	ItemRack.TooltipType = nil
+	if type(ResetCursor) == "function" then
+		ResetCursor()
+	end
 end
 
 function ItemRack.AnchorTooltip(owner)
@@ -5381,19 +5546,22 @@ function ItemRack.AnchorTooltip(owner)
 		if slot then
 			if isPopoutButton then
 				-- Tooltips for items inside the menu:
-				-- We measure physical screen space using EffectiveScale for reliable placement on scaled/ultrawide UIs.
-				local scale = ItemRackMenuFrame:GetEffectiveScale()
-				local right = (ItemRackMenuFrame:GetRight() or 0) * scale
-				local left = (ItemRackMenuFrame:GetLeft() or 0) * scale
+				-- We measure screen space in UIParent coordinates for reliable placement on scaled/ultrawide UIs.
+				local uiScale = UIParent and UIParent:GetEffectiveScale() or 1
+				local frameScale = ItemRackMenuFrame:GetEffectiveScale() or uiScale
+				local scaleRatio = frameScale / uiScale
+				local right = (ItemRackMenuFrame:GetRight() or 0) * scaleRatio
+				local left = (ItemRackMenuFrame:GetLeft() or 0) * scaleRatio
+				local screenWidth = UIParent and UIParent:GetWidth() or (type(GetScreenWidth) == "function" and GetScreenWidth() or 1920)
 				
-				local spaceRight = GetScreenWidth() - right
+				local spaceRight = screenWidth - right
 				local spaceLeft = left
 				
 				if spaceRight >= spaceLeft then
-					GameTooltip:SetOwner(ItemRackMenuFrame, "ANCHOR_RIGHT")
+					GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 					ItemRack.pendingTooltipAnchor = "ANCHOR_RIGHT"
 				else
-					GameTooltip:SetOwner(ItemRackMenuFrame, "ANCHOR_LEFT")
+					GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
 					ItemRack.pendingTooltipAnchor = "ANCHOR_LEFT"
 				end
 
@@ -5469,9 +5637,11 @@ function ItemRack.TooltipUpdate()
 		end
 		
 		if cooldown==0 then
-			-- stop updates if this trinket has no cooldown
+			-- stop updates if this item has no cooldown
 			ItemRack.StopTimer("TooltipUpdate")
-			ItemRack.TooltipType = nil
+			-- Preserve ItemRack.TooltipType so modifier refreshes (Shift/Ctrl) keep active context
+		else
+			ItemRack.StartTimer("TooltipUpdate",1)
 		end
 	end
 
@@ -5905,6 +6075,38 @@ GameTooltip:HookScript("OnHide", function()
 	ItemRack.pendingTooltipOwner = nil
 	ItemRack.pendingTooltipVerticalOwner = nil
 end)
+
+if type(hooksecurefunc) == "function" then
+	if type(GameTooltip_ShowCompareItem) == "function" then
+		hooksecurefunc("GameTooltip_ShowCompareItem", function(tooltip, shift)
+			if ItemRack.AdjustBreakoutComparisonTooltips then
+				ItemRack.AdjustBreakoutComparisonTooltips(tooltip)
+			end
+		end)
+	end
+	if ShoppingTooltip1 then
+		hooksecurefunc(ShoppingTooltip1, "Show", function(self)
+			if ItemRack.AdjustBreakoutComparisonTooltips then
+				ItemRack.AdjustBreakoutComparisonTooltips(GameTooltip)
+			end
+		end)
+	end
+	if ShoppingTooltip2 then
+		hooksecurefunc(ShoppingTooltip2, "Show", function(self)
+			if ItemRack.AdjustBreakoutComparisonTooltips then
+				ItemRack.AdjustBreakoutComparisonTooltips(GameTooltip)
+			end
+		end)
+	end
+end
+
+if ItemRackMenuFrame then
+	ItemRackMenuFrame.UpdateTooltip = function(self)
+		if ItemRack.TooltipOwner and ItemRack.TooltipOwner.UpdateTooltip then
+			ItemRack.TooltipOwner:UpdateTooltip()
+		end
+	end
+end
 
 function ItemRack.DockMenuToCharacterSheet(self)
 	local name = self:GetName()
