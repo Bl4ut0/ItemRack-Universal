@@ -3,6 +3,7 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+- **Breakout comparison tooltip stacking**: Fixed comparison tooltips (`ShoppingTooltip1` and `ShoppingTooltip2`) stacking and overlapping directly on top of `GameTooltip` when hovering items in quick-access popout menus near the screen edge. Removed custom anchor coordinate overrides that forced comparison tooltips to `TOPRIGHT`, allowing Blizzard's native `GameTooltip_ShowCompareItem` engine to calculate screen boundaries and position tooltips cleanly, while preserving mouse capture suppression (`EnableMouse(false)`) to prevent hover flicker loops.
 
 
 ## [4.57-beta2] - 2026-10-24

@@ -1,4 +1,5 @@
 __ Development __
+- Fixed comparison tooltips (ShoppingTooltip1 and ShoppingTooltip2) stacking and overlapping directly on top of GameTooltip when hovering items in quick-access popout menus near the screen edge. Removed custom anchor coordinate overrides that forced comparison tooltips to TOPRIGHT, allowing Blizzard's native GameTooltip_ShowCompareItem engine to calculate screen boundaries and position tooltips cleanly, while preserving mouse capture suppression (EnableMouse(false)) to prevent hover flicker loops.
 
 __ New in 4.57-beta2 - By Bl4ut0 __
 - GitHub #34 follow-up: fixed breakout item tooltips dropping when pressing Shift (compare) or Ctrl (inspect) while mousing over character sheet breakout rows. Popout buttons now define .UpdateTooltip callbacks, match GameTooltip ownership to the hovered button, update synchronously, and retain tooltip context on zero-cooldown items so modifier key changes refresh in-place without closing the tooltip.

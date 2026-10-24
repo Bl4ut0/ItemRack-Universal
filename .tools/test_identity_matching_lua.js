@@ -145,7 +145,6 @@ const breakoutComparisonFunctions = [
   extractFunction(core, 'ItemRack.OnModifierStateChanged'),
   extractFunction(core, 'ItemRack.MenuTooltip'),
   extractFunction(core, 'ItemRack.ShowBreakoutComparison'),
-  extractFunction(core, 'ItemRack.AdjustBreakoutComparisonTooltips'),
   extractFunction(core, 'ItemRack.TooltipUpdate'),
   extractFunction(core, 'ItemRack.ClearTooltip'),
 ].join('\n');
@@ -232,54 +231,15 @@ assert(ItemRack.TooltipType == nil, 'ClearTooltip must reset TooltipType')
 assert(tooltipHidden >= 1, 'ClearTooltip must hide GameTooltip')
 assert(resetCursorCalls >= 1, 'ClearTooltip must reset cursor')
 
--- Verify breakout comparison anchor adjustments prevent menu occlusion
-local s1Points, s2Points = {}, {}
+-- Verify breakout comparison disables mouse capture to prevent flicker loops without overriding Blizzard native tooltip positioning
 local mouseDisabled = 0
 ShoppingTooltip1.EnableMouse = function(self, state) if not state then mouseDisabled = mouseDisabled + 1 end end
 ShoppingTooltip2.EnableMouse = function(self, state) if not state then mouseDisabled = mouseDisabled + 1 end end
-ShoppingTooltip1.IsShown = function() return true end
-ShoppingTooltip2.IsShown = function() return true end
-ShoppingTooltip1.GetWidth = function() return 260 end
-ShoppingTooltip2.GetWidth = function() return 260 end
-ShoppingTooltip1.ClearAllPoints = function() s1Points = {} end
-ShoppingTooltip2.ClearAllPoints = function() s2Points = {} end
-ShoppingTooltip1.SetPoint = function(self, point, relTo, relPoint, x, y) table.insert(s1Points, {point=point, relTo=relTo, relPoint=relPoint, x=x, y=y}) end
-ShoppingTooltip2.SetPoint = function(self, point, relTo, relPoint, x, y) table.insert(s2Points, {point=point, relTo=relTo, relPoint=relPoint, x=x, y=y}) end
+compareCalls = 0
 
-GameTooltip.IsShown = function() return true end
-GameTooltip.GetOwner = function() return owner end
-GameTooltip.GetRight = function() return 500 end
-GameTooltip.GetLeft = function() return 200 end
-
-ItemRackMenuFrame = {
-  IsVisible = function() return true end,
-  GetCenter = function() return 100 end,
-}
-ItemRack.pendingTooltipAnchor = "ANCHOR_RIGHT"
-UIParent = { GetWidth = function() return 1920 end }
-
-ItemRack.AdjustBreakoutComparisonTooltips(GameTooltip)
-assert(mouseDisabled == 2, 'comparison tooltips must disable mouse capture to prevent OnLeave flicker loops')
-assert(#s1Points == 1 and s1Points[1].point == "TOPLEFT" and s1Points[1].relPoint == "TOPRIGHT", 'ShoppingTooltip1 must cascade right when menu is anchored right')
-assert(#s2Points == 1 and s2Points[1].point == "TOPLEFT" and s2Points[1].relPoint == "TOPRIGHT", 'ShoppingTooltip2 must cascade right when screen width allows')
-
--- When screen width is constrained (e.g. 900px wide and tooltip right is 500px, 500+260+260 = 1020 > 900)
-UIParent.GetWidth = function() return 900 end
-ItemRack.AdjustBreakoutComparisonTooltips(GameTooltip)
-assert(#s2Points == 1 and s2Points[1].point == "TOPLEFT" and s2Points[1].relPoint == "BOTTOMLEFT", 'ShoppingTooltip2 must stack below ShoppingTooltip1 when horizontal space is tight')
-
--- Anchor Left with ample left space (tipLeft = 800, 800 - 260 - 260 = 280 >= 0)
-GameTooltip.GetLeft = function() return 800 end
-UIParent.GetWidth = function() return 1920 end
-ItemRack.pendingTooltipAnchor = "ANCHOR_LEFT"
-ItemRack.AdjustBreakoutComparisonTooltips(GameTooltip)
-assert(#s1Points == 1 and s1Points[1].point == "TOPRIGHT" and s1Points[1].relPoint == "TOPLEFT", 'ShoppingTooltip1 must cascade left when menu is anchored left')
-assert(#s2Points == 1 and s2Points[1].point == "TOPRIGHT" and s2Points[1].relPoint == "TOPLEFT", 'ShoppingTooltip2 must cascade left when left edge allows')
-
--- Anchor Left with tight left edge (tipLeft = 200, 200 - 260 - 260 < 0)
-GameTooltip.GetLeft = function() return 200 end
-ItemRack.AdjustBreakoutComparisonTooltips(GameTooltip)
-assert(#s2Points == 1 and s2Points[1].point == "TOPRIGHT" and s2Points[1].relPoint == "BOTTOMRIGHT", 'ShoppingTooltip2 must stack below ShoppingTooltip1 when left edge is constrained')
+ItemRack.ShowBreakoutComparison(owner)
+assert(mouseDisabled == 2, 'ShowBreakoutComparison must disable mouse capture on ShoppingTooltip1/2 to prevent OnLeave flicker loops')
+assert(compareCalls == 1, 'ShowBreakoutComparison must invoke GameTooltip_ShowCompareItem')
 `, 'forever-breakout-comparison-default');
 
 const functions = [

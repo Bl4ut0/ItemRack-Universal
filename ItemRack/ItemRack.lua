@@ -5380,100 +5380,11 @@ function ItemRack.ShowBreakoutComparison(owner)
 	if ItemRackSettings.MenuOnShift == "ON" and IsShiftKeyDown() then return end
 	local ownerName = (owner and type(owner.GetName) == "function") and owner:GetName() or ""
 	if not string.match(ownerName, "^ItemRackMenu%d+$") then return end
-	if type(GameTooltip_ShowCompareItem) == "function" then
-		GameTooltip_ShowCompareItem(GameTooltip)
-	end
-	if ItemRack.AdjustBreakoutComparisonTooltips then
-		ItemRack.AdjustBreakoutComparisonTooltips(GameTooltip)
-	end
-end
-
-function ItemRack.AdjustBreakoutComparisonTooltips(tooltip)
-	tooltip = tooltip or GameTooltip
-	if not (tooltip and tooltip.IsShown and tooltip:IsShown()) then return end
-	if not (ItemRackMenuFrame and ItemRackMenuFrame:IsVisible()) then return end
-
-	local owner = tooltip:GetOwner()
-	local ownerName = (owner and type(owner.GetName) == "function") and owner:GetName() or ""
-	local isMenuButton = string.match(ownerName, "^ItemRackMenu%d+$")
-	local isMenuFrame = (owner == ItemRackMenuFrame)
-	if not (isMenuButton or isMenuFrame) then return end
-
-	-- Disable mouse capture on comparison tooltips so they cannot intercept the cursor
-	-- and trigger an OnLeave -> ClearTooltip loop on the underlying ItemRack menu button.
 	if ShoppingTooltip1 and ShoppingTooltip1.EnableMouse then ShoppingTooltip1:EnableMouse(false) end
 	if ShoppingTooltip2 and ShoppingTooltip2.EnableMouse then ShoppingTooltip2:EnableMouse(false) end
 	if ShoppingTooltip3 and ShoppingTooltip3.EnableMouse then ShoppingTooltip3:EnableMouse(false) end
-
-	local s1 = ShoppingTooltip1 and ShoppingTooltip1:IsShown() and ShoppingTooltip1
-	local s2 = ShoppingTooltip2 and ShoppingTooltip2:IsShown() and ShoppingTooltip2
-	local s3 = ShoppingTooltip3 and ShoppingTooltip3:IsShown() and ShoppingTooltip3
-	if not (s1 or s2 or s3) then return end
-
-	-- Determine anchor direction relative to ItemRackMenuFrame.
-	-- We always position comparison tooltips away from ItemRackMenuFrame so they
-	-- never occlude the breakout buttons or collide with the mouse cursor.
-	local anchor = ItemRack.pendingTooltipAnchor
-	if not anchor then
-		local menuCenter = ItemRackMenuFrame:GetCenter() or 0
-		local tipCenter = tooltip:GetCenter() or 0
-		if tipCenter >= menuCenter then
-			anchor = "ANCHOR_RIGHT"
-		else
-			anchor = "ANCHOR_LEFT"
-		end
-	end
-
-	local uiWidth = UIParent and UIParent:GetWidth() or (type(GetScreenWidth) == "function" and GetScreenWidth() or 1920)
-
-	if anchor == "ANCHOR_RIGHT" then
-		-- Main tooltip is to the RIGHT of ItemRackMenuFrame.
-		-- Comparison tooltips must cascade further RIGHT to keep the menu clear.
-		if s1 then
-			s1:ClearAllPoints()
-			s1:SetPoint("TOPLEFT", tooltip, "TOPRIGHT", 0, -10)
-			if s2 then
-				s2:ClearAllPoints()
-				local s1Width = s1:GetWidth() or 260
-				local s2Width = s2:GetWidth() or 260
-				local tipRight = tooltip:GetRight() or 0
-				-- If two comparison tooltips side-by-side would exceed screen width,
-				-- stack the second comparison below the first so both remain visible.
-				if (tipRight + s1Width + s2Width) > uiWidth then
-					s2:SetPoint("TOPLEFT", s1, "BOTTOMLEFT", 0, -5)
-				else
-					s2:SetPoint("TOPLEFT", s1, "TOPRIGHT", 0, 0)
-				end
-				if s3 then
-					s3:ClearAllPoints()
-					s3:SetPoint("TOPLEFT", s2, "BOTTOMLEFT", 0, -5)
-				end
-			end
-		end
-	else
-		-- Main tooltip is to the LEFT of ItemRackMenuFrame.
-		-- Comparison tooltips must cascade further LEFT to keep the menu clear.
-		if s1 then
-			s1:ClearAllPoints()
-			s1:SetPoint("TOPRIGHT", tooltip, "TOPLEFT", 0, -10)
-			if s2 then
-				s2:ClearAllPoints()
-				local s1Width = s1:GetWidth() or 260
-				local s2Width = s2:GetWidth() or 260
-				local tipLeft = tooltip:GetLeft() or 0
-				-- If two comparison tooltips side-by-side would exceed the left screen edge,
-				-- stack the second comparison below the first so both remain visible.
-				if (tipLeft - s1Width - s2Width) < 0 then
-					s2:SetPoint("TOPRIGHT", s1, "BOTTOMRIGHT", 0, -5)
-				else
-					s2:SetPoint("TOPRIGHT", s1, "TOPLEFT", 0, 0)
-				end
-				if s3 then
-					s3:ClearAllPoints()
-					s3:SetPoint("TOPRIGHT", s2, "BOTTOMRIGHT", 0, -5)
-				end
-			end
-		end
+	if type(GameTooltip_ShowCompareItem) == "function" then
+		GameTooltip_ShowCompareItem(GameTooltip)
 	end
 end
 
@@ -6075,30 +5986,6 @@ GameTooltip:HookScript("OnHide", function()
 	ItemRack.pendingTooltipOwner = nil
 	ItemRack.pendingTooltipVerticalOwner = nil
 end)
-
-if type(hooksecurefunc) == "function" then
-	if type(GameTooltip_ShowCompareItem) == "function" then
-		hooksecurefunc("GameTooltip_ShowCompareItem", function(tooltip, shift)
-			if ItemRack.AdjustBreakoutComparisonTooltips then
-				ItemRack.AdjustBreakoutComparisonTooltips(tooltip)
-			end
-		end)
-	end
-	if ShoppingTooltip1 then
-		hooksecurefunc(ShoppingTooltip1, "Show", function(self)
-			if ItemRack.AdjustBreakoutComparisonTooltips then
-				ItemRack.AdjustBreakoutComparisonTooltips(GameTooltip)
-			end
-		end)
-	end
-	if ShoppingTooltip2 then
-		hooksecurefunc(ShoppingTooltip2, "Show", function(self)
-			if ItemRack.AdjustBreakoutComparisonTooltips then
-				ItemRack.AdjustBreakoutComparisonTooltips(GameTooltip)
-			end
-		end)
-	end
-end
 
 if ItemRackMenuFrame then
 	ItemRackMenuFrame.UpdateTooltip = function(self)
