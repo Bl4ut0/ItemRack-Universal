@@ -4,6 +4,8 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+
+## [4.57-beta5] - 2026-10-30
 - **Breakout & Character Sheet Tooltip Compatibility (GitHub #34 / Spiritshroud08)**:
   - **Eliminated `ANCHOR_NONE` comparison tooltip wipe**: Removed `GameTooltip:SetAnchorType("ANCHOR_NONE")` from `ItemRack.ApplyTooltipAnchor`. Previously, when `GameTooltip_ShowCompareItem` slid wide or dual-comparison tooltips (`ShoppingTooltip1` + `ShoppingTooltip2` on Rings/Weapons or with `TipTac Reborn` / `RatingBuster Classic`) at the screen edge via `self:SetAnchorType(self:GetAnchorType(), offsetX, 0)`, the `ANCHOR_NONE` state caused WoW's C++ engine to wipe all `SetPoint` anchors on `GameTooltip`, making tooltips vanish completely.
   - **Native multi-column breakout anchoring**: Flyout menu buttons (`ItemRackMenu1..N`) now anchor natively to `ItemRackMenuFrame` via `GameTooltip:SetOwner(ItemRackMenuFrame, "ANCHOR_RIGHT" / "ANCHOR_LEFT")` using scale-aware `UIParent` screen space. This keeps tooltips outside all columns of large breakout menus without overriding native anchor types.

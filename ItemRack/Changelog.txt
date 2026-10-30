@@ -1,5 +1,6 @@
 __ Development __
 
+__ New in 4.57-beta5 - By Bl4ut0 __
 - GitHub #34 (Spiritshroud08): fixed disappearing breakout tooltips on Rings, Weapons, and armor slots with TipTac Reborn, RatingBuster Classic, Syndicator, TacoTip, TSM, and Leatrix Plus, as well as character-sheet tooltip flickering:
   * Removed GameTooltip:SetAnchorType("ANCHOR_NONE") so Blizzard's GameTooltip_ShowCompareItem screen-edge slide no longer wipes tooltip anchors when dual ShoppingTooltips open.
   * Anchored breakout menu buttons (ItemRackMenu1..N) natively to ItemRackMenuFrame (ANCHOR_RIGHT / ANCHOR_LEFT) so tooltips never overlap multi-column breakout menus at any scale.
