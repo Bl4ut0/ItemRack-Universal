@@ -14,6 +14,12 @@ const itemRackFile = 'ItemRack/ItemRack.lua';
 const findPlayerAura = extractFunction(itemRackFile, 'ItemRack.FindPlayerAura');
 const recordEquipTime = extractFunction(queueFile, 'ItemRack.RecordEquipTime');
 const isRecentEquip = extractFunction(queueFile, 'ItemRack.IsRecentEquip');
+const toggleSet = extractFunction(equipFile, 'ItemRack.ToggleSet');
+const endSetSwap = extractFunction(equipFile, 'ItemRack.EndSetSwap');
+const optionsFile = 'ItemRackOptions/ItemRackOptions.lua';
+const hasUnsavedSetChanges = extractFunction(optionsFile, 'ItemRackOpt.HasUnsavedSetChanges');
+const changeEditingSet = extractFunction(optionsFile, 'ItemRackOpt.ChangeEditingSet');
+const setupQueue = extractFunction(optionsFile, 'ItemRackOpt.SetupQueue');
 
 runLua(String.raw`
 local activeList = { { id="100" } }
@@ -200,6 +206,133 @@ local priorityCandidate, priorityCandidateID = ItemRack.AutoQueueItemToEquip(14,
 check(tostring(priorityCandidateID) == "23206",
   "Issue #33: priority=true queue item must be able to swap out active ready item")
 set2List[1].priority = false
+
+-- 4. Issue #33 follow-up (neferens): PopulateSortList adds all carried trinkets to every set's queue
+-- with priority=false. When Set 1 has { 11815, 23206 } and Set 2 has { 23206, 11815 }, switching to Set 2
+-- while 11815 (passive) is equipped (matchedCurrent=true at index 2) must immediately swap to 23206 at index 1!
+local set2FullList = {
+  { id="23206", priority=false, keep=false, delay=0 },
+  { id="11815", priority=false, keep=false, delay=0 },
+}
+local set2FullContext = { owner="Set2", list=set2FullList, enabled=true }
+ItemRack.GetID = function(slot)
+  if slot == 14 then return "11815" end
+  return "999"
+end
+GetInventoryItemCooldown = function(unit, slot)
+  return 0, 0, 0 -- passive Hand of Justice
+end
+local reorderedCandidate, reorderedCandidateID = ItemRack.AutoQueueItemToEquip(14, "11815", 0, true, "Set2", set2FullContext)
+check(tostring(reorderedCandidateID) == "23206",
+  "Issue #33: passive item at index 2 of new set's queue must yield to passive item at index 1 without requiring priority=true")
+
+-- Once 23206 (index 1) is equipped, AutoQueueItemToEquip must stop at index 1 and not swap to index 2 (11815)
+ItemRack.GetID = function(slot)
+  if slot == 14 then return "23206" end
+  return "999"
+end
+local stableCandidate = ItemRack.AutoQueueItemToEquip(14, "23206", 0, true, "Set2", set2FullContext)
+check(stableCandidate == nil,
+  "Issue #33: once top passive item (index 1) is equipped, queue must remain stable and not swap to index 2")
+
+-- 5. Issue #33 follow-up: ToggleSet and Options Queue UI (ItemRackOptSubFrame7) live refresh when switching sets
+${toggleSet}
+${endSetSwap}
+ItemRackOpt = {
+  Inv = {},
+  HoldInv = {},
+  SpecDirty = false,
+  SetModified = false,
+  NormalizeSetIcon = function(icon) return icon or "default-icon" end,
+  UpdateInv = function() end,
+  LayoutQueueControls = function() end,
+  PopulateSortList = function(slot)
+    ItemRackOpt.lastPopulatedSlot = slot
+    ItemRackOpt.lastPopulatedList = ItemRack.GetQueues(ItemRackOpt.QueueEditingSet)[slot]
+  end,
+  ValidateSortButtons = function() end,
+}
+for i = 0, 19 do
+  ItemRackOpt.Inv[i] = { id = "999", selected = nil }
+  ItemRackOpt.HoldInv[i] = { id = "999", selected = nil }
+end
+${hasUnsavedSetChanges}
+${changeEditingSet}
+${setupQueue}
+
+local uiSetNameText = "Set1"
+local footerSetName = ""
+local footerSetIcon = ""
+ItemRackOptSetsName = {
+  GetText = function() return uiSetNameText end,
+  SetText = function(_, text) uiSetNameText = text end,
+}
+ItemRackOptSetsSaveButton = {
+  IsEnabled = function() return true end, -- ValidateSetButtons enables Save whenever any set is loaded
+}
+ItemRackOptFrame = { IsVisible = function() return true end }
+ItemRackOptSubFrame2 = { IsVisible = function() return false end }
+ItemRackOptSubFrame5 = { IsVisible = function() return false end, Hide = function() end }
+ItemRackOptSubFrame7 = { IsVisible = function() return true end, Show = function() end }
+ItemRackOptSlotQueueName = { SetText = function() end }
+ItemRackOptQueueSetIcon = { SetTexture = function(_, tex) footerSetIcon = tex end }
+ItemRackOptQueueSetName = { SetText = function(_, text) footerSetName = text end }
+ItemRackOptQueueSetInfo = { Show = function() end }
+ItemRackSettings = { EquipOnSetPick = "OFF" }
+ItemRack.SlotInfo = { [14] = { real = "Trinket 2" } }
+ItemRack.ClearLockList = function() end
+C_Timer = C_Timer or { After = function() end }
+ItemRack.UpdateCombatQueue = function() end
+ItemRack.PeriodicQueueCheck = function() ItemRack.periodicQueueCalled = (ItemRack.periodicQueueCalled or 0) + 1 end
+ItemRack.GetQueues = function(setname)
+  return ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].Queues or ItemRackUser.Queues
+end
+
+ItemRackUser.EnablePerSetQueues = "ON"
+ItemRackUser.Queues = { [14] = {} }
+ItemRackUser.CurrentSet = "Set1"
+ItemRackUser.Sets.Set1 = {
+  icon = "icon-set1",
+  equip = { [1] = "999" },
+  Queues = { [14] = { { id = "11815" }, { id = "23206" } } },
+}
+ItemRackUser.Sets.Set2 = {
+  icon = "icon-set2",
+  equip = { [1] = "999" },
+  Queues = { [14] = { { id = "23206" }, { id = "11815" } } },
+}
+
+-- A. ToggleSet("Set2") while Set1 is active must call EquipSet("Set2") even when Set1 and Set2 share identical equip items
+local toggleEquipped, toggleUnequipped = nil, nil
+ItemRack.IsSetEquipped = function(name) return name == "Set1" or name == "Set2" end
+ItemRack.EquipSet = function(name) toggleEquipped = name end
+ItemRack.UnequipSet = function(name) toggleUnequipped = name end
+ItemRack.ToggleSet("Set2")
+check(toggleEquipped == "Set2" and toggleUnequipped == nil,
+  "ToggleSet(Set2) while Set1 is active must equip Set2 instead of unequipping Set2 as a no-op")
+
+-- B. With ItemRackOptSubFrame7 open on slot 14 for Set1, EndSetSwap("Set2") must switch the Queue UI to Set2's queue
+ItemRackOpt.SetupQueue(14)
+check(ItemRackOpt.QueueEditingSet == "Set1" and footerSetName == "Set1" and ItemRackOpt.lastPopulatedList == ItemRackUser.Sets.Set1.Queues[14],
+  "SetupQueue(14) initially binds to Set1's queue")
+ItemRack.periodicQueueCalled = 0
+ItemRack.EndSetSwap("Set2")
+check(ItemRackUser.CurrentSet == "Set2", "EndSetSwap(Set2) must update CurrentSet to Set2")
+check(uiSetNameText == "Set2" and ItemRackOpt.QueueEditingSet == "Set2" and footerSetName == "Set2" and footerSetIcon == "icon-set2",
+  "EndSetSwap(Set2) must update ItemRackOptSetsName and QueueEditingSet to Set2 even when Save button is enabled")
+check(ItemRackOpt.lastPopulatedList == ItemRackUser.Sets.Set2.Queues[14],
+  "EndSetSwap(Set2) must refresh open ItemRackOptSubFrame7 to display Set2's queue contents")
+check(ItemRack.periodicQueueCalled >= 1,
+  "EndSetSwap(Set2) must trigger PeriodicQueueCheck")
+
+-- C. If the user is actively editing a set on the Sets tab (ItemRackOptSubFrame2 visible and SetModified=true), EndSetSwap preserves their unsaved edits
+ItemRackOptSubFrame2 = { IsVisible = function() return true end }
+ItemRackOptSubFrame7 = { IsVisible = function() return false end, Show = function() end }
+uiSetNameText = "DraftSet"
+ItemRackOpt.SetModified = true
+ItemRack.EndSetSwap("Set1")
+check(uiSetNameText == "DraftSet",
+  "EndSetSwap must preserve unsaved edits when the user is actively editing on the Sets tab")
 
 
 -- Set swap performance regression:

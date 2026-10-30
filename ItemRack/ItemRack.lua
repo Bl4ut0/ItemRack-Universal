@@ -4457,6 +4457,7 @@ function ItemRack.MenuOnClick(self,button)
 		if ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
 			ItemRackOpt.Inv[ItemRack.menuOpen].id = item
 			ItemRackOpt.Inv[ItemRack.menuOpen].selected = 1
+			ItemRackOpt.SetModified = true
 			ItemRackOpt.UpdateInv()
 			ItemRackMenuFrame:Hide()
 		end
@@ -4512,6 +4513,7 @@ function ItemRack.MenuOnClick(self,button)
 			if ItemRackSettings.EquipOnSetPick=="ON" and ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
 				ItemRackOpt.Inv[ItemRack.menuOpen].id = item
 				ItemRackOpt.Inv[ItemRack.menuOpen].selected = 1
+				ItemRackOpt.SetModified = true
 				ItemRackOpt.UpdateInv()
 			end
 			if ItemRack.menuOpen>=13 and ItemRack.menuOpen<=14 and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then
@@ -5404,8 +5406,18 @@ end
 function ItemRack.ShowBreakoutComparison(owner)
 	if ItemRackSettings.AlwaysCompareBreakoutItems ~= "ON" then return end
 	if ItemRackSettings.MenuOnShift == "ON" and IsShiftKeyDown() then return end
+	if ItemRack.menuInclude or (ItemRack.menuOpen and ItemRack.menuOpen >= 20) then return end
 	local ownerName = (owner and type(owner.GetName) == "function") and owner:GetName() or ""
 	if not string.match(ownerName, "^ItemRackMenu%d+$") then return end
+	if type(owner.GetID) == "function" and type(ItemRack.Menu) == "table" then
+		local menuID = ItemRack.Menu[owner:GetID()]
+		if not menuID or menuID == 0 or menuID == "0" or menuID == "MENU" then
+			return
+		end
+	end
+	if type(GameTooltip.IsEquippedItem) == "function" and GameTooltip:IsEquippedItem() then
+		return
+	end
 	if ShoppingTooltip1 and ShoppingTooltip1.EnableMouse then ShoppingTooltip1:EnableMouse(false) end
 	if ShoppingTooltip2 and ShoppingTooltip2.EnableMouse then ShoppingTooltip2:EnableMouse(false) end
 	if ShoppingTooltip3 and ShoppingTooltip3.EnableMouse then ShoppingTooltip3:EnableMouse(false) end
@@ -5445,9 +5457,11 @@ function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style
 			GameTooltip:SetHyperlink(itemID)
 		end
 	end
-	ItemRack.ShrinkTooltip(self)
+	local shrunk = ItemRack.ShrinkTooltip(self)
 	GameTooltip:Show()
-	ItemRack.ShowBreakoutComparison(self)
+	if not shrunk then
+		ItemRack.ShowBreakoutComparison(self)
+	end
 	
 	-- Suppress WoW's default compare tooltips if MenuOnShift is active
 	-- Otherwise holding shift to open the menu covers the screen in 3 tooltips
@@ -5464,6 +5478,24 @@ function ItemRack.ClearTooltip(self)
 	ItemRack.TooltipOwner = nil
 	if type(ResetCursor) == "function" then
 		ResetCursor()
+	end
+end
+
+function ItemRack.GetMenuFrameTooltipSide()
+	local uiScale = (UIParent and type(UIParent.GetEffectiveScale) == "function" and UIParent:GetEffectiveScale()) or 1
+	local frameScale = (ItemRackMenuFrame and type(ItemRackMenuFrame.GetEffectiveScale) == "function" and ItemRackMenuFrame:GetEffectiveScale()) or uiScale
+	local scaleRatio = frameScale / uiScale
+	local right = ((ItemRackMenuFrame and type(ItemRackMenuFrame.GetRight) == "function" and ItemRackMenuFrame:GetRight()) or 0) * scaleRatio
+	local left = ((ItemRackMenuFrame and type(ItemRackMenuFrame.GetLeft) == "function" and ItemRackMenuFrame:GetLeft()) or 0) * scaleRatio
+	local screenWidth = (UIParent and type(UIParent.GetWidth) == "function" and UIParent:GetWidth())
+		or (type(GetScreenWidth) == "function" and GetScreenWidth())
+		or 1920
+	local spaceRight = screenWidth - right
+	local spaceLeft = left
+	if spaceRight >= spaceLeft then
+		return "ANCHOR_RIGHT"
+	else
+		return "ANCHOR_LEFT"
 	end
 end
 
@@ -5489,37 +5521,16 @@ function ItemRack.AnchorTooltip(owner)
 		
 		if slot then
 			if isPopoutButton then
-				-- Tooltips for items inside the menu:
-				-- We measure screen space in UIParent coordinates for reliable placement on scaled/ultrawide UIs.
-				local uiScale = UIParent and UIParent:GetEffectiveScale() or 1
-				local frameScale = ItemRackMenuFrame:GetEffectiveScale() or uiScale
-				local scaleRatio = frameScale / uiScale
-				local right = (ItemRackMenuFrame:GetRight() or 0) * scaleRatio
-				local left = (ItemRackMenuFrame:GetLeft() or 0) * scaleRatio
-				local screenWidth = UIParent and UIParent:GetWidth() or (type(GetScreenWidth) == "function" and GetScreenWidth() or 1920)
-				
-				local spaceRight = screenWidth - right
-				local spaceLeft = left
-				
-				if spaceRight >= spaceLeft then
-					GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-					ItemRack.pendingTooltipAnchor = "ANCHOR_RIGHT"
-				else
-					GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
-					ItemRack.pendingTooltipAnchor = "ANCHOR_LEFT"
-				end
-
-				-- Store vertical owner so ApplyTooltipAnchor can reposition the tooltip
-				-- to align with the specific button instead of the top of the menu frame.
-				ItemRack.pendingTooltipOwner = ItemRackMenuFrame
-				ItemRack.pendingTooltipVerticalOwner = owner
+				-- Anchor directly to ItemRackMenuFrame using native SetOwner so the
+				-- tooltip sits outside all breakout columns without needing ANCHOR_NONE.
+				GameTooltip:SetOwner(ItemRackMenuFrame, ItemRack.GetMenuFrameTooltipSide())
 			else
 				-- Tooltips for the character sheet slot itself (when hovering the slot while menu is open):
 				if slot == 0 or (slot >= 16 and slot <= 18) then
 					GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 				elseif slot==1 or slot==2 or slot==3 or slot==15 or slot==5 or slot==4 or slot==19 or slot==9 then
 					if ItemRackSettings.LeftSlotsGoRight == "ON" then
-						GameTooltip:SetOwner(ItemRackMenuFrame, "ANCHOR_RIGHT")
+						GameTooltip:SetOwner(ItemRackMenuFrame, ItemRack.GetMenuFrameTooltipSide())
 					else
 						GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 					end
@@ -5527,7 +5538,7 @@ function ItemRack.AnchorTooltip(owner)
 					if ItemRackSettings.RightSlotsGoLeft == "ON" then
 						GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 					else
-						GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
+						GameTooltip:SetOwner(ItemRackMenuFrame, ItemRack.GetMenuFrameTooltipSide())
 					end
 				end
 			end
@@ -5540,7 +5551,9 @@ function ItemRack.AnchorTooltip(owner)
 			end
 		end
 	elseif ItemRackSettings.TooltipFollow=="ON" then
-		if owner.GetLeft and owner:GetLeft() and owner:GetLeft()<400 then
+		if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and string.match(ownerName, "^ItemRackMenu%d") then
+			GameTooltip:SetOwner(ItemRackMenuFrame, ItemRack.GetMenuFrameTooltipSide())
+		elseif owner.GetLeft and owner:GetLeft() and owner:GetLeft()<400 then
 			GameTooltip:SetOwner(owner,"ANCHOR_RIGHT")
 		else
 			GameTooltip:SetOwner(owner,"ANCHOR_LEFT")
@@ -5567,12 +5580,14 @@ function ItemRack.TooltipUpdate()
 			GameTooltip:SetInventoryItem("player",ItemRack.TooltipSlot)
 			cooldown = GetInventoryItemCooldown("player",ItemRack.TooltipSlot) or 0
 		end
-		ItemRack.ShrinkTooltip(ItemRack.TooltipOwner) -- if TinyTooltips on, shrink it
+		local shrunk = ItemRack.ShrinkTooltip(ItemRack.TooltipOwner) -- if TinyTooltips on, shrink it
 		if ItemRack.TooltipType=="INVENTORY" and ItemRack.TooltipBag then
 			GameTooltip:AddLine("Queued: "..ItemRack.TooltipBag)
 		end
 		GameTooltip:Show()
-		ItemRack.ShowBreakoutComparison(ItemRack.TooltipOwner)
+		if not shrunk then
+			ItemRack.ShowBreakoutComparison(ItemRack.TooltipOwner)
+		end
 		
 		-- Suppress WoW's default compare tooltips if MenuOnShift is active
 		if ItemRackSettings.MenuOnShift=="ON" and IsShiftKeyDown() then
@@ -5676,7 +5691,12 @@ function ItemRack.ShrinkTooltip(owner)
 		GameTooltip:AddLine(charge,1,1,1)
 		GameTooltip:AddLine(durability,1,1,1)
 		GameTooltip:AddLine(cooldown,1,1,1)
+		if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
+		if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
+		if ShoppingTooltip3 and ShoppingTooltip3.Hide then ShoppingTooltip3:Hide() end
+		return true
 	end
+	return false
 end
 
 function ItemRack.SetTooltip(self,setname)
@@ -5834,7 +5854,13 @@ end
 
 ItemRack.oldPaperDollItemSlotButton_OnEnter = PaperDollItemSlotButton_OnEnter
 function PaperDollItemSlotButton_OnEnter(self)
+	if self and self.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter then
+		self.UpdateTooltip = PaperDollItemSlotButton_OnEnter
+	end
 	if ItemRackSettings.CharacterSheetMenus ~= "ON" or ItemRack.IsEquipmentManagerOpen() then
+		ItemRack.pendingTooltipAnchor = nil
+		ItemRack.pendingTooltipOwner = nil
+		ItemRack.pendingTooltipVerticalOwner = nil
 		if ItemRackMenuFrame:IsVisible() and ItemRack.menuDockedTo then
 			ItemRackMenuFrame:Hide()
 			ItemRack.menuDockedTo = nil
@@ -5863,12 +5889,6 @@ function PaperDollItemSlotButton_OnEnter(self)
 		end
 	end
 	
-	-- Hide the tooltip during the Blizzard handler to prevent a visible "snap"
-	-- from the default position to our desired position.
-	if isMenuOpen and slot then
-		GameTooltip:SetAlpha(0)
-	end
-	
 	-- Call the original Blizzard function FIRST, completely untouched.
 	-- We MUST NOT modify GameTooltip.SetOwner or any other secure table — doing so
 	-- taints the GameTooltip table, which propagates to Blizzard action bar OnEnter
@@ -5877,11 +5897,9 @@ function PaperDollItemSlotButton_OnEnter(self)
 	ItemRack.pendingTooltipVerticalOwner = nil
 	ItemRack.oldPaperDollItemSlotButton_OnEnter(self)
 	
-	-- AFTER the secure handler and its post-hooks have finished, reposition and
-	-- reveal the tooltip without invoking protected tooltip lifecycle methods.
+	-- AFTER the secure handler and its post-hooks have finished, reposition the
+	-- tooltip outside the breakout menu when the menu opens to the right of the slot.
 	if isMenuOpen and slot then
-		local desiredOwner, desiredAnchor
-		
 		local menuOnRight
 		if slot == 0 or (slot >= 16 and slot <= 18) then
 			menuOnRight = false
@@ -5891,64 +5909,57 @@ function PaperDollItemSlotButton_OnEnter(self)
 			menuOnRight = (ItemRackSettings.RightSlotsGoLeft ~= "ON")
 		end
 		
-		if slot == 0 or (slot >= 16 and slot <= 18) then
-			-- Bottom slots: menu goes down. Tooltip to the right is fine.
-			desiredOwner = self
-			desiredAnchor = "ANCHOR_RIGHT"
-		else
-			if menuOnRight then
-				-- Menu rendered to the right. Tooltip should go left (if room) or chain to the right of the menu.
-				if slot==1 or slot==2 or slot==3 or slot==15 or slot==5 or slot==4 or slot==19 or slot==9 then
-					-- Left side slots: No room on the left, chain to the right of the menu
-					desiredOwner = ItemRackMenuFrame
-					desiredAnchor = "ANCHOR_RIGHT"
-				else
-					-- Right side slots: Abundant room on the left (over character model)
-					desiredOwner = self
-					desiredAnchor = "ANCHOR_LEFT"
-				end
+		if menuOnRight then
+			local side = ItemRack.GetMenuFrameTooltipSide and ItemRack.GetMenuFrameTooltipSide() or "ANCHOR_RIGHT"
+			if side == "ANCHOR_RIGHT" then
+				ItemRack.pendingTooltipOwner = ItemRackMenuFrame
+				ItemRack.pendingTooltipAnchor = "ANCHOR_RIGHT"
 			else
-				-- Menu rendered to the left. Tooltip should go right.
-				desiredOwner = self
-				desiredAnchor = "ANCHOR_RIGHT"
+				ItemRack.pendingTooltipOwner = self
+				ItemRack.pendingTooltipAnchor = "ANCHOR_LEFT"
 			end
+			ItemRack.ApplyTooltipAnchor()
+		else
+			ItemRack.pendingTooltipAnchor = nil
+			ItemRack.pendingTooltipOwner = nil
 		end
-		
-		-- Store the desired anchor for asynchronous tooltip refreshes.
-		ItemRack.pendingTooltipAnchor = desiredAnchor
-		ItemRack.pendingTooltipOwner = desiredOwner
-		
-		-- Apply positioning and reveal
-		ItemRack.ApplyTooltipAnchor()
-		GameTooltip:SetAlpha(1)
 	else
 		ItemRack.pendingTooltipAnchor = nil
 		ItemRack.pendingTooltipOwner = nil
 	end
 end
 
--- Some clients bind the character-slot OnEnter script to the function object
--- that existed when Blizzard created the frame. Replacing the global name does
--- not update that stored handler, so install ItemRack's wrapper explicitly while
--- preserving the captured native handler that the wrapper calls exactly once.
+-- Some clients bind the character-slot OnEnter script or UpdateTooltip field to
+-- the function object that existed when Blizzard created the frame. Replacing the
+-- global name does not update those stored references, so install ItemRack's wrapper
+-- explicitly on both while preserving the captured native handler.
 function ItemRack.RegisterCharacterSlotOnEnterHandlers()
 	local registered = 0
 	for i=0,19 do
 		local slotInfo = ItemRack.SlotInfo[i]
 		local button = slotInfo and _G["Character"..slotInfo.name]
-		if button and button.GetScript and button.SetScript
-		and button:GetScript("OnEnter") == ItemRack.oldPaperDollItemSlotButton_OnEnter then
-			button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)
-			registered = registered + 1
+		if button then
+			local updated = false
+			if button.GetScript and button.SetScript
+			and button:GetScript("OnEnter") == ItemRack.oldPaperDollItemSlotButton_OnEnter then
+				button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)
+				updated = true
+			end
+			if button.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter then
+				button.UpdateTooltip = PaperDollItemSlotButton_OnEnter
+				updated = true
+			end
+			if updated then
+				registered = registered + 1
+			end
 		end
 	end
 	return registered
 end
 
--- Apply the stored tooltip anchor after PaperDollItemSlotButton_OnEnter and
--- asynchronous tooltip refreshes that may restore Blizzard's default anchor.
--- Disable native side anchoring without resetting the owner or item contents.
--- Otherwise a layout refresh can restore the old side before our Show hook runs.
+-- Apply the stored character-slot tooltip anchor after PaperDollItemSlotButton_OnEnter
+-- and asynchronous tooltip refreshes, without setting ANCHOR_NONE (which would cause
+-- GameTooltip_ShowCompareItem to wipe all points when comparison tooltips slide).
 function ItemRack.ApplyTooltipAnchor()
 	local anchor = ItemRack.pendingTooltipAnchor
 	local owner = ItemRack.pendingTooltipOwner
@@ -5964,41 +5975,25 @@ function ItemRack.ApplyTooltipAnchor()
 		return
 	end
 	
-	-- Only apply to ItemRack-related tooltips that aren't the standard action buttons (which handle themselves)
 	local tooltipOwner = GameTooltip:GetOwner()
 	if not tooltipOwner or not tooltipOwner.GetName then return end
 	local ownerName = tooltipOwner:GetName() or ""
 	
-	-- Only the docked character slot and its flyout belong to this context.
-	-- Options, quick-access buttons and other character slots must remain untouched.
-	if not (ownerName == ItemRack.menuDockedTo or tooltipOwner == ItemRackMenuFrame or ownerName:match("^ItemRackMenu%d+$")) then
-		-- Not an ItemRack menu/character tooltip — clear stale pending state
+	-- Only the docked character slot belongs to this manual offset context.
+	-- Flyout buttons use native SetOwner(ItemRackMenuFrame, ...); options,
+	-- quick-access buttons and other character slots must remain untouched.
+	if ownerName ~= ItemRack.menuDockedTo then
 		ItemRack.pendingTooltipAnchor = nil
 		ItemRack.pendingTooltipOwner = nil
 		ItemRack.pendingTooltipVerticalOwner = nil
 		return
 	end
 	
-	-- Apply the desired anchor
-	-- SetOwner would clear/rebuild tooltip data. SetAnchorType preserves it and
-	-- prevents native layout from competing with the manual points below.
-	if type(GameTooltip.SetAnchorType) == "function" then
-		GameTooltip:SetAnchorType("ANCHOR_NONE")
-	end
 	GameTooltip:ClearAllPoints()
-	local verticalOwner = ItemRack.pendingTooltipVerticalOwner
 	if anchor == "ANCHOR_RIGHT" then
-		local yOffset = 0
-		if verticalOwner and verticalOwner:GetTop() and owner:GetTop() then
-			yOffset = verticalOwner:GetTop() - owner:GetTop()
-		end
-		GameTooltip:SetPoint("TOPLEFT", owner, "TOPRIGHT", 5, yOffset)
+		GameTooltip:SetPoint("TOPLEFT", owner, "TOPRIGHT", 0, 0)
 	elseif anchor == "ANCHOR_LEFT" then
-		local yOffset = 0
-		if verticalOwner and verticalOwner:GetTop() and owner:GetTop() then
-			yOffset = verticalOwner:GetTop() - owner:GetTop()
-		end
-		GameTooltip:SetPoint("TOPRIGHT", owner, "TOPLEFT", -5, yOffset)
+		GameTooltip:SetPoint("TOPRIGHT", owner, "TOPLEFT", 0, 0)
 	elseif anchor == "ANCHOR_BOTTOMLEFT" then
 		GameTooltip:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, 0)
 	end
@@ -6319,6 +6314,20 @@ function ItemRack.BeginSetBinding(setname)
 	if not set or not set.equip then return nil end
 	ItemRack.SetBindingRequestSequence = ItemRack.SetBindingRequestSequence + 1
 	local wasEquipped = ItemRack.IsSetEquipped and ItemRack.IsSetEquipped(setname) and true or false
+	if wasEquipped and ItemRackUser.CurrentSet and ItemRackUser.CurrentSet ~= setname
+	and ItemRackUser.Sets[ItemRackUser.CurrentSet]
+	and ItemRack.IsSetEquipped and ItemRack.IsSetEquipped(ItemRackUser.CurrentSet) then
+		local buried = false
+		for sName, sData in pairs(ItemRackUser.Sets) do
+			if not string.match(sName, "^~") and sData.oldset == setname and sName ~= setname then
+				buried = true
+				break
+			end
+		end
+		if not buried then
+			wasEquipped = false
+		end
+	end
 	local intent = "equip"
 	if ItemRackSettings.EquipToggle == "ON" then
 		intent = wasEquipped and "unequip" or "equip"
@@ -6603,7 +6612,11 @@ function ItemRack.SlashHandler(arg1)
 			if not set1 then
 				ItemRack.ToggleSet(sets)
 			else
-				if ItemRack.IsSetEquipped(set1) then
+				if ItemRackUser.CurrentSet == set1 and ItemRack.IsSetEquipped(set1) then
+					ItemRack.EquipSet(set2)
+				elseif ItemRackUser.CurrentSet == set2 and ItemRack.IsSetEquipped(set2) then
+					ItemRack.EquipSet(set1)
+				elseif ItemRack.IsSetEquipped(set1) then
 					ItemRack.EquipSet(set2)
 				else
 					ItemRack.EquipSet(set1)
@@ -6811,6 +6824,27 @@ function ItemRack.SlashHandler(arg1)
 				dumpText = dumpText .. "Breakout report unavailable; other diagnostic sections are retained."
 			end
 			
+			dumpText = dumpText .. "\n\n=== ENABLED ADDONS ===\n"
+			local getNumAddOns = (C_AddOns and C_AddOns.GetNumAddOns) or _G.GetNumAddOns
+			local getAddOnInfo = (C_AddOns and C_AddOns.GetAddOnInfo) or _G.GetAddOnInfo
+			local isAddOnLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or _G.IsAddOnLoaded
+			local getAddOnMetadata = (C_AddOns and C_AddOns.GetAddOnMetadata) or _G.GetAddOnMetadata
+			if type(getNumAddOns) == "function" and type(getAddOnInfo) == "function" then
+				local addonLines = {}
+				local numAddOns = getNumAddOns() or 0
+				for i = 1, numAddOns do
+					local name, title, _, loadable = getAddOnInfo(i)
+					local loaded = type(isAddOnLoaded) == "function" and isAddOnLoaded(i) or false
+					if loaded or loadable then
+						local ver = (type(getAddOnMetadata) == "function" and name and getAddOnMetadata(name, "Version")) or ""
+						local stateStr = loaded and "LOADED" or "ENABLED"
+						table.insert(addonLines, string.format("%s (%s) [%s]", tostring(name or title or i), tostring(ver ~= "" and ver or "n/a"), stateStr))
+					end
+				end
+				dumpText = dumpText .. table.concat(addonLines, "\n")
+			else
+				dumpText = dumpText .. "Addon enumeration API unavailable."
+			end
 			dumpText = dumpText .. "\n\n=== RUNTIME STATE DUMP ===\n"
 			dumpText = dumpText .. "ItemRack.Version = " .. tostring(ItemRack.Version) .. "\n"
 			dumpText = dumpText .. "ItemRack.BuildID = " .. tostring(ItemRack.BuildID) .. "\n"

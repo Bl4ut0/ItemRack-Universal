@@ -805,17 +805,14 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 			local isEquippedActive = itemSpell ~= nil or (hasObservedCooldown and hasObservedCooldown.duration and hasObservedCooldown.duration > 1.5)
 			if not isEquippedActive and tonumber(enable) == 1 then
 				isEquippedActive = true
-			elseif not isEquippedActive and enable == nil and GetInventoryItemCooldown and slot then
+			elseif not isEquippedActive and GetInventoryItemCooldown and slot then
 				local _, _, slotEnable = GetInventoryItemCooldown("player", slot)
 				if tonumber(slotEnable) == 1 then
 					isEquippedActive = true
 				end
 			end
 
-			local canSwap = not ready or list[i].priority
-			if not canSwap and not matchedCurrent and not isEquippedActive and not manualHold then
-				canSwap = true
-			end
+			local canSwap = not ready or not isEquippedActive or list[i].priority
 			if manualHold and ready and i ~= currentMatchIndex then
 				canSwap = false
 			end

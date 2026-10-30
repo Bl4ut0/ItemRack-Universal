@@ -12,6 +12,7 @@ ItemRackOpt = {
 	slotOrder = {1,2,3,15,5,4,19,9,16,17,18,0,14,13,12,11,8,7,6,10,6,7,8,11,12,13,14,0,18,17,16,9,19,4,5,15,3,2},
 	currentMarquee = 1,
 	SpecDirty = false,
+	SetModified = false,
 }
 
 ItemRackOpt.FallbackSetIcon = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -527,17 +528,46 @@ function ItemRackOpt.InitializeSliders()
 	end
 end
 
+function ItemRackOpt.HasUnsavedSetChanges()
+	if not ItemRackOptSetsName then return false end
+	local setname = ItemRackOptSetsName:GetText()
+	if not setname or setname == "" then return false end
+	if ItemRackOpt.SpecDirty or ItemRackOpt.SetModified then
+		return true
+	end
+	local savedSet = ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[setname]
+	if not savedSet then
+		local useHold = (ItemRack.IsTimerActive and ItemRack.IsTimerActive("SlotMarquee"))
+			or (ItemRackOptSubFrame5 and ItemRackOptSubFrame5:IsVisible())
+		local inv = (useHold and ItemRackOpt.HoldInv) or ItemRackOpt.Inv
+		for i=0,19 do
+			if inv[i] and inv[i].selected then
+				return true
+			end
+		end
+	end
+	return false
+end
+
 function ItemRackOpt.OnShow(setname)
 	ItemRackOpt.ReflectOptScale()
+	local marqueeActive = ItemRack.IsTimerActive and ItemRack.IsTimerActive("SlotMarquee")
 	for i=0,19 do
 		ItemRackOpt.Inv[i].id = ItemRack.GetID(i)
+		if ItemRackOpt.HoldInv and ItemRackOpt.HoldInv[i] then
+			ItemRackOpt.HoldInv[i].id = ItemRackOpt.Inv[i].id
+		end
 	end
 	if ItemRackUser.CurrentSet and ItemRackUser.Sets[ItemRackUser.CurrentSet] then
 		ItemRackOptSetsName:SetText(ItemRackUser.CurrentSet)
 		ItemRackOpt.selectedIcon = ItemRackOpt.NormalizeSetIcon(ItemRackUser.Sets[ItemRackUser.CurrentSet].icon)
 		ItemRackOpt.selectedIconIndex = nil
 		for i=0,19 do
-			ItemRackOpt.Inv[i].selected = ItemRackUser.Sets[ItemRackUser.CurrentSet].equip[i] and 1 or nil
+			local slotSelected = ItemRackUser.Sets[ItemRackUser.CurrentSet].equip[i] and 1 or nil
+			ItemRackOpt.Inv[i].selected = marqueeActive and nil or slotSelected
+			if ItemRackOpt.HoldInv and ItemRackOpt.HoldInv[i] then
+				ItemRackOpt.HoldInv[i].selected = slotSelected
+			end
 		end
 	else
 		ItemRackOptSetsName:SetText("")
@@ -546,21 +576,27 @@ function ItemRackOpt.OnShow(setname)
 	end
 	ItemRackOpt.UpdateInv()
 	ItemRackOpt.SpecDirty = false
+	ItemRackOpt.SetModified = false
 	ItemRackOptSubFrame5:Hide()
 	ItemRackOpt.ListScrollFrameUpdate()
+	if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot ~= nil then
+		ItemRackOpt.SetupQueue(ItemRackOpt.SelectedSlot)
+	end
 end
 
 function ItemRackOpt.ChangeEditingSet()
 	local setname = ItemRackUser.CurrentSet
 	if setname and ItemRackUser.Sets[setname] then
 		local set = ItemRackUser.Sets[setname].equip
+		local marqueeActive = ItemRack.IsTimerActive and ItemRack.IsTimerActive("SlotMarquee")
 		for i=0,19 do
-			if set[i] then
-				ItemRackOpt.Inv[i].id = set[i]
-				ItemRackOpt.Inv[i].selected = 1
-			else
-				ItemRackOpt.Inv[i].selected = nil
-				ItemRackOpt.Inv[i].id = ItemRack.GetID(i)
+			local slotID = set[i] or ItemRack.GetID(i)
+			local slotSelected = set[i] and 1 or nil
+			ItemRackOpt.Inv[i].id = slotID
+			ItemRackOpt.Inv[i].selected = marqueeActive and nil or slotSelected
+			if ItemRackOpt.HoldInv and ItemRackOpt.HoldInv[i] then
+				ItemRackOpt.HoldInv[i].id = slotID
+				ItemRackOpt.HoldInv[i].selected = slotSelected
 			end
 		end
 		ItemRackOptSetsName:SetText(setname)
@@ -568,7 +604,11 @@ function ItemRackOpt.ChangeEditingSet()
 		ItemRackOpt.selectedIconIndex = nil
 		ItemRackOpt.UpdateInv()
 		ItemRackOpt.SpecDirty = false
+		ItemRackOpt.SetModified = false
 		ItemRackOptSubFrame5:Hide()
+		if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot ~= nil then
+			ItemRackOpt.SetupQueue(ItemRackOpt.SelectedSlot)
+		end
 	end
 end
 
@@ -623,6 +663,7 @@ function ItemRackOpt.ToggleInvSelect(self)
 		ItemRack.ChatLinkID(ItemRackOpt.Inv[id].id)
 	else
 		ItemRackOpt.Inv[id].selected = not ItemRackOpt.Inv[id].selected
+		ItemRackOpt.SetModified = true
 		ItemRackOpt.UpdateInv()
 	end
 end
@@ -637,6 +678,7 @@ function ItemRackOpt.ButtonOnClick(self)
 		for i=0,19 do
 			ItemRackOpt.Inv[i].selected = state
 		end
+		ItemRackOpt.SetModified = true
 		ItemRackOpt.UpdateInv()
 	elseif button=="ItemRackOptClose" then
 		ItemRackOptFrame:Hide()
@@ -783,6 +825,7 @@ function ItemRackOpt.SetsIconOnClick(self)
 	local idx = self:GetID() + FauxScrollFrame_GetOffset(ItemRackOptSetsIconScrollFrame)*5
 	ItemRackOpt.selectedIcon = ItemRackOpt.NormalizeSetIcon(ItemRackOpt.Icons[idx])
 	ItemRackOpt.selectedIconIndex = idx
+	ItemRackOpt.SetModified = true
 	ItemRackOptSetsCurrentSetIcon:SetTexture(ItemRackOpt.selectedIcon)
 	ItemRackOpt.SetsIconScrollFrameUpdate()
 end
@@ -798,6 +841,7 @@ function ItemRackOpt.ToggleSpec(self,specID)
 		end
 	end
 	ItemRackOpt.SpecDirty = true
+	ItemRackOpt.SetModified = true
 	-- We don't call ValidateSetButtons() here because it would reset the checkboxes from the saved table
 	ItemRackOptSetsSaveButton:Enable()
 end
@@ -883,6 +927,7 @@ function ItemRackOpt.SaveSet()
 
 	ItemRackOpt.ReconcileSetBindings()
 	ItemRackOpt.SpecDirty = false
+	ItemRackOpt.SetModified = false
 	ItemRackOpt.ValidateSetButtons()
 	ItemRack.UpdateCurrentSet()
 	ItemRack:FireItemRackEvent("ITEMRACK_SET_SAVED", setname)
@@ -1029,6 +1074,8 @@ function ItemRackOpt.LoadSet()
 		end
 		ItemRackOpt.selectedIcon = ItemRackOpt.NormalizeSetIcon(ItemRackUser.Sets[setname].icon)
 		ItemRackOpt.selectedIconIndex = nil
+		ItemRackOpt.SpecDirty = false
+		ItemRackOpt.SetModified = false
 		ItemRackOpt.UpdateInv()
 	end
 end
@@ -1223,12 +1270,17 @@ function ItemRackOpt.SelectSetList(self)
 				ItemRackOpt.Inv[i].selected = nil
 				ItemRackOpt.Inv[i].id = ItemRack.GetID(i)
 			end
+			if ItemRackOpt.HoldInv and ItemRackOpt.HoldInv[i] then
+				ItemRackOpt.HoldInv[i].id = ItemRackOpt.Inv[i].id
+				ItemRackOpt.HoldInv[i].selected = ItemRackOpt.Inv[i].selected
+			end
 		end
 
 		if ItemRackSettings.EquipOnSetPick=="ON" then
 			ItemRack.EquipSet(setname)
 		end
 		ItemRackOpt.SpecDirty = false
+		ItemRackOpt.SetModified = false
 	end
 
 	ItemRackOptSubFrame5:Hide()
@@ -1486,6 +1538,7 @@ function ItemRackOpt.OptListCheckButtonOnClick(self,override)
 	elseif opt.variable=="EnableQueues" or opt.variable=="EnablePerSetQueues" or opt.variable=="EnableQueueContextCheck" then
 		ItemRack.UpdateCombatQueue()
 		ItemRack.RefreshCustomItemIcons()
+		if ItemRack.PeriodicQueueCheck then ItemRack.PeriodicQueueCheck() end
 	elseif opt.variable=="CustomCharacterIcons" or opt.variable=="CustomMenuIcons" then
 		ItemRack.RefreshCustomItemIcons()
 		ItemRackMenuFrame:Hide()
@@ -1892,12 +1945,7 @@ function ItemRackOpt.SetupQueue(id)
 	
 	-- Determine the set being edited in the options UI
 	local uiSetName = ItemRackOptSetsName and ItemRackOptSetsName:GetText()
-	local editingSet
-	if ItemRackSettings.EquipOnSetPick == "ON" then
-		editingSet = ItemRackUser.CurrentSet
-	else
-		editingSet = (uiSetName and uiSetName ~= "" and ItemRackUser.Sets[uiSetName]) and uiSetName or ItemRackUser.CurrentSet
-	end
+	local editingSet = (uiSetName and uiSetName ~= "" and ItemRackUser.Sets[uiSetName]) and uiSetName or ItemRackUser.CurrentSet
 	
 	-- If per-set queues are on, only initialize the currently edited set's queue (not all sets)
 	if ItemRackUser.EnablePerSetQueues == "ON" then

@@ -659,11 +659,31 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 		for i in pairs(set.equip) do
 			if type(i) == "number" then ItemRack.ClearManualQueueChoice(i) end
 		end
+		if type(set.Queues) == "table" then
+			for i in pairs(set.Queues) do
+				if type(i) == "number" then ItemRack.ClearManualQueueChoice(i) end
+			end
+		end
+		if type(set.QueuesEnabled) == "table" then
+			for i in pairs(set.QueuesEnabled) do
+				if type(i) == "number" then ItemRack.ClearManualQueueChoice(i) end
+			end
+		end
 	end
 	if not isInternalSet then
 		for i in pairs(set.equip) do
 			if type(i) == "number" and ItemRack.ClearBurntQueueItems then
 				ItemRack.ClearBurntQueueItems(i)
+			end
+		end
+		if type(set.Queues) == "table" and ItemRack.ClearBurntQueueItems then
+			for i in pairs(set.Queues) do
+				if type(i) == "number" then ItemRack.ClearBurntQueueItems(i) end
+			end
+		end
+		if type(set.QueuesEnabled) == "table" and ItemRack.ClearBurntQueueItems then
+			for i in pairs(set.QueuesEnabled) do
+				if type(i) == "number" then ItemRack.ClearBurntQueueItems(i) end
 			end
 		end
 	end
@@ -1373,12 +1393,19 @@ function ItemRack.EndSetSwap(setname)
 		end
 		if ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
 			-- Only jump to the equipped set if the user isn't currently editing one
-			if not ItemRackOptSetsSaveButton:IsEnabled() then
+			if not (ItemRackOptSubFrame2 and ItemRackOptSubFrame2:IsVisible() and ItemRackOpt.HasUnsavedSetChanges and ItemRackOpt.HasUnsavedSetChanges())
+			and not (ItemRackOptSubFrame5 and ItemRackOptSubFrame5:IsVisible()) then
 				ItemRackOpt.ChangeEditingSet()
 			end
 		end
 		
 		ItemRack.UpdateCombatQueue() -- update button gear icon if per set queues is active
+		if not string.match(setname, "^~") and ItemRack.PeriodicQueueCheck then
+			ItemRack.PeriodicQueueCheck()
+			if C_Timer and C_Timer.After then
+				C_Timer.After(0, ItemRack.PeriodicQueueCheck)
+			end
+		end
 	end
 	if setname and ItemRack.EventFramePlans and ItemRack.EventFramePlans[setname]
 	and ItemRack.EventFramePlanFinished then
@@ -1630,7 +1657,19 @@ function ItemRack.UnequipSet(setname, disableSound)
 end
 
 function ItemRack.ToggleSet(setname,exact,disableSound,isSecureKeybind)
-	if ItemRack.IsSetEquipped(setname,exact) then
+	local currentSet = ItemRackUser and ItemRackUser.CurrentSet
+	local otherSetActive = currentSet and currentSet ~= setname
+		and ItemRackUser.Sets and ItemRackUser.Sets[currentSet]
+		and ItemRack.IsSetEquipped(currentSet,exact)
+	if otherSetActive and ItemRackUser.Sets then
+		for sName, sData in pairs(ItemRackUser.Sets) do
+			if not string.match(sName, "^~") and sData.oldset == setname and sName ~= setname then
+				otherSetActive = false
+				break
+			end
+		end
+	end
+	if not otherSetActive and ItemRack.IsSetEquipped(setname,exact) then
 --		print("remove "..setname)
 		ItemRack.UnequipSet(setname,disableSound)
 	else

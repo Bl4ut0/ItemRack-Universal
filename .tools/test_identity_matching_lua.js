@@ -4,8 +4,10 @@ const { extractFunction, runLua } = require('./lib/lua_harness');
 const core = 'ItemRack/ItemRack.lua';
 const queue = 'ItemRack/ItemRackQueue.lua';
 const options = 'ItemRackOptions/ItemRackOptions.lua';
-// October 8 report/video: https://imgur.com/a/v7eD8FY (attached OLaVTW6.mp4).
-// Native layout is modeled; this verifies the anchor contract, not client rendering.
+// October 8 report/video & GitHub Issue #34 (Spiritshroud08 / Zackk):
+// Verifies character-slot and flyout tooltip anchoring without ANCHOR_NONE
+// (which broke GameTooltip_ShowCompareItem on Rings/Weapons/TipTac/RatingBuster)
+// and verifies UpdateTooltip registration (preventing the 0.2s TBC flicker).
 const tooltipSource = fs.readFileSync(core, 'utf8');
 const anchorHooks = tooltipSource.slice(tooltipSource.indexOf('hooksecurefunc(GameTooltip, "Show",'),
   tooltipSource.indexOf('function ItemRack.DockMenuToCharacterSheet'));
@@ -13,20 +15,30 @@ runLua(String.raw`
 ItemRack={SlotInfo={}}
 for i=0,19 do ItemRack.SlotInfo[i]={name='Slot'..i} end
 ItemRack.SlotInfo[11].name='Finger0Slot'
-ItemRackSettings={CharacterSheetMenus='ON',MenuOnShift='OFF',RightSlotsGoLeft='OFF',LeftSlotsGoRight='ON'}
+ItemRackSettings={CharacterSheetMenus='ON',MenuOnShift='OFF',RightSlotsGoLeft='OFF',LeftSlotsGoRight='ON',TooltipFollow='OFF'}
+UIParent={GetEffectiveScale=function() return 1 end,GetWidth=function() return 1920 end}
 local slot={scripts={},GetName=function() return 'CharacterFinger0Slot' end,GetTop=function() return 300 end}
 function slot:GetScript(name) return self.scripts[name] end
 function slot:SetScript(name,handler) self.scripts[name]=handler end
 CharacterFinger0Slot=slot
-ItemRackMenuFrame={visible=true,IsVisible=function(s) return s.visible end,
-  GetName=function() return 'ItemRackMenuFrame' end,GetTop=function() return 300 end}
+ItemRackMenuFrame={visible=true,left=300,right=420,
+  IsVisible=function(s) return s.visible end,
+  GetName=function() return 'ItemRackMenuFrame' end,
+  GetTop=function() return 300 end,
+  GetEffectiveScale=function() return 1 end,
+  GetLeft=function(s) return s.left end,
+  GetRight=function(s) return s.right end}
 GameTooltip={alpha=1,owner=slot,side='none',scripts={},content='saved item',ownerCalls=0}
 function GameTooltip:SetAlpha(a) self.alpha=a end
 function GameTooltip:GetOwner() return self.owner end
 function GameTooltip:SetOwner(o,a) self.owner=o; self.nativeAnchor=a; self.side=a; self.ownerCalls=self.ownerCalls+1 end
 function GameTooltip:SetAnchorType(a) self.nativeAnchor=a end
+function GameTooltip:GetAnchorType() return self.nativeAnchor end
 function GameTooltip:ClearAllPoints() end
-function GameTooltip:SetPoint(p,_,_,_,y) self.side=p=='TOPRIGHT' and 'LEFT' or 'RIGHT'; self.y=y end
+function GameTooltip:SetPoint(p,relTo,relPoint,x,y)
+  self.point=p; self.relTo=relTo; self.relPoint=relPoint
+  self.side=p=='TOPRIGHT' and 'LEFT' or 'RIGHT'; self.y=y
+end
 function GameTooltip:Show() end
 function GameTooltip:HookScript(n,f) self.scripts[n]=f end
 function hooksecurefunc(t,n,f) local old=t[n]; t[n]=function(self,...) old(self,...); f(self,...) end end
@@ -35,19 +47,19 @@ ItemRack.IsEquipmentManagerOpen=function() return false end
 ItemRack.DockMenuToCharacterSheet=function(s) ItemRack.menuDockedTo=s:GetName(); ItemRackMenuFrame.visible=true end
 local nativeEnterCalls=0
 ItemRack.oldPaperDollItemSlotButton_OnEnter=function(s) nativeEnterCalls=nativeEnterCalls+1; GameTooltip:SetOwner(s,'ANCHOR_RIGHT'); GameTooltip:Show() end
+${extractFunction(core,'ItemRack.GetMenuFrameTooltipSide')}
+${extractFunction(core,'ItemRack.AnchorTooltip')}
 ${extractFunction(core,'ItemRack.ApplyTooltipAnchor')}
 ${extractFunction(core,'PaperDollItemSlotButton_OnEnter')}
 ${extractFunction(core,'ItemRack.RegisterCharacterSlotOnEnterHandlers')}
 ${anchorHooks}
-local function nativeLayout()
-  if GameTooltip.nativeAnchor~='ANCHOR_NONE' then GameTooltip.side='RIGHT' end
-end
--- October 11 Forever evidence: CharacterHandsSlot:GetScript('OnEnter') compared
--- false to ItemRack's global wrapper and true to the captured native handler.
--- Start from that real dispatch shape and require explicit, idempotent repair.
+-- Issue #34 + Forever evidence: both OnEnter script AND button.UpdateTooltip field
+-- must be updated from oldPaperDollItemSlotButton_OnEnter to PaperDollItemSlotButton_OnEnter.
 slot.scripts.OnEnter=ItemRack.oldPaperDollItemSlotButton_OnEnter
-assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==1,'Forever-bound native character handler must be replaced explicitly')
-assert(slot:GetScript('OnEnter')==PaperDollItemSlotButton_OnEnter,'character slot must dispatch through ItemRack wrapper')
+slot.UpdateTooltip=ItemRack.oldPaperDollItemSlotButton_OnEnter
+assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==1,'Native character OnEnter and UpdateTooltip handlers must be replaced explicitly')
+assert(slot:GetScript('OnEnter')==PaperDollItemSlotButton_OnEnter,'character slot OnEnter must dispatch through ItemRack wrapper')
+assert(slot.UpdateTooltip==PaperDollItemSlotButton_OnEnter,'character slot UpdateTooltip must dispatch through ItemRack wrapper to prevent 0.2s flicker')
 assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==0,'character handler registration must be idempotent')
 slot:GetScript('OnEnter')(slot)
 assert(nativeEnterCalls==1,'registered ItemRack wrapper must invoke the captured native handler exactly once')
@@ -55,47 +67,52 @@ for _,count in ipairs({1,2,40}) do
   ItemRack.Menu={}; for i=1,count do ItemRack.Menu[i]=i end
   ItemRack.menuDockedTo=nil
   PaperDollItemSlotButton_OnEnter(slot)
-  assert(GameTooltip.nativeAnchor=='ANCHOR_NONE','reported tooltip hop: manual placement must disable native side anchoring')
-  assert(GameTooltip.side=='LEFT' and GameTooltip.alpha==1,'ring tooltip must retain intended left placement')
+  assert(GameTooltip.nativeAnchor=='ANCHOR_RIGHT','Issue #34: manual placement must NOT set ANCHOR_NONE or comparison tooltips will vanish')
+  assert(GameTooltip.side=='RIGHT' and GameTooltip.relTo==ItemRackMenuFrame,'right-side slot tooltip must chain to the right of ItemRackMenuFrame, not over the character panel')
   local ownerCalls=GameTooltip.ownerCalls
   for i=1,3 do
-    nativeLayout()
-    assert(GameTooltip.side=='LEFT','layout refresh must not expose a right-side intermediate position')
     GameTooltip:Show()
-    assert(GameTooltip.side=='LEFT','Show refresh must keep left placement')
+    assert(GameTooltip.side=='RIGHT' and GameTooltip.relTo==ItemRackMenuFrame,'Show refresh (e.g. Syndicator) must keep tooltip to the right of ItemRackMenuFrame')
   end
   assert(GameTooltip.owner==slot and GameTooltip.content=='saved item' and GameTooltip.ownerCalls==ownerCalls,
-    'positioning must preserve native owner/content without rebuilding or showing item data')
+    'positioning must preserve native owner/content without rebuilding item data')
 end
-ItemRackSettings.RightSlotsGoLeft='ON'; PaperDollItemSlotButton_OnEnter(slot)
-assert(GameTooltip.side=='RIGHT' and GameTooltip.nativeAnchor=='ANCHOR_NONE','opposite menu direction must retain right tooltip placement')
--- Stale vertical alignment must not leak from flyout rows into an equipped slot.
-ItemRack.pendingTooltipVerticalOwner={GetTop=function() return 999 end}
+-- When character sheet + menu are near the right edge of the screen, fall back to left side of slot
+ItemRackMenuFrame.left=1600; ItemRackMenuFrame.right=1850
 PaperDollItemSlotButton_OnEnter(slot)
-assert(GameTooltip.y==0,'new character hover must clear stale flyout vertical offset')
+assert(GameTooltip.side=='LEFT' and GameTooltip.relTo==slot,'near right screen edge, slot tooltip must fall back to left of slot')
+ItemRackMenuFrame.left=300; ItemRackMenuFrame.right=420
+
+-- Opposite menu direction (RightSlotsGoLeft == ON): leave Blizzard native ANCHOR_RIGHT untouched
+ItemRackSettings.RightSlotsGoLeft='ON'; PaperDollItemSlotButton_OnEnter(slot)
+assert(ItemRack.pendingTooltipAnchor==nil and GameTooltip.nativeAnchor=='ANCHOR_RIGHT','opposite menu direction must leave native right tooltip placement untouched')
+ItemRackSettings.RightSlotsGoLeft='OFF'
+
 -- Unrelated owners and another character slot must not inherit the pending anchor.
 for _,name in ipairs({'ActionButton1','ContainerFrame1Item1','ItemRackButton11','ItemRackOptInv11','CharacterSlot8'}) do
-  ItemRack.pendingTooltipOwner=slot; ItemRack.pendingTooltipAnchor='ANCHOR_LEFT'
+  ItemRack.pendingTooltipOwner=ItemRackMenuFrame; ItemRack.pendingTooltipAnchor='ANCHOR_RIGHT'
   GameTooltip:SetOwner({GetName=function() return name end},'ANCHOR_RIGHT')
   GameTooltip:Show()
   assert(GameTooltip.nativeAnchor=='ANCHOR_RIGHT' and GameTooltip.side=='ANCHOR_RIGHT','unrelated tooltip must remain untouched: '..name)
   assert(ItemRack.pendingTooltipAnchor==nil,'unrelated tooltip must clear stale override')
 end
--- A flyout tooltip retains its real owner and row alignment.
+
+-- Flyout menu buttons (ItemRackMenu1..N) must anchor natively to ItemRackMenuFrame
+-- so tooltips stay outside multi-column breakouts and retain a valid nativeAnchor for ShoppingTooltips.
 local row={GetName=function() return 'ItemRackMenu1' end,GetTop=function() return 250 end}
-GameTooltip:SetOwner(row,'ANCHOR_RIGHT'); ItemRack.pendingTooltipOwner=ItemRackMenuFrame
-ItemRack.pendingTooltipAnchor='ANCHOR_RIGHT'; ItemRack.pendingTooltipVerticalOwner=row
-GameTooltip:Show()
-assert(GameTooltip.owner==row and GameTooltip.nativeAnchor=='ANCHOR_NONE' and GameTooltip.y==-50,
-  'flyout alignment must not change tooltip ownership')
+ItemRack.menuDockedTo='CharacterFinger0Slot'
+ItemRack.AnchorTooltip(row)
+assert(GameTooltip.owner==ItemRackMenuFrame and GameTooltip.nativeAnchor=='ANCHOR_RIGHT',
+  'Issue #34: flyout button must use native SetOwner(ItemRackMenuFrame, ANCHOR_RIGHT) to prevent overlap and preserve comparison tooltips')
+ItemRackMenuFrame.left=1600; ItemRackMenuFrame.right=1850
+ItemRack.AnchorTooltip(row)
+assert(GameTooltip.owner==ItemRackMenuFrame and GameTooltip.nativeAnchor=='ANCHOR_LEFT',
+  'Issue #34: flyout button near right screen edge must use native SetOwner(ItemRackMenuFrame, ANCHOR_LEFT)')
+ItemRackMenuFrame.left=300; ItemRackMenuFrame.right=420
+
 GameTooltip.scripts.OnHide()
 assert(not ItemRack.pendingTooltipAnchor and not ItemRack.pendingTooltipOwner and not ItemRack.pendingTooltipVerticalOwner,
   'hide must clear the complete positioning context')
--- Missing API clients must not crash or clear item data; live behavior remains acceptance.
-GameTooltip.SetAnchorType=nil; ItemRack.menuDockedTo=slot:GetName()
-GameTooltip:SetOwner(slot,'ANCHOR_RIGHT'); ItemRack.pendingTooltipOwner=slot; ItemRack.pendingTooltipAnchor='ANCHOR_LEFT'
-ItemRack.ApplyTooltipAnchor()
-assert(GameTooltip.side=='LEFT' and GameTooltip.content=='saved item','missing anchor API fallback must remain safe')
 ItemRackSettings.CharacterSheetMenus='OFF'; ItemRack.pendingTooltipAnchor=nil; ItemRackMenuFrame.visible=false
 PaperDollItemSlotButton_OnEnter(slot)
 assert(GameTooltip.nativeAnchor=='ANCHOR_RIGHT','disabled character menus must retain native tooltip behavior')
@@ -240,6 +257,37 @@ compareCalls = 0
 ItemRack.ShowBreakoutComparison(owner)
 assert(mouseDisabled == 2, 'ShowBreakoutComparison must disable mouse capture on ShoppingTooltip1/2 to prevent OnLeave flicker loops')
 assert(compareCalls == 1, 'ShowBreakoutComparison must invoke GameTooltip_ShowCompareItem')
+
+-- Issue #34 / Retail validation: ShowBreakoutComparison must NOT show comparison tooltips for:
+-- 1) Options slot/queue pickers (ItemRack.menuInclude)
+compareCalls = 0
+ItemRack.menuInclude = 1
+ItemRack.ShowBreakoutComparison(owner)
+assert(compareCalls == 0, 'ShowBreakoutComparison must not trigger on Options menuInclude pickers')
+ItemRack.menuInclude = nil
+
+-- 2) Set menus (ItemRack.menuOpen >= 20)
+ItemRack.menuOpen = 20
+ItemRack.ShowBreakoutComparison(owner)
+assert(compareCalls == 0, 'ShowBreakoutComparison must not trigger on Set menus (menuOpen >= 20)')
+ItemRack.menuOpen = 11
+
+-- 3) Empty slot (0) or MENU entries
+ItemRack.Menu[1] = 0
+ItemRack.ShowBreakoutComparison(owner)
+assert(compareCalls == 0, 'ShowBreakoutComparison must not trigger on empty slot entry')
+ItemRack.Menu[1] = '100'
+
+-- 4) Already-equipped items (GameTooltip:IsEquippedItem())
+GameTooltip.IsEquippedItem = function() return true end
+ItemRack.ShowBreakoutComparison(owner)
+assert(compareCalls == 0, 'ShowBreakoutComparison must not compare an already-equipped item against itself')
+GameTooltip.IsEquippedItem = function() return false end
+
+-- 5) Shrunk / TinyTooltips (ShrinkTooltip returns true)
+ItemRack.ShrinkTooltip = function() return true end
+hoverBreakout()
+assert(compareCalls == 0, 'TinyTooltips / shrunk tooltips must suppress automatic breakout comparison')
 `, 'forever-breakout-comparison-default');
 
 const functions = [
