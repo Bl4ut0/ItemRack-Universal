@@ -230,6 +230,7 @@ local function CaptureBackup(user,now)
 		capturedAt=type(now) == "function" and now() or nil,
 		global=DeepCopy(user.Queues),
 		globalEnabled=DeepCopy(user.QueuesEnabled),
+		queueSets=DeepCopy(user.QueueSets),
 		sets={},
 		setsEnabled={},
 	}
@@ -326,6 +327,45 @@ function Migration.Migrate(user,legacyItems,getBaseID,now)
 					"set_enabled:"..tostring(setname),report)
 				NormalizeEnabledValues(user,set.QueuesEnabled,
 					"set_enabled:"..tostring(setname),report)
+			end
+		end
+	end
+
+	if user.QueueSets == nil then
+		user.QueueSets = {}
+	elseif type(user.QueueSets) ~= "table" then
+		report.queuesQuarantined = report.queuesQuarantined + 1
+		RecordQuarantine(user,"queueset_root",nil,nil,user.QueueSets,"invalid_queue_root")
+		user.QueueSets = {}
+	end
+	for queuesetname,queueset in pairs(user.QueueSets) do
+		if type(queueset) == "table" then
+			if queueset.Queues ~= nil then
+				if type(queueset.Queues) ~= "table" then
+					report.queuesQuarantined = report.queuesQuarantined + 1
+					RecordQuarantine(user,"queueset:"..tostring(queuesetname),nil,nil,
+						queueset.Queues,"invalid_queue_root")
+					queueset.Queues = {}
+				end
+				NormalizeSlotKeys(user,queueset.Queues,"queueset:"..tostring(queuesetname),report)
+				for slot,queue in pairs(queueset.Queues) do
+					if type(slot) == "number" then
+						NormalizeQueueSlot(user,queueset.Queues,slot,
+							"queueset:"..tostring(queuesetname),slot,legacyItems,getBaseID,report)
+					end
+				end
+			end
+			if queueset.QueuesEnabled ~= nil then
+				if type(queueset.QueuesEnabled) ~= "table" then
+					report.queuesQuarantined = report.queuesQuarantined + 1
+					RecordQuarantine(user,"queueset_enabled:"..tostring(queuesetname),nil,nil,
+						queueset.QueuesEnabled,"invalid_queue_root")
+					queueset.QueuesEnabled = {}
+				end
+				NormalizeSlotKeys(user,queueset.QueuesEnabled,
+					"queueset_enabled:"..tostring(queuesetname),report)
+				NormalizeEnabledValues(user,queueset.QueuesEnabled,
+					"queueset_enabled:"..tostring(queuesetname),report)
 			end
 		end
 	end

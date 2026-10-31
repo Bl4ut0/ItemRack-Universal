@@ -300,6 +300,66 @@ ItemRackUser={QueueSchemaVersion=2,EnablePerSetQueues="ON",CurrentSet="Stealth",
     "repeat login migration must be idempotent without spurious recovery state")
 end
 
+-- Named queue-sets carry the same per-slot queue shape as sets, so migration
+-- must normalize and back them up identically, and initialize a missing root.
+do
+  local user = {
+    Queues={}, QueuesEnabled={},
+    QueueSets={
+      Mounted={
+        Queues={ ["13"]={ 111, 0, "222:5" }, [14]={ [1]={ id="333" }, [4]=444 } },
+        QueuesEnabled={ ["13"]="ON", [14]="bad" },
+      },
+      Broken={ Queues="not-a-table", QueuesEnabled="not-a-table" },
+    },
+    Sets={},
+  }
+  local legacy = { ["111"]={ priority=1, delay=7 }, ["222"]={ keep=1 } }
+  local report = ItemRack.QueueMigration.Migrate(user,legacy,baseID,function() return 4242 end)
+  check(user.QueueSets.Mounted.Queues[13][1].id == 111 and
+    user.QueueSets.Mounted.Queues[13][1].priority == true and
+    user.QueueSets.Mounted.Queues[13][1].delay == 7 and
+    user.QueueSets.Mounted.Queues["13"] == nil,
+    "queue-set slot keys and legacy metadata must normalize like set queues")
+  check(user.QueueSets.Mounted.Queues[13][3].id == "222:5" and
+    user.QueueSets.Mounted.Queues[13][3].keep == true,
+    "queue-set extended item strings must resolve legacy metadata by base ID")
+  check(user.QueueSets.Mounted.Queues[14][2].id == 0 and
+    user.QueueSets.Mounted.Queues[14][3].id == 444,
+    "sparse queue-set entries must sit behind an inserted stop boundary")
+  check(user.QueueSets.Mounted.QueuesEnabled[13] == true and
+    user.QueueSets.Mounted.QueuesEnabled[14] == false,
+    "queue-set enabled values must canonicalize with malformed values failing closed")
+  check(type(user.QueueSets.Broken.Queues) == "table" and
+    next(user.QueueSets.Broken.Queues) == nil and
+    type(user.QueueSets.Broken.QueuesEnabled) == "table" and
+    next(user.QueueSets.Broken.QueuesEnabled) == nil,
+    "malformed queue-set roots must become safe empty tables")
+  check(countReason(user.QueueMigrationQuarantine,"invalid_queue_root") >= 2,
+    "corrupt queue-set roots must retain reasoned quarantine records")
+  check(user.QueueMigrationBackup.queueSets.Mounted.Queues["13"][1] == 111 and
+    user.QueueMigrationBackup.queueSets.Broken.Queues == "not-a-table",
+    "the backup must capture queue-sets before any repair")
+  local rerun = ItemRack.QueueMigration.Migrate(user,{},baseID)
+  check(rerun.entriesChanged == 0,
+    "a second pass over canonical queue-sets must be idempotent")
+end
+
+do
+  local user = { Queues={}, QueuesEnabled={}, QueueSets=false, Sets={} }
+  local report = ItemRack.QueueMigration.Migrate(user,{},baseID)
+  check(type(user.QueueSets) == "table" and next(user.QueueSets) == nil and
+    countReason(user.QueueMigrationQuarantine,"invalid_queue_root") == 1,
+    "a corrupt queue-set root must be backed up, quarantined, and made safe")
+end
+
+do
+  local user = { Queues={}, QueuesEnabled={}, Sets={} }
+  ItemRack.QueueMigration.Migrate(user,{},baseID)
+  check(type(user.QueueSets) == "table" and next(user.QueueSets) == nil,
+    "a profile without queue-sets must initialize an empty root")
+end
+
 print(string.format("[QUEUE MIGRATION LUA] %d upgrade, recovery, and idempotence checks passed.",checks))
 `, 'queue-migration');
 
