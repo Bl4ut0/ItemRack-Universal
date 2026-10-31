@@ -3,6 +3,8 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+### Features
+- **Shared queue-sets**: Added named, reusable queue-sets that hold a full set of per-slot cooldown queues and can be activated for any number of situations, either by binding them to events or by selecting one manually, mirroring how equipment sets activate. Queue-set resolution is strictly additive and layered: a saved set's own in-set queue always wins, then the active queue-set (manual selection outranks the event stack, highest event wins), then Global Queues. Gated by a new character-specific **Enable queue-sets** option (fresh-profile default `OFF`, requires **Enable AutoQueue**); works even when per-set equipment queues are off. Added `/itemrack queueset <name>|off|list` and `/itemrack queueset event <eventName> => <name>`. The Queue tab gained a source picker that edits Global Queues, any standalone queue-set, or any equipment set's in-set queue directly (removing the prior step of selecting the set on the Sets tab first) and can create new queue-sets. Queue-sets flow through the same schema migration, backup, quarantine, and `/itemrack dump` export paths as existing queues, and stale event/manual references are cleaned up on deletion. Added production-Lua regressions for resolver precedence, migration normalization, management, slash dispatch, source-list population, and dump export; live Queue-tab rendering and event-binding from the tab remain client-acceptance checks.
 
 
 ## [4.56.1] - 2026-10-16

@@ -1,4 +1,5 @@
 __ Development __
+- Added shared queue-sets: named, reusable sets of per-slot cooldown queues that activate by event binding or manual selection, for any number of situations. A saved set's own in-set queue always wins, then the active queue-set, then Global Queues. New character option "Enable queue-sets" (default OFF, requires Enable AutoQueue). New commands: /itemrack queueset <name>|off|list and /itemrack queueset event <eventName> => <name>. The Queue tab can now edit Global Queues, any queue-set, or any set's in-set queue directly and create new queue-sets. Queue-sets use the same migration, backup, and dump paths as existing queues.
 
 __ New in 4.56.1 - By Bl4ut0 __
 - Fixed weapon-only set hotkeys failing to swap weapons in combat when "Full-set hotkeys swap weapons in combat" is OFF and the set has a specialization checkbox assigned to the current spec or on a single-spec character. Weapon-only sets now keep their immediate combat macro unless equipping the set requires switching talent groups, and set bindings refresh when the active talent group changes.

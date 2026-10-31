@@ -208,6 +208,12 @@ SLASH COMMANDS
 /itemrack toggle <set one>, <set two>
   Switch between two saved sets.
 
+/itemrack queueset <name>
+  Manually activate a queue-set. Use "off" to clear, "list" to list them.
+
+/itemrack queueset event <event name> => <name>
+  Activate a queue-set while an event is active. Omit "=> <name>" to clear.
+
 /itemrack lock
 /itemrack unlock
   Lock or unlock quick-access buttons.
@@ -364,6 +370,11 @@ Sets, AutoQueue & Events:
 * Inherit previous set queues [Character-specific; Fresh-profile default: ON]
   Lets partial sets inherit queue context for untouched slots from the prior
   active set.
+* Enable queue-sets [Character-specific; Fresh-profile default: OFF; requires
+  Enable AutoQueue] Allows shared queue-sets, selected by event or manually, to
+  drive AutoQueue. A queue-set holds a full set of per-slot queues and can apply
+  to any number of activations. A saved set's own in-set queue always wins over
+  a queue-set, which in turn wins over Global Queues.
 * Full-set hotkeys swap weapons in combat [Account-wide; Fresh-profile default:
   OFF] Applies only to saved-set keys assigned with Sets > Bind Key. Weapon-only
   bound sets already use a secure combat action. When enabled, a bound full set
