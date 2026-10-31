@@ -1,7 +1,10 @@
 const { extractFunction, runLua } = require('./lib/lua_harness');
+const fs = require('fs');
 
 const queueFile = 'ItemRack/ItemRackQueue.lua';
 const equipFile = 'ItemRack/ItemRackEquip.lua';
+const policySource = fs.readFileSync('ItemRack/ItemRackQueuePolicy.lua', 'utf8');
+const getEventQueueSet = extractFunction('ItemRack/ItemRackEvents.lua', 'ItemRack.GetEventQueueSet');
 const clearManual = extractFunction(queueFile, 'ItemRack.ClearManualQueueChoice');
 const findQueueEntry = extractFunction(queueFile, 'ItemRack.FindQueueEntryIndex');
 const isManual = extractFunction(queueFile, 'ItemRack.IsManualQueueChoice');
@@ -127,6 +130,29 @@ diagnosticEvents = {}
 local heldNonProxy = ItemRack.ShouldHoldEquippedItem(13, "200", "200")
 check(heldNonProxy == true, "non-proxy item within threshold must be held")
 check(diagnosticEvents[1].data.proxy == nil, "non-proxy item must report nil proxy in QueueDiagnostic")
+
+-- The GetEventQueueSet accessor, fed through GetQueueContext into the resolver,
+-- must surface an event-mapped queue-set end to end.
+${policySource}
+${getEventQueueSet}
+ItemRackUser = {
+  EnablePerSetQueues="ON", EnableQueueContextCheck="ON", EnableQueueSets="ON",
+  CurrentSet="Current",
+  Queues={}, QueuesEnabled={},
+  Events={ Set={}, QueueSet={ Mounted="Mount QS" } },
+  EventStack={ "Mounted" },
+  Sets={ Current={ equip={} } },
+  QueueSets={ ["Mount QS"]={ Queues={ [13]={ { id="MQ" } } }, QueuesEnabled={ [13]=true } } },
+}
+function ItemRack.GetQueueContext(slot,setname)
+  return ItemRack.QueuePolicy.Resolve(ItemRackUser,ItemRack.GetEventSet,slot,setname,ItemRack.GetEventQueueSet)
+end
+check(ItemRack.GetEventQueueSet("Mounted") == "Mount QS",
+  "GetEventQueueSet must return the event's mapped queue-set name")
+local wired = ItemRack.GetQueueContext(13)
+check(wired.owner == "queueset:Mount QS" and wired.list[1].id == "MQ"
+  and wired.reason == "event_queue_set",
+  "GetQueueContext must surface the event-mapped queue-set through the resolver")
 
 print(string.format("[QUEUE RUNTIME LUA] %d purity and provenance checks passed.",checks))
 `, 'queue-runtime');

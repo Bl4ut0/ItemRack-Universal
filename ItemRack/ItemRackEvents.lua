@@ -893,6 +893,10 @@ function ItemRack.GetEventSet(eventName)
 	return ItemRackUser.Events.Set[eventName]
 end
 
+function ItemRack.GetEventQueueSet(eventName)
+	return ItemRackUser.Events.QueueSet and ItemRackUser.Events.QueueSet[eventName]
+end
+
 function ItemRack.GetEventDisableSound(eventName)
 	if ItemRack.ScriptEventDisableSound and ItemRack.ScriptEventDisableSound[eventName] ~= nil then
 		return ItemRack.ScriptEventDisableSound[eventName]

@@ -6762,7 +6762,7 @@ function ItemRack.GetQueueContext(slot,setname)
 	if ItemRack.QueueSchemaUnsupported then
 		return { owner=false, list=nil, enabled=false, reason="unsupported_schema" }
 	end
-	return ItemRack.QueuePolicy.Resolve(ItemRackUser,ItemRack.GetEventSet,slot,setname)
+	return ItemRack.QueuePolicy.Resolve(ItemRackUser,ItemRack.GetEventSet,slot,setname,ItemRack.GetEventQueueSet)
 end
 
 local function QueueFieldProxy(field,setname)
