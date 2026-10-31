@@ -140,3 +140,100 @@ function QueuePolicy.Resolve(user,getEventSet,slot,explicitSetName,getEventQueue
 
 	return FromGlobal(user,slot,"global_fallback")
 end
+
+local function DeepCopy(value)
+	if type(value) ~= "table" then return value end
+	local copy = {}
+	for key,item in pairs(value) do
+		copy[key] = DeepCopy(item)
+	end
+	return copy
+end
+
+-- Pure queue-set management. Each operation mutates only the passed user table so
+-- it stays testable in the production-Lua harness; thin ItemRack wrappers bind
+-- ItemRackUser and refresh UI where needed.
+function QueuePolicy.CreateQueueSet(user,name)
+	if type(user) ~= "table" or type(name) ~= "string" or name == "" then return nil end
+	user.QueueSets = user.QueueSets or {}
+	if not user.QueueSets[name] then
+		user.QueueSets[name] = { Queues={}, QueuesEnabled={} }
+	end
+	return user.QueueSets[name]
+end
+
+function QueuePolicy.ClearQueueSetReferences(user,name)
+	if type(user) ~= "table" or type(name) ~= "string" then return end
+	if user.CurrentQueueSet == name then user.CurrentQueueSet = nil end
+	if type(user.Events) == "table" and type(user.Events.QueueSet) == "table" then
+		for eventName,queueSetName in pairs(user.Events.QueueSet) do
+			if queueSetName == name then user.Events.QueueSet[eventName] = nil end
+		end
+	end
+end
+
+function QueuePolicy.DeleteQueueSet(user,name)
+	if type(user) ~= "table" or type(name) ~= "string" then return false end
+	if not (user.QueueSets and user.QueueSets[name]) then return false end
+	user.QueueSets[name] = nil
+	QueuePolicy.ClearQueueSetReferences(user,name)
+	return true
+end
+
+function QueuePolicy.RenameQueueSet(user,oldName,newName)
+	if type(user) ~= "table" or type(oldName) ~= "string" or type(newName) ~= "string"
+	or newName == "" or oldName == newName then return false end
+	if not (user.QueueSets and user.QueueSets[oldName]) or user.QueueSets[newName] then
+		return false
+	end
+	user.QueueSets[newName] = user.QueueSets[oldName]
+	user.QueueSets[oldName] = nil
+	if user.CurrentQueueSet == oldName then user.CurrentQueueSet = newName end
+	if type(user.Events) == "table" and type(user.Events.QueueSet) == "table" then
+		for eventName,queueSetName in pairs(user.Events.QueueSet) do
+			if queueSetName == oldName then user.Events.QueueSet[eventName] = newName end
+		end
+	end
+	return true
+end
+
+function QueuePolicy.CopySetQueues(user,setName,queueSetName)
+	if type(user) ~= "table" or type(setName) ~= "string" or type(queueSetName) ~= "string"
+	or queueSetName == "" then return false end
+	local set = user.Sets and user.Sets[setName]
+	if type(set) ~= "table" then return false end
+	user.QueueSets = user.QueueSets or {}
+	user.QueueSets[queueSetName] = {
+		Queues = DeepCopy(set.Queues) or {},
+		QueuesEnabled = DeepCopy(set.QueuesEnabled) or {},
+	}
+	return true
+end
+
+function QueuePolicy.SelectQueueSet(user,name)
+	if type(user) ~= "table" then return false end
+	if name == nil then
+		user.CurrentQueueSet = nil
+		return true
+	end
+	if type(name) ~= "string" or not (user.QueueSets and user.QueueSets[name]) then
+		return false
+	end
+	user.CurrentQueueSet = name
+	return true
+end
+
+function QueuePolicy.SetEventQueueSet(user,eventName,name)
+	if type(user) ~= "table" or type(eventName) ~= "string" then return false end
+	user.Events = user.Events or {}
+	user.Events.QueueSet = user.Events.QueueSet or {}
+	if name == nil then
+		user.Events.QueueSet[eventName] = nil
+		return true
+	end
+	if type(name) ~= "string" or not (user.QueueSets and user.QueueSets[name]) then
+		return false
+	end
+	user.Events.QueueSet[eventName] = name
+	return true
+end

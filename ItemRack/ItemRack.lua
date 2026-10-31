@@ -6795,6 +6795,34 @@ function ItemRack.GetActiveQueueOwner(slot, setname)
 	return ItemRack.GetQueueContext(slot,setname).owner
 end
 
+function ItemRack.CreateQueueSet(name)
+	return ItemRack.QueuePolicy.CreateQueueSet(ItemRackUser,name)
+end
+
+function ItemRack.DeleteQueueSet(name)
+	local removed = ItemRack.QueuePolicy.DeleteQueueSet(ItemRackUser,name)
+	if removed then ItemRack.UpdateCombatQueue() end
+	return removed
+end
+
+function ItemRack.RenameQueueSet(oldName,newName)
+	return ItemRack.QueuePolicy.RenameQueueSet(ItemRackUser,oldName,newName)
+end
+
+function ItemRack.CopySetQueuesToQueueSet(setName,queueSetName)
+	return ItemRack.QueuePolicy.CopySetQueues(ItemRackUser,setName,queueSetName)
+end
+
+function ItemRack.SelectQueueSet(name)
+	local ok = ItemRack.QueuePolicy.SelectQueueSet(ItemRackUser,name)
+	if ok then ItemRack.UpdateCombatQueue() end
+	return ok
+end
+
+function ItemRack.SetEventQueueSet(eventName,name)
+	return ItemRack.QueuePolicy.SetEventQueueSet(ItemRackUser,eventName,name)
+end
+
 -- returns Queues for the current set if EnablePerSetQueues is enabled, otherwise the global Queues
 -- Does NOT lazily create empty tables — that's SetupQueue's job
 --

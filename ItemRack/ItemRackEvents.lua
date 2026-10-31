@@ -477,6 +477,16 @@ function ItemRack.CleanupEvents()
 			event.Enabled[i] = nil
 		end
 	end
+
+	-- drop queue-set mappings for events or queue-sets that no longer exist
+	if event.QueueSet then
+		for i,queueSetName in pairs(event.QueueSet) do
+			if not ItemRackEvents[i]
+			or not (ItemRackUser.QueueSets and ItemRackUser.QueueSets[queueSetName]) then
+				event.QueueSet[i] = nil
+			end
+		end
+	end
 end
 
 function ItemRack.MigrateDefaultScriptEvents()

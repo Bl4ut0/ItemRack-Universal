@@ -34,6 +34,7 @@ OmniCC_Config/
 !.tools/test_event_integration_lua.js
 !.tools/test_event_processors_lua.js
 !.tools/test_queue_policy_lua.js
+!.tools/test_queue_sets_lua.js
 !.tools/test_queue_runtime_lua.js
 !.tools/test_queue_intents_lua.js
 !.tools/test_queue_migration_lua.js
