@@ -92,6 +92,8 @@ All 20 ItemRack equipment slots can be bound directly via the native WoW interfa
 | `/itemrack queueset off` | Clears the manual queue-set selection |
 | `/itemrack queueset list` | Lists the configured queue-sets |
 | `/itemrack queueset event <eventName> => <name>` | Binds an event to a queue-set (omit `=> <name>` to clear) |
+| `/itemrack queueset rename <old> => <new>` | Renames a queue-set |
+| `/itemrack queueset copy <setName> => <name>` | Copies a set's in-set queues into a queue-set |
 | `/itemrack lock` | Locks all buttons in place |
 | `/itemrack unlock` | Unlocks buttons for repositioning |
 | `/itemrack reset` | Resets all buttons and positions |

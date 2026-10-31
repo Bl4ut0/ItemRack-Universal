@@ -127,6 +127,8 @@ do
   ItemRack.Print = function(msg) table.insert(calls,msg) end
   ItemRack.SelectQueueSet = function(name) table.insert(calls,{ select=name == nil and "<nil>" or name }); return name == nil or name == "Mount" end
   ItemRack.SetEventQueueSet = function(eventName,name) table.insert(calls,{ event=eventName, queueset=name }); return true end
+  ItemRack.RenameQueueSet = function(oldName,newName) table.insert(calls,{ renameOld=oldName, renameNew=newName }); return true end
+  ItemRack.CopySetQueuesToQueueSet = function(setName,name) table.insert(calls,{ copySet=setName, copyName=name }); return true end
   ItemRackUser = { QueueSets={ Mount={} } }
   ${slashHandler}
 
@@ -150,6 +152,16 @@ do
   local listed = false
   for _,msg in ipairs(calls) do if msg == "  Mount" then listed = true end end
   check(listed, "queueset list must print configured queue-set names")
+
+  calls = {}
+  ItemRack.SlashHandler("queueset rename Old Name => New Name")
+  check(calls[1] and calls[1].renameOld == "Old Name" and calls[1].renameNew == "New Name",
+    "queueset rename old => new must rename with both spaced names preserved")
+
+  calls = {}
+  ItemRack.SlashHandler("queueset copy My Set => My Queue")
+  check(calls[1] and calls[1].copySet == "My Set" and calls[1].copyName == "My Queue",
+    "queueset copy setName => name must copy a set's queues into a queue-set")
 end
 
 do

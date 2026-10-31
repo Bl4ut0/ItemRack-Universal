@@ -6258,7 +6258,7 @@ function ItemRack.SlashHandler(arg1)
 	if arg1 and string.match(arg1,"^queueset") then
 		local rest = string.match(arg1,"^queueset%s+(.+)")
 		if not rest then
-			ItemRack.Print("Usage: /itemrack queueset name | off | list | event eventName => name")
+			ItemRack.Print("Usage: /itemrack queueset name | off | list | event eventName => name | rename old => new | copy setName => name")
 		elseif string.lower(rest) == "off" then
 			ItemRack.SelectQueueSet(nil)
 			ItemRack.Print("Queue-set selection cleared.")
@@ -6272,12 +6272,26 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.Print("  (none)")
 			end
 		else
-			local eventName,queueSetName = string.match(rest,"^event%s+(.-)%s*=>%s*(.+)")
+			local eventName,eventQueueSet = string.match(rest,"^event%s+(.-)%s*=>%s*(.+)")
+			local renameOld,renameNew = string.match(rest,"^rename%s+(.-)%s*=>%s*(.+)")
+			local copySet,copyName = string.match(rest,"^copy%s+(.-)%s*=>%s*(.+)")
 			if eventName then
-				if ItemRack.SetEventQueueSet(eventName,queueSetName) then
-					ItemRack.Print("Event '"..eventName.."' now activates queue-set '"..queueSetName.."'.")
+				if ItemRack.SetEventQueueSet(eventName,eventQueueSet) then
+					ItemRack.Print("Event '"..eventName.."' now activates queue-set '"..eventQueueSet.."'.")
 				else
-					ItemRack.Print("No such queue-set: "..tostring(queueSetName))
+					ItemRack.Print("No such queue-set: "..tostring(eventQueueSet))
+				end
+			elseif renameOld then
+				if ItemRack.RenameQueueSet(renameOld,renameNew) then
+					ItemRack.Print("Queue-set '"..renameOld.."' renamed to '"..renameNew.."'.")
+				else
+					ItemRack.Print("Could not rename '"..renameOld.."' to '"..renameNew.."'.")
+				end
+			elseif copySet then
+				if ItemRack.CopySetQueuesToQueueSet(copySet,copyName) then
+					ItemRack.Print("Copied set '"..copySet.."' queues into queue-set '"..copyName.."'.")
+				else
+					ItemRack.Print("No such set: "..tostring(copySet))
 				end
 			elseif ItemRack.SelectQueueSet(rest) then
 				ItemRack.Print("Queue-set '"..rest.."' selected.")
@@ -6687,7 +6701,7 @@ function ItemRack.SlashHandler(arg1)
 		ItemRack.Print("/itemrack opt : summons options window.")
 		ItemRack.Print("/itemrack equip set name : equip set 'set name'.")
 		ItemRack.Print("/itemrack toggle set name[, second set] : toggles set 'set name'.")
-		ItemRack.Print("/itemrack queueset name|off|list|event eventName => name : selects or binds a queue-set.")
+		ItemRack.Print("/itemrack queueset name|off|list|event eventName => name|rename old => new|copy setName => name : manages queue-sets.")
 		ItemRack.Print("/itemrack reset : resets buttons and their settings.")
 		ItemRack.Print("/itemrack reset everything : wipes ItemRack to default.")
 		ItemRack.Print("/itemrack lock/unlock : locks/unlocks the buttons.")

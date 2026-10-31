@@ -214,6 +214,12 @@ SLASH COMMANDS
 /itemrack queueset event <event name> => <name>
   Activate a queue-set while an event is active. Omit "=> <name>" to clear.
 
+/itemrack queueset rename <old> => <new>
+  Rename a queue-set, keeping its event and manual references.
+
+/itemrack queueset copy <set name> => <name>
+  Copy a saved set's in-set queues into a new or existing queue-set.
+
 /itemrack lock
 /itemrack unlock
   Lock or unlock quick-access buttons.
