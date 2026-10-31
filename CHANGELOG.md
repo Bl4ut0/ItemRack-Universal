@@ -3,6 +3,9 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+
+
+## [4.57-beta7] - 2026-10-31
 - **Master / Mirrored Set Queues (GitHub #35 / kaidobit)**:
   - Added the ability to mirror/sync a slot's cooldown queue from any other equipment set (e.g. sharing a master Trinket queue across multiple specs, stances, or farming sets without re-creating queues manually).
   - In the Options Queue tab for any slot (`ItemRackOptSubFrame7`), added a "Sync with set" checkbox and set dropdown picker to mirror another set's queue configuration.
@@ -18,7 +21,6 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
   - Updated `ItemRack.GetIRString` to parse raw item strings (`item:itemID:...`), bare item IDs (`itemID`), and hyperlinks (`item:...|h`) without dropping items missing `|h` formatting.
   - Added duplicate line prevention in `ItemRack.ListSetsHavingItem` to guarantee clean single-line set displays across both modern `TooltipDataProcessor` post-calls and legacy `GameTooltip` hooks.
   - Extended regression suite with `modern-tooltip-bag-and-hyperlink-data` in `.tools/test_identity_matching_lua.js`.
-
 
 ## [4.57-beta6] - 2026-10-30
 - **Breakout Tooltip Comparison Shift / CVar Control**:

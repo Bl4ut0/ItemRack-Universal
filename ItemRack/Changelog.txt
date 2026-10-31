@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.57-beta7 - By Bl4ut0 __
 - Master / Mirrored Set Queues (GitHub #35 / kaidobit):
   * Added the ability to mirror/sync a slot's cooldown queue from any other equipment set (e.g. sharing a master Trinket queue across multiple specs, stances, or farming sets without re-creating queues manually).
   * In the Options Queue tab for any slot (ItemRackOptSubFrame7), added a "Sync with set" checkbox and set dropdown picker to mirror another set's queue configuration.
