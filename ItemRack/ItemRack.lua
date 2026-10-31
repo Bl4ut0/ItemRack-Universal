@@ -2424,10 +2424,13 @@ function ItemRack.OnActiveTalentGroupChanged()
 end
 
 function ItemRack.OnSetBagItem(tooltip, bag, slot)
+	if not bag or not slot then return end
 	ItemRack.ListSetsHavingItem(tooltip, ItemRack.GetID(bag, slot))
 end
 
 function ItemRack.OnSetInventoryItem(tooltip, unit, inv_slot)
+	if unit and unit ~= "player" then return end
+	if not inv_slot then return end
 	ItemRack.ListSetsHavingItem(tooltip, ItemRack.GetID(inv_slot))
 end
 
@@ -2435,11 +2438,60 @@ function ItemRack.OnSetHyperlink(tooltip, link)
 	if type(link) == "string" then ItemRack.ListSetsHavingItem(tooltip,ItemRack.GetIRString(link)) end
 end
 
-function ItemRack.OnTooltipItemData(tooltip)
-	if not tooltip or type(tooltip.GetItem) ~= "function" then return end
-	local ok,_,link = pcall(tooltip.GetItem,tooltip)
-	if not ok or (issecretvalue and issecretvalue(link)) then return end
-	ItemRack.OnSetHyperlink(tooltip,link)
+function ItemRack.OnTooltipItemData(tooltip, data)
+	if not tooltip or (tooltip.IsForbidden and tooltip:IsForbidden()) then return end
+
+	local info = data or (tooltip.GetProcessingTooltipInfo and tooltip:GetProcessingTooltipInfo()) or tooltip.processingInfo
+	local getterName = info and info.getterName
+	local getterArgs = info and info.getterArgs
+
+	if getterName == "GetBagItem" and getterArgs and getterArgs[1] and getterArgs[2] then
+		ItemRack.OnSetBagItem(tooltip, getterArgs[1], getterArgs[2])
+		return
+	elseif getterName == "GetInventoryItem" and getterArgs and getterArgs[2] then
+		ItemRack.OnSetInventoryItem(tooltip, getterArgs[1], getterArgs[2])
+		return
+	elseif getterName == "GetHyperlink" and getterArgs and getterArgs[1] then
+		ItemRack.OnSetHyperlink(tooltip, getterArgs[1])
+		return
+	end
+
+	if TooltipUtil and TooltipUtil.GetDisplayedItem then
+		local _, link, id = TooltipUtil.GetDisplayedItem(tooltip)
+		if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
+			return
+		elseif id and id ~= 0 then
+			ItemRack.ListSetsHavingItem(tooltip, tostring(id))
+			return
+		end
+	end
+
+	if data then
+		if data.guid and C_Item and C_Item.GetItemLinkByGUID then
+			local link = C_Item.GetItemLinkByGUID(data.guid)
+			if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+				ItemRack.OnSetHyperlink(tooltip, link)
+				return
+			end
+		end
+		if data.hyperlink and type(data.hyperlink) == "string" and not (issecretvalue and issecretvalue(data.hyperlink)) then
+			ItemRack.OnSetHyperlink(tooltip, data.hyperlink)
+			return
+		end
+		if data.id and data.id ~= 0 then
+			ItemRack.ListSetsHavingItem(tooltip, tostring(data.id))
+			return
+		end
+	end
+
+	if type(tooltip.GetItem) == "function" then
+		local ok, _, link = pcall(tooltip.GetItem, tooltip)
+		if ok and link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
+			return
+		end
+	end
 end
 
 function ItemRack.RegisterSetTooltipHooks()
@@ -2462,10 +2514,23 @@ do
 		if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then
 			return
 		end
-		if not id or id == 0 then return end
+		if not tooltip or not id or id == 0 then return end
+		if tooltip.IsForbidden and tooltip:IsForbidden() then return end
+
+		local tooltipName = tooltip.GetName and tooltip:GetName()
+		if tooltipName and tooltip.NumLines then
+			for i = 1, tooltip:NumLines() do
+				local left = _G[tooltipName .. "TextLeft" .. i]
+				local text = left and left.GetText and left:GetText()
+				if text and text:find("^ItemRack Set:") then
+					return
+				end
+			end
+		end
+
 		local matchesStoredFields = ItemRack.MatchesStoredItemFields
 		for name, set in pairs(ItemRackUser.Sets) do
-			if not name:match("^~") then
+			if not name:match("^~") and set.equip then
 				for _, item in pairs(set.equip) do
 					if matchesStoredFields(item, id) then
 						data[name] = true
@@ -2772,7 +2837,21 @@ ItemRack.iSPatternEnhancementsFromIR = "^(%-?%d+):(%-?%d*):(%-?%d*):(%-?%d*):(%-
 ItemRack.iSPatternItemFieldsFromIR = "^(%-?%d+:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*)" --extracts the first 8 item-identifying fields (itemID:enchant:gem1:gem2:gem3:gem4:suffix:unique), ignoring level/spec/etc trailing fields
 ItemRack.iSPatternRuneIDFromIR = ":runeid:(%d+)$"
 function ItemRack.GetIRString(inputString,baseid,regular)
-	return string.match(tostring(inputString or ""), (baseid and (regular and ItemRack.iSPatternBaseIDFromRegular or ItemRack.iSPatternBaseIDFromIR) or ItemRack.iSPatternRegularToIR)) or 0
+	local str = tostring(inputString or "")
+	if baseid then
+		if regular then
+			return str:match("item:(%-?%d+)") or str:match("^(%-?%d+)") or 0
+		else
+			return str:match("^(%-?%d+)") or 0
+		end
+	end
+	local ir = str:match("item:(.-)\124h")
+	if ir then return ir end
+	ir = str:match("item:([%d:%-]+)")
+	if ir then return ir end
+	ir = str:match("^([%d:%-]+:runeid:%d+)") or str:match("^([%d:%-]+)")
+	if ir then return ir end
+	return 0
 end
 
 -- itemrack itemstring updater.

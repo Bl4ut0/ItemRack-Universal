@@ -3,6 +3,21 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+- **Master / Mirrored Set Queues (GitHub #35 / kaidobit)**:
+  - Added the ability to mirror/sync a slot's cooldown queue from any other equipment set (e.g. sharing a master Trinket queue across multiple specs, stances, or farming sets without re-creating queues manually).
+  - In the Options Queue tab for any slot (`ItemRackOptSubFrame7`), added a "Sync with set" checkbox and set dropdown picker to mirror another set's queue configuration.
+  - When synced, the queue list and AutoQueue enabled state are dynamically resolved from the master set. Any changes made to the master set immediately reflect across all follower sets.
+  - Mirrored queues are protected from accidental edits on follower sets: reordering, stop markers, delay/priority editing, and icon customization are disabled with clear status indicators showing the master set name.
+  - Unchecking "Sync with set" keeps an exact independent copy of the master queue so players can customize it without starting from scratch.
+  - Deleting a master set automatically decouples follower sets and preserves an independent copy of the queue so followers never lose their configuration.
+  - Extended pure queue resolution in `ItemRackQueuePolicy.lua` with cycle detection and fallback guards; added 5 new atomic policy assertions in `.tools/test_queue_policy_lua.js`.
+- **Set Info in Tooltips for Modern Clients & Bag Addons (Baganator / Blizzard bags)**:
+  - Fixed "Show set info in tooltips" failing to display `ItemRack Set: <name>` when hovering items in bags or modern tooltips.
+  - In modern WoW clients (Classic Era 1.15+, TBC Anniversary 2.5.5+, Retail) using `TooltipDataProcessor`, `tooltip:GetItem()` does not return container item links. `ItemRack.OnTooltipItemData(tooltip, data)` now inspects `data.getterName` and `data.getterArgs`, dispatching container items (`GetBagItem`) and worn items (`GetInventoryItem`) directly to `ItemRack.GetID(bag, slot)` / `ItemRack.GetID(slot)` for exact enchant/gem/rune matching.
+  - Added robust resolution fallbacks using `TooltipUtil.GetDisplayedItem(tooltip)`, `C_Item.GetItemLinkByGUID(data.guid)`, `data.hyperlink`, and `data.id`.
+  - Updated `ItemRack.GetIRString` to parse raw item strings (`item:itemID:...`), bare item IDs (`itemID`), and hyperlinks (`item:...|h`) without dropping items missing `|h` formatting.
+  - Added duplicate line prevention in `ItemRack.ListSetsHavingItem` to guarantee clean single-line set displays across both modern `TooltipDataProcessor` post-calls and legacy `GameTooltip` hooks.
+  - Extended regression suite with `modern-tooltip-bag-and-hyperlink-data` in `.tools/test_identity_matching_lua.js`.
 
 
 ## [4.57-beta6] - 2026-10-30

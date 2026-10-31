@@ -155,6 +155,105 @@ ItemRack.RegisterSetTooltipHooks()
 assert(hooks==3,"Classic must retain all three legacy hooks")
 `, 'forever-modern-set-tooltip');
 
+// User report October 31, 2026: TooltipDataProcessor fails to show set info when hovering bag items (e.g. Baganator / modern WoW tooltips).
+runLua(String.raw`
+local lines = {}
+local _G = _G or getfenv()
+local mockTip = {
+  numLines = 0,
+  GetName = function() return "GameTooltip" end,
+  NumLines = function(self) return self.numLines end,
+  AddDoubleLine = function(self, left, right)
+    self.numLines = self.numLines + 1
+    local idx = self.numLines
+    _G["GameTooltipTextLeft" .. idx] = { GetText = function() return left end }
+    _G["GameTooltipTextRight" .. idx] = { GetText = function() return right end }
+    table.insert(lines, { left = left, right = right })
+  end,
+  ClearLines = function(self)
+    for i = 1, self.numLines do
+      _G["GameTooltipTextLeft" .. i] = nil
+      _G["GameTooltipTextRight" .. i] = nil
+    end
+    self.numLines = 0
+    lines = {}
+  end
+}
+ItemRack = {
+  iSPatternItemFieldsFromIR = "^(%-?%d+:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*)",
+  iSPatternRuneIDFromIR = ":runeid:(%d+)$",
+  iSPatternBaseIDFromRegular = "item:(%-?%d+)",
+  iSPatternBaseIDFromIR = "^(%-?%d+)",
+  iSPatternRegularToIR = "item:(.-)\\124h",
+  GetID = function(bag, slot)
+    if slot then
+      if bag == 0 and slot == 1 then return "32252:0:0:0:0:0:0:0:70:0" end
+      return 0
+    else
+      if bag == 6 then return "32252:0:0:0:0:0:0:0:70:0" end
+      return 0
+    end
+  end
+}
+ItemRackSettings = { ShowTooltips = "ON", ShowSetInTooltip = "ON" }
+ItemRackUser = {
+  Sets = {
+    Bis = { equip = { [6] = "32252:0:0:0:0:0:0:0:70:0" } },
+    ["~Internal"] = { equip = { [6] = "32252:0:0:0:0:0:0:0:70:0" } }
+  }
+}
+local data = {}
+` + `
+${extractFunction(core, 'ItemRack.NormalizeItemFields')}
+${extractFunction(core, 'ItemRack.SameItemFields')}
+${extractFunction(core, 'ItemRack.GetRuneID')}
+${extractFunction(core, 'ItemRack.HasRuneID')}
+${extractFunction(core, 'ItemRack.MatchesStoredItemFields')}
+${extractFunction(core, 'ItemRack.GetIRString')}
+${extractFunction(core, 'ItemRack.ListSetsHavingItem')}
+${extractFunction(core, 'ItemRack.OnSetBagItem')}
+${extractFunction(core, 'ItemRack.OnSetInventoryItem')}
+${extractFunction(core, 'ItemRack.OnSetHyperlink')}
+${extractFunction(core, 'ItemRack.OnTooltipItemData')}
+` + String.raw`
+-- 1. Bag item via data.getterName and getterArgs
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { getterName = "GetBagItem", getterArgs = { 0, 1 } })
+assert(#lines == 1 and lines[1].right == "Bis", "bag item must resolve through GetBagItem args")
+-- 2. Duplicate line prevention on repeated calls
+ItemRack.OnTooltipItemData(mockTip, { getterName = "GetBagItem", getterArgs = { 0, 1 } })
+assert(#lines == 1, "duplicate calls must not add duplicate set lines")
+-- 3. Equipped item via data.getterName and getterArgs
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { getterName = "GetInventoryItem", getterArgs = { "player", 6 } })
+assert(#lines == 1 and lines[1].right == "Bis", "inventory item must resolve through GetInventoryItem args")
+-- 4. Target inspection must NOT display player set info
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { getterName = "GetInventoryItem", getterArgs = { "target", 6 } })
+assert(#lines == 0, "target unit inspection must not display player set info")
+-- 5. Raw item string without |h via getterArgs
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { getterName = "GetHyperlink", getterArgs = { "item:32252:0:0:0:0:0:0:0:70:0" } })
+assert(#lines == 1 and lines[1].right == "Bis", "raw item string must be parsed by GetHyperlink")
+-- 6. data.hyperlink with raw item string
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { hyperlink = "item:32252:0:0:0:0:0:0:0:70:0" })
+assert(#lines == 1 and lines[1].right == "Bis", "data.hyperlink must resolve raw item strings")
+-- 7. data.id numeric fallback
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { id = 32252 })
+assert(#lines == 1 and lines[1].right == "Bis", "data.id must resolve numeric item fallback")
+-- 8. Forbidden tooltips must be skipped without errors
+local forbiddenTip = { IsForbidden = function() return true end }
+ItemRack.OnTooltipItemData(forbiddenTip, { id = 32252 })
+-- 9. GetIRString parsing variants
+assert(ItemRack.GetIRString("item:32252:0:0:0:0:0:0:0:70:0") == "32252:0:0:0:0:0:0:0:70:0", "raw item string parsing")
+assert(ItemRack.GetIRString("32252") == "32252", "numeric string parsing")
+assert(ItemRack.GetIRString(32252) == "32252", "number parsing")
+assert(ItemRack.GetIRString("|cffa335ee|Hitem:32252:0:0:0:0:0:0:0:70:0|h[Flashfire Girdle]|h|r") == "32252:0:0:0:0:0:0:0:70:0", "hyperlink parsing")
+assert(ItemRack.GetIRString("spell:1234") == 0, "non-item string must return 0")
+`, 'modern-tooltip-bag-and-hyperlink-data');
+
 // October 13, 2026 Forever report from Venruki: unlike current Retail, the client does not
 // enable automatic comparison tooltips by default, so ItemRack flyout rows only
 // compare while the player holds the client comparison modifier.
