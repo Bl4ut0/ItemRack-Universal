@@ -154,5 +154,19 @@ check(wired.owner == "queueset:Mount QS" and wired.list[1].id == "MQ"
   and wired.reason == "event_queue_set",
   "GetQueueContext must surface the event-mapped queue-set through the resolver")
 
+-- An active queue-set must never make an otherwise-matching equipment set look
+-- Custom: IsSetEquipped inspects an explicit set, and explicit resolution stays
+-- raw, so only the set's own in-set queue can participate.
+ItemRackUser.EnableQueues = "ON"
+ItemRackUser.CurrentQueueSet = "Mount QS"
+ItemRackUser.Sets.Geared = { equip={ [13]="500" } }
+ItemRack.GetID = function() return "500" end
+ItemRack.MatchesStoredItemID = function(a,b) return tostring(a)==tostring(b) end
+ItemRack.IsEquippedSlotStateReady = function() return true end
+ItemRack.QueueStateReady = true
+local stillEquipped = ItemRack.IsSetEquipped("Geared")
+check(stillEquipped == true,
+  "an active queue-set must not flip a correctly equipped set to Custom")
+
 print(string.format("[QUEUE RUNTIME LUA] %d purity and provenance checks passed.",checks))
 `, 'queue-runtime');
