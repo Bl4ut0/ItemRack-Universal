@@ -245,7 +245,7 @@ function ItemRack.ProcessSetsWaiting()
 	-- Each dequeued request gives the next request its own recovery window
 	-- instead of inheriting the first request's timeout budget.
 	ItemRack.SetsWaitingStartedAt = GetTime()
-	
+
 	-- Safety: Skip sets that no longer exist (prevents getting stuck)
 	if not ItemRackUser.Sets[setwaiting] then
 		ItemRack.Debug("API", "ProcessSetsWaiting aborted: set no longer exists ->", setwaiting)
@@ -257,7 +257,7 @@ function ItemRack.ProcessSetsWaiting()
 		end
 		return
 	end
-	
+
 	ItemRack.Debug("API", "ProcessSetsWaiting executing callback for:", setwaiting)
 	local previousEventEquipment = ItemRack.IsEventEquipment
 	local previousDeferredEquipment = ItemRack.IsDeferredEquipment
@@ -332,7 +332,7 @@ function ItemRack.OrderSwaps(swap)
 			if (ItemRack.UniqueGems[gem1] or ItemRack.UniqueGems[gem2] or ItemRack.UniqueGems[gem3])
 			and k < ItemRack.eqBackOfTheBusOffset then
 				swap[k+ItemRack.eqBackOfTheBusOffset] = v
-				
+
 				local wornID = ItemRack.GetID(k)
 				local wornHasUniqueGem = false
 				if wornID and wornID ~= 0 then
@@ -341,7 +341,7 @@ function ItemRack.OrderSwaps(swap)
 						wornHasUniqueGem = true
 					end
 				end
-				
+
 				if wornHasUniqueGem then
 					swap[k] = 0 -- unequip worn item with unique gem early
 				else
@@ -654,7 +654,7 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 			end
 		end
 	end
-	
+
 	if ItemRack.ManualQueueChoice then
 		for i in pairs(set.equip) do
 			if type(i) == "number" then ItemRack.ClearManualQueueChoice(i) end
@@ -687,7 +687,7 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 			end
 		end
 	end
-	
+
 	-- Snapshot current gear BEFORE checking if set is already equipped.
 	-- Even when no swaps are needed (set already worn), we must record what was
 	-- previously equipped so that UnequipSet can restore it later.
@@ -729,18 +729,18 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 			end
 		end
 	end
- 
+
 	-- at this point, ItemRack.SwapList has only what needs to be swapped, indexed by slot
 	if not next(swap) then
 		ItemRack.Debug("Equip", "Set", setname, "already perfectly equipped. swap table is empty.")
 		ItemRack.EndSetSwap(setname) -- end swap if set already equipped
 		return
 	end
-	
+
 	local swapStr = ""
 	for k,v in pairs(swap) do swapStr = swapStr .. k..":"..v.." " end
 	ItemRack.Debug("Equip", "EquipSet swap list generated:", swapStr)
- 
+
 	-- Ordinary Lua transactions cannot perform protected pickups during combat,
 	-- even for weapons. Secure hotkeys equip permitted weapons through their macro
 	-- before reaching this reconciliation path; any remaining slots must defer.
@@ -1344,7 +1344,7 @@ function ItemRack.EndSetSwap(setname)
 		if not string.match(setname,"^~") then --do not list internal sets, prefixed with ~
 			ItemRackUser.CurrentSet = setname
 			C_Timer.After(0.5, ItemRack.UpdateCurrentSet)
-			
+
 			-- Dual Spec Support: Auto-Swap Spec if Set is bound
 			local set = ItemRackUser.Sets[setname]
 			if set.AssociatedSpec then
@@ -1352,7 +1352,7 @@ function ItemRack.EndSetSwap(setname)
 					local currentSpec = GetActiveTalentGroup()
 					local numGroups = GetNumTalentGroups()
 					local neededSpec = set.AssociatedSpec
-					
+
 					if numGroups > 1 and currentSpec ~= neededSpec then
 						ItemRack.Print("Set "..setname.." requires Spec "..neededSpec.." (Current: "..currentSpec.."). Switching...")
 						if SetActiveTalentGroup then
@@ -1398,7 +1398,7 @@ function ItemRack.EndSetSwap(setname)
 				ItemRackOpt.ChangeEditingSet()
 			end
 		end
-		
+
 		ItemRack.UpdateCombatQueue() -- update button gear icon if per set queues is active
 		if not string.match(setname, "^~") and ItemRack.PeriodicQueueCheck then
 			ItemRack.PeriodicQueueCheck()
@@ -1442,25 +1442,45 @@ function ItemRack.IsSetEquipped(setname,exact)
 		local set = ItemRackUser.Sets[setname].equip
 		local id
 		local matchesStored = ItemRack.MatchesStoredItemID
-		
+
 		-- Special handling for Trinkets and Rings to allow swapped slots
 		local check11_12 = (set[11] or set[12])
 		local check13_14 = (set[13] or set[14])
-		
-		local anyChecked = false
+
+		local checkSlots = {}
 		for i in pairs(set) do
 			if type(i) == "number" then
-				local queueContext = ItemRack.GetQueueContext(i,setname)
-				local slotQueue = queueContext.list
-				local hasActiveQueue = ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled
-				if hasActiveQueue
-				and (ItemRack.QueueStateReady ~= true or not ItemRack.IsEquippedSlotStateReady(i)) then
-					return false
+				checkSlots[i] = true
+			end
+		end
+		if ItemRackUser.EnableQueues == "ON" and ItemRackUser.EnablePerSetQueues == "ON" then
+			local setQueues = ItemRackUser.Sets[setname].Queues
+			if type(setQueues) == "table" then
+				for i in pairs(setQueues) do
+					if type(i) == "number" and type(setQueues[i]) == "table" and #setQueues[i] > 0 then
+						local setQueuesEnabled = ItemRackUser.Sets[setname].QueuesEnabled
+						if not setQueuesEnabled or setQueuesEnabled[i] then
+							checkSlots[i] = true
+						end
+					end
 				end
+			end
+		end
+
+		local anyChecked = false
+		for i in pairs(checkSlots) do
+			local queueContext = ItemRack.GetQueueContext(i,setname)
+			local slotQueue = queueContext.list
+			local hasActiveQueue = ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled
+			if hasActiveQueue
+			and (ItemRack.QueueStateReady ~= true or not ItemRack.IsEquippedSlotStateReady(i)) then
+				return false
+			end
+			id = ItemRack.GetID(i)
+			local match = false
+
+			if set[i] then
 				anyChecked = true
-				id = ItemRack.GetID(i)
-				local match = false
-				
 				if (exact and set[i]==id) or (not exact and matchesStored(set[i],id)) then
 					match = true
 				elseif not exact then
@@ -1474,50 +1494,58 @@ function ItemRack.IsSetEquipped(setname,exact)
 						if matchesStored(set[i], otherID) then match = true end
 					end
 				end
-				
-				-- If auto-queues are globally enabled and this slot has an active
-				-- queue, accept whichever queued item is intentionally active for
-				-- this set context. Dormant queue settings must not make an unchanged
-				-- equipment set appear as "Custom".
-				if hasActiveQueue then
-					local currentBaseID = ItemRack.GetIRString(id,true)
-					local currentCustomTime
-					local currentInQueue = false
-					if currentBaseID and currentBaseID ~= 0 then
-						-- Use the queue's exact-first migration boundary here too. A
-						-- legacy wildcard beside rune-specific entries cannot establish
-						-- that an unlisted rune copy is intentionally active for the set.
-						local currentQueueIndex = ItemRack.FindQueueEntryIndex(slotQueue,id)
-						if currentQueueIndex then
-							local currentEntry = slotQueue[currentQueueIndex]
-							currentInQueue = true
-							currentCustomTime = currentEntry.swapInEnabled and currentEntry.swapIn or nil
-						end
-						local start,duration,enable = GetInventoryItemCooldown("player",i)
-						local ready
-						if ItemRack.ShouldHoldEquippedItem then
-							ready = ItemRack.ShouldHoldEquippedItem(i,id,currentBaseID,currentCustomTime)
-						else
-							ready = ItemRack.ItemNearReady(currentBaseID,i,currentCustomTime)
-						end
-						local _, active = ItemRack.AutoQueueItemToEquip(i, currentBaseID, enable, ready, setname, queueContext)
-						if currentInQueue then
-							match = not active or matchesStored(active, id)
-						elseif match and active and not matchesStored(active, id) then
+			end
+
+			-- If auto-queues are globally enabled and this slot has an active
+			-- queue, accept whichever queued item is intentionally active for
+			-- this set context. Dormant queue settings must not make an unchanged
+			-- equipment set appear as "Custom".
+			if hasActiveQueue then
+				anyChecked = true
+				local currentBaseID = ItemRack.GetIRString(id,true)
+				local currentCustomTime
+				local currentInQueue = false
+				if currentBaseID and currentBaseID ~= 0 then
+					-- Use the queue's exact-first migration boundary here too. A
+					-- legacy wildcard beside rune-specific entries cannot establish
+					-- that an unlisted rune copy is intentionally active for the set.
+					local currentQueueIndex = ItemRack.FindQueueEntryIndex(slotQueue,id)
+					if currentQueueIndex then
+						local currentEntry = slotQueue[currentQueueIndex]
+						currentInQueue = true
+						currentCustomTime = currentEntry.swapInEnabled and currentEntry.swapIn or nil
+					end
+					local start,duration,enable = GetInventoryItemCooldown("player",i)
+					local ready
+					if ItemRack.ShouldHoldEquippedItem then
+						ready = ItemRack.ShouldHoldEquippedItem(i,id,currentBaseID,currentCustomTime)
+					else
+						ready = ItemRack.ItemNearReady(currentBaseID,i,currentCustomTime)
+					end
+					local _, active = ItemRack.AutoQueueItemToEquip(i, currentBaseID, enable, ready, setname, queueContext)
+					if currentInQueue then
+						match = not active or matchesStored(active, id)
+					elseif set[i] then
+						if match and active and not matchesStored(active, id) then
 							match = false
 						end
-					elseif match then
-						match = false
+					else
+						match = not active or matchesStored(active, id)
 					end
-				end
-				
-				if not match then
-					ItemRack.Debug("Equip", "IsSetEquipped mismatch: set="..tostring(setname).." slot="..tostring(i).." expected="..tostring(set[i]).." equipped="..tostring(id).." queues="..tostring(ItemRackUser.EnableQueues))
-					return false
+				elseif set[i] then
+					match = false
+				else
+					local _, active = ItemRack.AutoQueueItemToEquip(i, 0, 0, false, setname, queueContext)
+					match = not active
 				end
 			end
+
+			if not match then
+				ItemRack.Debug("Equip", "IsSetEquipped mismatch: set="..tostring(setname).." slot="..tostring(i).." expected="..tostring(set[i]).." equipped="..tostring(id).." queues="..tostring(ItemRackUser.EnableQueues))
+				return false
+			end
 		end
-		
+
 		return anyChecked
 	end
 end
@@ -1547,7 +1575,7 @@ function ItemRack.UnequipSet(setname, disableSound)
 			ItemRack.AddSetToSetsWaiting(setname,ItemRack.UnequipSet, disableSound)
 			return
 		end
-		
+
 		-- Stack Splicing Logic:
 		-- Check if another set (e.g. "Zoomies") is currently holding this set (e.g. "Drank") as its 'oldset'.
 		-- If so, we are unequipping a set that is "buried" in the stack (Drinking stopped while Mounted).
@@ -1556,7 +1584,7 @@ function ItemRack.UnequipSet(setname, disableSound)
 		for sName, sData in pairs(ItemRackUser.Sets) do
 			if not string.match(sName, "^~") and sData.oldset == setname and sName ~= setname then -- ensure not self-referential
 				parentSet = sName
-				break 
+				break
 			end
 		end
 
@@ -1572,7 +1600,7 @@ function ItemRack.UnequipSet(setname, disableSound)
 				end
 			end
 		end
-		
+
 		local shouldRestore = false
 		local isPendingOrSwapping = false
 		if ItemRack.SetSwapping == setname then
@@ -1619,7 +1647,7 @@ function ItemRack.UnequipSet(setname, disableSound)
 		elseif parentSet then
 			ItemRack.Debug("Equip", "parentSet found:", parentSet, "- Stack splicing.")
 			ItemRackUser.Sets[parentSet].oldset = ItemRackUser.Sets[setname].oldset
-			
+
 			if ItemRackUser.EventStack then
 				for _, eName in ipairs(ItemRackUser.EventStack) do
 					if ItemRack.GetEventSet and ItemRack.GetEventSet(eName) == parentSet then
@@ -1633,7 +1661,7 @@ function ItemRack.UnequipSet(setname, disableSound)
 			ItemRackUser.Sets["~Unequip"].ShowHelm = nil
 			ItemRackUser.Sets["~Unequip"].ShowCloak = nil
 		end
-		
+
 		if shouldRestore then
 			local dbgStr = ""
 			for k,v in pairs(ItemRackUser.Sets["~Unequip"].equip) do

@@ -4,6 +4,16 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **Breakout Tooltip Comparison Shift / CVar Control**:
+  - `ItemRack.ShowBreakoutComparison` now mirrors Retail WoW comparison behavior: comparisons appear when pressing Shift (`IsShiftKeyDown()` / `IsModifiedClick("COMPAREITEMS")`), or when automatic comparison is enabled by the player via WoW's console variable (`GetCVarBool("alwaysCompareItems")` or `/console alwaysCompareItems 1`), or via ItemRack's option (`ItemRackSettings.AlwaysCompareBreakoutItems == "ON"`).
+  - Releasing Shift immediately hides the comparison tooltips (`ShoppingTooltip1`, `ShoppingTooltip2`, `ShoppingTooltip3`).
+  - Changed default of `AlwaysCompareBreakoutItems` to `"OFF"` so flyouts follow native client comparison settings by default rather than comparing unconditionally on every mouseover.
+  - Extended `forever-breakout-comparison-default` in `.tools/test_identity_matching_lua.js` to assert default non-comparison, Shift-triggered display, Shift-release hiding, client CVar handling, and explicit option override.
+- **Trinket Eviction on Set Switch (GitHub #33 follow-up / neferens)**:
+  - Fixed AutoQueue failing to swap out foreign/unqueued on-use trinkets (e.g. `Ultrasafe Transporter: Gadgetzan`) when switching sets. `ItemRack.AutoQueueItemToEquip` previously treated any off-cooldown on-use item as protected from swaps, even if it was not in the new set's queue list.
+  - Foreign / unqueued active trinkets (`currentMatchIndex == nil`) now yield immediately to the target set's queue candidates (e.g. `Mark of the Champion`), while active trinkets that ARE present in the active set's queue (`currentMatchIndex ~= nil`) continue to be protected until activated.
+  - `ItemRack.IsSetEquipped` now inspects slots governed by per-set queues (`set.Queues` / `set.QueuesEnabled`) even when the slot is unselected in `set.equip`, correctly recognizing when an unqueued item is equipped and needs to be replaced.
+  - Extended `.tools/test_queue_runtime_lua.js` with unqueued active eviction and queued active hold regressions.
 
 ## [4.57-beta5] - 2026-10-30
 - **Breakout & Character Sheet Tooltip Compatibility (GitHub #34 / Spiritshroud08)**:

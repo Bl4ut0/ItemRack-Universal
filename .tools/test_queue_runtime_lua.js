@@ -188,24 +188,40 @@ local passiveCandidate, passiveCandidateID = ItemRack.AutoQueueItemToEquip(14, "
 check(tostring(passiveCandidateID) == "23206",
   "Issue #33: unqueued passive item (Hand of Justice) must yield to preferred passive queue item (Mark of the Champion)")
 
--- 2. When an ACTIVE on-use trinket (21180 Earthstrike) is equipped out of queue and ready, it must NOT be swapped away unless priority is set
+-- 2. Issue #33 / neferens: When an active on-use trinket (e.g. 18984 Gadgetzan) is equipped out of queue and ready,
+-- it must be EVICTED and yield to Set 2's top queue item (23206 Mark of the Champion) since it is not in the set's queue!
 ItemRack.GetID = function(slot)
-  if slot == 14 then return "21180" end
+  if slot == 14 then return "18984" end
   return "999"
 end
 GetInventoryItemCooldown = function(unit, slot)
   return 0, 0, 1 -- active item ready to use
 end
-local activeCandidate = ItemRack.AutoQueueItemToEquip(14, "21180", 1, true, "Set2", set2Context)
-check(activeCandidate == nil,
-  "Issue #33: unqueued active on-use item ready to use must hold against non-priority queue items")
+local activeEvictCandidate, activeEvictCandidateID = ItemRack.AutoQueueItemToEquip(14, "18984", 1, true, "Set2", set2Context)
+check(tostring(activeEvictCandidateID) == "23206",
+  "Issue #33 / neferens: unqueued active on-use item (Gadgetzan) must yield to new set queue item (Mark of the Champion)")
 
--- 3. If the active candidate in queue has priority=true, it CAN swap out the unqueued active item
-set2List[1].priority = true
-local priorityCandidate, priorityCandidateID = ItemRack.AutoQueueItemToEquip(14, "21180", 1, true, "Set2", set2Context)
+-- 3. But when an active on-use trinket IS in the queue (e.g. 21180 Earthstrike at index 2 of Set 2) and ready,
+-- it must NOT be swapped away unless activated or priority is set!
+local set2WithActiveList = {
+  { id="23206", priority=false, keep=false, delay=0 },
+  { id="21180", priority=false, keep=false, delay=0 },
+}
+local set2WithActiveContext = { owner="Set2", list=set2WithActiveList, enabled=true }
+ItemRack.GetID = function(slot)
+  if slot == 14 then return "21180" end
+  return "999"
+end
+local heldCandidate = ItemRack.AutoQueueItemToEquip(14, "21180", 1, true, "Set2", set2WithActiveContext)
+check(heldCandidate == nil,
+  "Issue #33 / neferens: active on-use item present in queue and ready must hold until activated")
+
+-- 4. If the active candidate in queue has priority=true, it CAN swap out the ready item
+set2WithActiveList[1].priority = true
+local priorityCandidate, priorityCandidateID = ItemRack.AutoQueueItemToEquip(14, "21180", 1, true, "Set2", set2WithActiveContext)
 check(tostring(priorityCandidateID) == "23206",
   "Issue #33: priority=true queue item must be able to swap out active ready item")
-set2List[1].priority = false
+set2WithActiveList[1].priority = false
 
 -- 4. Issue #33 follow-up (neferens): PopulateSortList adds all carried trinkets to every set's queue
 -- with priority=false. When Set 1 has { 11815, 23206 } and Set 2 has { 23206, 11815 }, switching to Set 2

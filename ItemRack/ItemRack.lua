@@ -472,7 +472,7 @@ ItemRackSettings = {
 	NotifyThirty = "OFF", -- notify when a used item reaches 30 seconds cooldown
 	NotifyChatAlso = "OFF", -- send cooldown notifications to chat also
 	ShowTooltips = "ON", -- show all itemrack tooltips
-	AlwaysCompareBreakoutItems = "ON", -- show equipped-item comparisons for ItemRack flyout rows
+	AlwaysCompareBreakoutItems = "OFF", -- show equipped-item comparisons for ItemRack flyout rows
 	TinyTooltips = "OFF", -- whether to condense tooltips to most important info
 	TinyTooltipsQuickAccess = "OFF", -- whether to apply tiny tooltips only to quick access (not character sheet menus)
 	TinyTooltipsSubMenusOnly = "OFF", -- whether to restrict tiny tooltips to popup sub-menu items only (not the main slot button)
@@ -2614,7 +2614,7 @@ function ItemRack.InitCore()
 	end
 	ItemRackSettings.LeftSlotsGoRight = ItemRackSettings.LeftSlotsGoRight or "ON" -- 4.28
 	ItemRackSettings.RightSlotsGoLeft = ItemRackSettings.RightSlotsGoLeft or "OFF" -- 4.27.3
-	ItemRackSettings.AlwaysCompareBreakoutItems = ItemRackSettings.AlwaysCompareBreakoutItems or "ON"
+	ItemRackSettings.AlwaysCompareBreakoutItems = ItemRackSettings.AlwaysCompareBreakoutItems or "OFF"
 	ItemRackSettings.TinyTooltipsQuickAccess = ItemRackSettings.TinyTooltipsQuickAccess or "OFF"
 	ItemRackSettings.TinyTooltipsSubMenusOnly = ItemRackSettings.TinyTooltipsSubMenusOnly or "OFF"
 	ItemRackSettings.DisableTooltipsInCombat = ItemRackSettings.DisableTooltipsInCombat or "OFF"
@@ -5402,20 +5402,47 @@ function ItemRack.MenuTooltip(self)
 	end
 end
 
--- request a tooltip of a straight item id (called when hovering over items from the currently displayed set inside ItemRack's GUI)
-function ItemRack.ShowBreakoutComparison(owner)
-	if ItemRackSettings.AlwaysCompareBreakoutItems ~= "ON" then return end
-	if ItemRackSettings.MenuOnShift == "ON" and IsShiftKeyDown() then return end
-	if ItemRack.menuInclude or (ItemRack.menuOpen and ItemRack.menuOpen >= 20) then return end
+-- check whether comparison tooltips should be displayed for a breakout item
+function ItemRack.ShouldCompareBreakoutItems(owner)
+	if ItemRack.menuInclude or (ItemRack.menuOpen and ItemRack.menuOpen >= 20) then return false end
 	local ownerName = (owner and type(owner.GetName) == "function") and owner:GetName() or ""
-	if not string.match(ownerName, "^ItemRackMenu%d+$") then return end
+	if not string.match(ownerName, "^ItemRackMenu%d+$") then return false end
 	if type(owner.GetID) == "function" and type(ItemRack.Menu) == "table" then
 		local menuID = ItemRack.Menu[owner:GetID()]
 		if not menuID or menuID == 0 or menuID == "0" or menuID == "MENU" then
-			return
+			return false
 		end
 	end
 	if type(GameTooltip.IsEquippedItem) == "function" and GameTooltip:IsEquippedItem() then
+		return false
+	end
+	if ItemRackSettings.MenuOnShift == "ON" and IsShiftKeyDown() then
+		return false
+	end
+
+	local always = (ItemRackSettings.AlwaysCompareBreakoutItems == "ON")
+		or (type(GetCVarBool) == "function" and GetCVarBool("alwaysCompareItems"))
+		or (type(GetCVar) == "function" and GetCVar("alwaysCompareItems") == "1")
+		or (type(C_CVar) == "table" and type(C_CVar.GetCVarBool) == "function" and C_CVar.GetCVarBool("alwaysCompareItems"))
+	if always then
+		return true
+	end
+
+	local shiftDown = (type(IsShiftKeyDown) == "function" and IsShiftKeyDown())
+		or (type(IsModifiedClick) == "function" and IsModifiedClick("COMPAREITEMS"))
+	if shiftDown then
+		return true
+	end
+
+	return false
+end
+
+-- request a tooltip comparison of a straight item id against currently equipped gear
+function ItemRack.ShowBreakoutComparison(owner)
+	if not ItemRack.ShouldCompareBreakoutItems(owner) then
+		if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
+		if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
+		if ShoppingTooltip3 and ShoppingTooltip3.Hide then ShoppingTooltip3:Hide() end
 		return
 	end
 	if ShoppingTooltip1 and ShoppingTooltip1.EnableMouse then ShoppingTooltip1:EnableMouse(false) end
@@ -5461,6 +5488,10 @@ function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style
 	GameTooltip:Show()
 	if not shrunk then
 		ItemRack.ShowBreakoutComparison(self)
+	else
+		if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
+		if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
+		if ShoppingTooltip3 and ShoppingTooltip3.Hide then ShoppingTooltip3:Hide() end
 	end
 	
 	-- Suppress WoW's default compare tooltips if MenuOnShift is active
@@ -5473,6 +5504,9 @@ end
 
 function ItemRack.ClearTooltip(self)
 	GameTooltip:Hide()
+	if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
+	if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
+	if ShoppingTooltip3 and ShoppingTooltip3.Hide then ShoppingTooltip3:Hide() end
 	ItemRack.StopTimer("TooltipUpdate")
 	ItemRack.TooltipType = nil
 	ItemRack.TooltipOwner = nil
@@ -5587,6 +5621,10 @@ function ItemRack.TooltipUpdate()
 		GameTooltip:Show()
 		if not shrunk then
 			ItemRack.ShowBreakoutComparison(ItemRack.TooltipOwner)
+		else
+			if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
+			if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
+			if ShoppingTooltip3 and ShoppingTooltip3.Hide then ShoppingTooltip3:Hide() end
 		end
 		
 		-- Suppress WoW's default compare tooltips if MenuOnShift is active

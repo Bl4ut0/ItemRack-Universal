@@ -406,7 +406,7 @@ Tooltips:
   tooltips.
 * Tooltips beside buttons [Account-wide; Fresh-profile default: OFF; requires Show
   tooltips] Anchors ItemRack tooltips near the cursor.
-* Always compare breakout items [Account-wide; Fresh-profile default: ON;
+* Always compare breakout items [Account-wide; Fresh-profile default: OFF;
   requires Show tooltips] Requests the equipped-item comparison beside ItemRack
   flyout rows even when the WoW client normally requires its comparison
   modifier. Turning it off follows the client's comparison CVar and modifier.

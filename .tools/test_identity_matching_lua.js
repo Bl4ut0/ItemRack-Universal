@@ -159,6 +159,7 @@ assert(hooks==3,"Classic must retain all three legacy hooks")
 // enable automatic comparison tooltips by default, so ItemRack flyout rows only
 // compare while the player holds the client comparison modifier.
 const breakoutComparisonFunctions = [
+  extractFunction(core, 'ItemRack.ShouldCompareBreakoutItems'),
   extractFunction(core, 'ItemRack.OnModifierStateChanged'),
   extractFunction(core, 'ItemRack.MenuTooltip'),
   extractFunction(core, 'ItemRack.ShowBreakoutComparison'),
@@ -185,7 +186,7 @@ ItemRack={
   StartTimer=function() end,
   StopTimer=function() end,
 }
-ItemRackSettings={ShowTooltips='ON',AlwaysCompareBreakoutItems='ON',MenuOnShift='OFF'}
+ItemRackSettings={ShowTooltips='ON',AlwaysCompareBreakoutItems='OFF',MenuOnShift='OFF'}
 GameTooltip={SetBagItem=function() end,Show=function() end}
 ShoppingTooltip1={Hide=function() hidden1=hidden1+1 end}
 ShoppingTooltip2={Hide=function() hidden2=hidden2+1 end}
@@ -201,30 +202,52 @@ local function hoverBreakout()
   ItemRack.MenuTooltip(owner)
 end
 
+-- Fresh default: AlwaysCompareBreakoutItems='OFF', no Shift, no CVar -> no comparison on hover
 hoverBreakout()
-assert(compareCalls==1,'Forever breakout must request comparison when its default-on option is enabled')
+assert(compareCalls==0,'Breakout must not show comparison by default without Shift or CVar')
 assert(ItemRack.TooltipType=='BAG','ItemRack.TooltipType must be preserved for zero-cooldown items')
 
-ItemRackSettings.AlwaysCompareBreakoutItems='OFF'
+-- Pressing Shift: comparison is invoked
+function IsShiftKeyDown() return true end
 hoverBreakout()
-assert(compareCalls==1,'disabled option must leave comparison behavior to the WoW client')
+assert(compareCalls==1,'Breakout comparison must show when Shift key is held')
 
+-- Releasing Shift: comparison tooltips must hide
+function IsShiftKeyDown() return false end
+hoverBreakout()
+assert(compareCalls==1 and hidden1>=1 and hidden2>=1,'Releasing Shift must hide comparison tooltips')
+
+-- Turning on AlwaysCompareBreakoutItems option forces comparison without Shift
+ItemRackSettings.AlwaysCompareBreakoutItems='ON'
+hoverBreakout()
+assert(compareCalls==2,'AlwaysCompareBreakoutItems=ON must show comparison without Shift')
+ItemRackSettings.AlwaysCompareBreakoutItems='OFF'
+
+-- Enabling WoW client CVar alwaysCompareItems shows comparison without Shift
+function GetCVarBool(cvar) return cvar == 'alwaysCompareItems' end
+hoverBreakout()
+assert(compareCalls==3,'WoW CVar alwaysCompareItems=true must show comparison without Shift')
+GetCVarBool = nil
+
+-- Menu on Shift suppresses comparisons while opening a flyout
 ItemRackSettings.AlwaysCompareBreakoutItems='ON'
 ItemRackSettings.MenuOnShift='ON'
 function IsShiftKeyDown() return true end
+local hiddenBefore = hidden1
 hoverBreakout()
-assert(compareCalls==1 and hidden1==1 and hidden2==1,
+assert(compareCalls==3 and hidden1>hiddenBefore,
   'Menu on Shift must retain its intentional comparison suppression')
 
 ItemRackSettings.MenuOnShift='OFF'
 function IsShiftKeyDown() return false end
 GameTooltip_ShowCompareItem=nil
 hoverBreakout()
-assert(compareCalls==1,'clients without the comparison helper must remain safe')
+assert(compareCalls==3,'clients without the comparison helper must remain safe')
 
 GameTooltip_ShowCompareItem=function() compareCalls=compareCalls+1 end
+compareCalls = 0
 ItemRack.ShowBreakoutComparison({GetName=function() return 'ItemRackOptInv1' end})
-assert(compareCalls==1,'the breakout option must not alter unrelated ItemRack tooltips')
+assert(compareCalls==0,'the breakout option must not alter unrelated ItemRack tooltips')
 
 -- Modifier key state change must refresh active breakout tooltip and update dressup cursor
 local inspectCursor, resetCursorCalls = 0, 0
@@ -233,10 +256,12 @@ function ShowInspectCursor() inspectCursor = inspectCursor + 1 end
 function ResetCursor() resetCursorCalls = resetCursorCalls + 1 end
 function MouseIsOver(frame) return frame == owner end
 
+-- Holding Shift during modifier state change triggers comparison
+function IsShiftKeyDown() return true end
 hoverBreakout()
 compareCalls = 0
 ItemRack.OnModifierStateChanged()
-assert(compareCalls == 1, 'MODIFIER_STATE_CHANGED must trigger UpdateTooltip on active breakout owner')
+assert(compareCalls == 1, 'MODIFIER_STATE_CHANGED with Shift must trigger comparison on active breakout owner')
 assert(inspectCursor >= 1, 'Dressup modifier must trigger inspect cursor update')
 assert(ItemRack.TooltipType == 'BAG', 'Tooltip state must remain active and not drop on modifier press')
 
@@ -249,6 +274,8 @@ assert(tooltipHidden >= 1, 'ClearTooltip must hide GameTooltip')
 assert(resetCursorCalls >= 1, 'ClearTooltip must reset cursor')
 
 -- Verify breakout comparison disables mouse capture to prevent flicker loops without overriding Blizzard native tooltip positioning
+ItemRackSettings.AlwaysCompareBreakoutItems = 'ON'
+function IsShiftKeyDown() return false end
 local mouseDisabled = 0
 ShoppingTooltip1.EnableMouse = function(self, state) if not state then mouseDisabled = mouseDisabled + 1 end end
 ShoppingTooltip2.EnableMouse = function(self, state) if not state then mouseDisabled = mouseDisabled + 1 end end
@@ -302,6 +329,7 @@ const functions = [
   extractFunction(core, 'ItemRack.MatchesStoredItemID'),
   extractFunction(core, 'ItemRack.FindItem'),
   extractFunction(core, 'ItemRack.FindItemInBags'),
+  extractFunction(core, 'ItemRack.ShouldCompareBreakoutItems'),
   extractFunction(core, 'ItemRack.ShowBreakoutComparison'),
   extractFunction(core, 'ItemRack.IDTooltip'),
   extractFunction(queue, 'ItemRack.QueueHasExplicitIdentityEntry'),

@@ -1,4 +1,12 @@
 __ Development __
+- Breakout Tooltip Comparison Shift / CVar Control:
+  * ShowBreakoutComparison now mirrors Retail WoW comparison behavior: comparisons appear when pressing Shift or when alwaysCompareItems CVar / AlwaysCompareBreakoutItems is enabled.
+  * Releasing Shift hides comparison tooltips immediately.
+  * Changed AlwaysCompareBreakoutItems default to OFF so breakout rows follow client comparison settings out of the box.
+- GitHub #33 follow-up (neferens):
+  * Foreign/unqueued active trinkets not present in the new set's queue (e.g. Gadgetzan Transporter) are now evicted and replaced by the new set's top queue item on set switch.
+  * Active trinkets present in the new set's queue continue to hold until used or superseded by priority candidates.
+  * IsSetEquipped now checks slots governed by per-set queues even when unselected in set.equip.
 
 __ New in 4.57-beta5 - By Bl4ut0 __
 - GitHub #34 (Spiritshroud08): fixed disappearing breakout tooltips on Rings, Weapons, and armor slots with TipTac Reborn, RatingBuster Classic, Syndicator, TacoTip, TSM, and Leatrix Plus, as well as character-sheet tooltip flickering:

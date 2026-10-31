@@ -812,7 +812,8 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 				end
 			end
 
-			local canSwap = not ready or not isEquippedActive or list[i].priority
+			local isEquippedInQueue = currentMatchIndex ~= nil
+			local canSwap = not ready or (not isEquippedInQueue) or (not isEquippedActive) or list[i].priority
 			if manualHold and ready and i ~= currentMatchIndex then
 				canSwap = false
 			end
