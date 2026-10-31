@@ -38,11 +38,57 @@ local function FromGlobal(user,slot,reason)
 	}
 end
 
-function QueuePolicy.Resolve(user,getEventSet,slot,explicitSetName)
+local function FromQueueSet(queueSetName,queueSet,slot,reason)
+	return {
+		owner = "queueset:"..queueSetName,
+		list = queueSet.Queues and queueSet.Queues[slot],
+		enabled = queueSet.QueuesEnabled and queueSet.QueuesEnabled[slot],
+		reason = reason,
+	}
+end
+
+-- Active queue-set layer: a manual selection outranks the event stack, mirroring
+-- how CurrentSet outranks event sets for equipment. Returns nil when queue-sets
+-- are disabled or none active defines this slot.
+local function ResolveQueueSet(user,getEventQueueSet,slot)
+	if user.EnableQueueSets ~= "ON" or type(user.QueueSets) ~= "table" then
+		return nil
+	end
+	local manualName = user.CurrentQueueSet
+	local manual = manualName and user.QueueSets[manualName]
+	if manual and HasBoundary(manual,slot) then
+		return FromQueueSet(manualName,manual,slot,"manual_queue_set")
+	end
+	local seen = {}
+	if manualName then seen[manualName] = true end
+	local stack = user.EventStack
+	for index=#(stack or {}),1,-1 do
+		local eventName = stack[index]
+		local queueSetName
+		if getEventQueueSet then queueSetName = getEventQueueSet(eventName) end
+		if not queueSetName and user.Events and user.Events.QueueSet then
+			queueSetName = user.Events.QueueSet[eventName]
+		end
+		if queueSetName and not seen[queueSetName] then
+			seen[queueSetName] = true
+			local queueSet = user.QueueSets[queueSetName]
+			if queueSet and HasBoundary(queueSet,slot) then
+				return FromQueueSet(queueSetName,queueSet,slot,"event_queue_set")
+			end
+		end
+	end
+	return nil
+end
+
+function QueuePolicy.Resolve(user,getEventSet,slot,explicitSetName,getEventQueueSet)
 	if type(user) ~= "table" or type(slot) ~= "number" then
 		return { owner=false, reason="invalid_context" }
 	end
 	if user.EnablePerSetQueues ~= "ON" then
+		if not explicitSetName then
+			local queueSetContext = ResolveQueueSet(user,getEventQueueSet,slot)
+			if queueSetContext then return queueSetContext end
+		end
 		return FromGlobal(user,slot,"per_set_disabled")
 	end
 
@@ -88,6 +134,9 @@ function QueuePolicy.Resolve(user,getEventSet,slot,explicitSetName)
 			end
 		end
 	end
+
+	local queueSetContext = ResolveQueueSet(user,getEventQueueSet,slot)
+	if queueSetContext then return queueSetContext end
 
 	return FromGlobal(user,slot,"global_fallback")
 end
