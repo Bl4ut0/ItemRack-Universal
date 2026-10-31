@@ -401,10 +401,12 @@ ItemRackUser = {
 	Hidden = {}, -- items the user chooses to hide in menus
 	Queues = {}, -- item auto queue sorts
 	QueuesEnabled = {}, -- which queues are enabled
+	QueueSets = {}, -- named queue-sets, activated by event or manual selection
 	Locked = "OFF", -- buttons locked
 	EnableEvents = "ON", -- whether all events enabled
 	EnableQueues = "ON", -- whether all auto queues enabled
 	EnablePerSetQueues = "OFF",
+	EnableQueueSets = "OFF",
 	CustomCharacterIcons = "OFF",
 	CustomMenuIcons = "OFF",
 	EnableQueueContextCheck = "ON",
@@ -697,6 +699,10 @@ function ItemRack.AuditSavedVariables(printToChat)
 			ItemRackUser.QueuesEnabled = {}
 			LogIssue("ItemRackUser.QueuesEnabled was missing. Initialized.", true)
 		end
+		if not ItemRackUser.QueueSets then
+			ItemRackUser.QueueSets = {}
+			LogIssue("ItemRackUser.QueueSets was missing. Initialized.", true)
+		end
 	end
 	if not ItemRackUser.EventStack then
 		ItemRackUser.EventStack = {}
@@ -715,6 +721,7 @@ function ItemRack.AuditSavedVariables(printToChat)
 		EnableEvents = "ON",
 		EnableQueues = "ON",
 		EnablePerSetQueues = "OFF",
+		EnableQueueSets = "OFF",
 		CustomCharacterIcons = "OFF",
 		CustomMenuIcons = "OFF",
 		EnableQueueContextCheck = "ON",

@@ -400,8 +400,12 @@ function ItemRack.LoadEvents(resetDefault,resetAll)
 	if not ItemRackUser.Events or resetAll then
 		ItemRackUser.Events = {
 			Enabled = {}, -- indexed by name of event, whether an event is enabled
-			Set = {} -- indexed by name of event, the set defined for the event, if any
+			Set = {}, -- indexed by name of event, the set defined for the event, if any
+			QueueSet = {} -- indexed by name of event, the queue-set activated for the event, if any
 		}
+	end
+	if ItemRackUser.Events and not ItemRackUser.Events.QueueSet then
+		ItemRackUser.Events.QueueSet = {}
 	end
 
 	if not ItemRackEvents or resetAll then
