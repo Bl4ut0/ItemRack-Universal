@@ -152,3 +152,30 @@ end
 
 print(string.format("[QUEUE SETS LUA] %d management checks passed.",checks))
 `, 'queue-sets');
+
+const assert = require('assert');
+const core = fs.readFileSync('ItemRack/ItemRack.lua', 'utf8');
+let staticChecks = 0;
+function staticCheck(condition, message) {
+  assert.ok(condition, message);
+  staticChecks += 1;
+}
+
+staticCheck(
+  core.includes('"ItemRackUser.QueueSets = " .. ItemRackLogFrame.Serialize(ItemRackUser.QueueSets)'),
+  'The dump must serialize ItemRackUser.QueueSets.'
+);
+staticCheck(
+  core.includes('"ItemRackUser.CurrentQueueSet = " .. tostring(ItemRackUser.CurrentQueueSet)'),
+  'The dump must report ItemRackUser.CurrentQueueSet.'
+);
+staticCheck(
+  core.includes('"ItemRackUser.Events.QueueSet = " .. ItemRackLogFrame.Serialize(ItemRackUser.Events.QueueSet)'),
+  'The dump must serialize ItemRackUser.Events.QueueSet.'
+);
+staticCheck(
+  core.includes('{ name = "ItemRackUser.EnableQueueSets", val = ItemRackUser.EnableQueueSets }'),
+  'The settings dump must include EnableQueueSets.'
+);
+
+console.log(`[QUEUE SETS STATIC] ${staticChecks} profile-export guards passed.`);

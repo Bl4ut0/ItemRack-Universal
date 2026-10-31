@@ -6524,9 +6524,11 @@ function ItemRack.SlashHandler(arg1)
 			dumpText = dumpText .. "ItemRackUser.Locked = " .. tostring(ItemRackUser.Locked) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.Buttons = " .. ItemRackLogFrame.Serialize(ItemRackUser.Buttons) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.CurrentSet = " .. tostring(ItemRackUser.CurrentSet) .. "\n"
+			dumpText = dumpText .. "ItemRackUser.CurrentQueueSet = " .. tostring(ItemRackUser.CurrentQueueSet) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.EventStack = " .. ItemRackLogFrame.Serialize(ItemRackUser.EventStack) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.Queues = " .. ItemRackLogFrame.Serialize(ItemRackUser.Queues) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.QueuesEnabled = " .. ItemRackLogFrame.Serialize(ItemRackUser.QueuesEnabled) .. "\n"
+			dumpText = dumpText .. "ItemRackUser.QueueSets = " .. ItemRackLogFrame.Serialize(ItemRackUser.QueueSets) .. "\n"
 			dumpText = dumpText .. "\n=== AUTOQUEUE RUNTIME STATE ===\n"
 			dumpText = dumpText .. "ItemRack.QueueStateReady = " .. tostring(ItemRack.QueueStateReady) .. "\n"
 			dumpText = dumpText .. "ItemRack.QueueLifecycleKnown = " .. tostring(ItemRack.QueueLifecycleKnown) .. "\n"
@@ -6565,6 +6567,7 @@ function ItemRack.SlashHandler(arg1)
 				{ name = "ItemRackUser.EnableEvents", val = ItemRackUser.EnableEvents },
 				{ name = "ItemRackUser.EnableQueues", val = ItemRackUser.EnableQueues },
 				{ name = "ItemRackUser.EnablePerSetQueues", val = ItemRackUser.EnablePerSetQueues },
+				{ name = "ItemRackUser.EnableQueueSets", val = ItemRackUser.EnableQueueSets },
 				{ name = "ItemRackUser.EnableQueueContextCheck", val = ItemRackUser.EnableQueueContextCheck },
 				{ name = "ItemRackUser.ButtonSpacing", val = ItemRackUser.ButtonSpacing },
 				{ name = "ItemRackUser.Alpha", val = ItemRackUser.Alpha },
@@ -6646,6 +6649,7 @@ function ItemRack.SlashHandler(arg1)
 			if ItemRackUser.Events then
 				dumpText = dumpText .. "ItemRackUser.Events.Enabled = " .. ItemRackLogFrame.Serialize(ItemRackUser.Events.Enabled) .. "\n"
 				dumpText = dumpText .. "ItemRackUser.Events.Set = " .. ItemRackLogFrame.Serialize(ItemRackUser.Events.Set) .. "\n"
+				dumpText = dumpText .. "ItemRackUser.Events.QueueSet = " .. ItemRackLogFrame.Serialize(ItemRackUser.Events.QueueSet) .. "\n"
 			end
 			if ItemRackEvents then
 				dumpText = dumpText .. "ItemRackEvents = " .. ItemRackLogFrame.Serialize(ItemRackEvents) .. "\n"
