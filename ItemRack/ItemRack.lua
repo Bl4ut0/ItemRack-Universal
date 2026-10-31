@@ -6255,7 +6255,38 @@ end
 
 function ItemRack.SlashHandler(arg1)
 
-	if arg1 and string.match(arg1,"equip") then
+	if arg1 and string.match(arg1,"^queueset") then
+		local rest = string.match(arg1,"^queueset%s+(.+)")
+		if not rest then
+			ItemRack.Print("Usage: /itemrack queueset name | off | list | event eventName => name")
+		elseif string.lower(rest) == "off" then
+			ItemRack.SelectQueueSet(nil)
+			ItemRack.Print("Queue-set selection cleared.")
+		elseif string.lower(rest) == "list" then
+			ItemRack.Print("Queue-sets:")
+			if ItemRackUser.QueueSets and next(ItemRackUser.QueueSets) then
+				for name in pairs(ItemRackUser.QueueSets) do
+					ItemRack.Print("  "..name)
+				end
+			else
+				ItemRack.Print("  (none)")
+			end
+		else
+			local eventName,queueSetName = string.match(rest,"^event%s+(.-)%s*=>%s*(.+)")
+			if eventName then
+				if ItemRack.SetEventQueueSet(eventName,queueSetName) then
+					ItemRack.Print("Event '"..eventName.."' now activates queue-set '"..queueSetName.."'.")
+				else
+					ItemRack.Print("No such queue-set: "..tostring(queueSetName))
+				end
+			elseif ItemRack.SelectQueueSet(rest) then
+				ItemRack.Print("Queue-set '"..rest.."' selected.")
+			else
+				ItemRack.Print("No such queue-set: "..rest)
+			end
+		end
+		return
+	elseif arg1 and string.match(arg1,"equip") then
 		local set = string.match(arg1,"equip (.+)")
 		if not set then
 			ItemRack.Print("Usage: /itemrack equip set name")
@@ -6652,6 +6683,7 @@ function ItemRack.SlashHandler(arg1)
 		ItemRack.Print("/itemrack opt : summons options window.")
 		ItemRack.Print("/itemrack equip set name : equip set 'set name'.")
 		ItemRack.Print("/itemrack toggle set name[, second set] : toggles set 'set name'.")
+		ItemRack.Print("/itemrack queueset name|off|list|event eventName => name : selects or binds a queue-set.")
 		ItemRack.Print("/itemrack reset : resets buttons and their settings.")
 		ItemRack.Print("/itemrack reset everything : wipes ItemRack to default.")
 		ItemRack.Print("/itemrack lock/unlock : locks/unlocks the buttons.")

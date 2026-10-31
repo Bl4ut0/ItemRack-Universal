@@ -3,6 +3,7 @@ const { runLua, extractFunction } = require('./lib/lua_harness');
 
 const policy = fs.readFileSync('ItemRack/ItemRackQueuePolicy.lua', 'utf8');
 const cleanupEvents = extractFunction('ItemRack/ItemRackEvents.lua', 'ItemRack.CleanupEvents');
+const slashHandler = extractFunction('ItemRack/ItemRack.lua', 'ItemRack.SlashHandler');
 
 runLua(String.raw`
 ItemRack = {}
@@ -117,6 +118,36 @@ do
     "CleanupEvents must drop a queue-set mapping for a deleted event")
   check(ItemRackUser.Events.QueueSet.Stale == nil,
     "CleanupEvents must drop a mapping whose queue-set no longer exists")
+end
+
+do
+  local calls = {}
+  ItemRack.Print = function(msg) table.insert(calls,msg) end
+  ItemRack.SelectQueueSet = function(name) table.insert(calls,{ select=name == nil and "<nil>" or name }); return name == nil or name == "Mount" end
+  ItemRack.SetEventQueueSet = function(eventName,name) table.insert(calls,{ event=eventName, queueset=name }); return true end
+  ItemRackUser = { QueueSets={ Mount={} } }
+  ${slashHandler}
+
+  calls = {}
+  ItemRack.SlashHandler("queueset Mount")
+  check(calls[1] and calls[1].select == "Mount",
+    "queueset <name> must select that queue-set with original casing")
+
+  calls = {}
+  ItemRack.SlashHandler("queueset off")
+  check(calls[1] and calls[1].select == "<nil>",
+    "queueset off must clear the manual selection")
+
+  calls = {}
+  ItemRack.SlashHandler("queueset event Mounted => Mount")
+  check(calls[1] and calls[1].event == "Mounted" and calls[1].queueset == "Mount",
+    "queueset event eventName => name must bind the event to the queue-set")
+
+  calls = {}
+  ItemRack.SlashHandler("queueset list")
+  local listed = false
+  for _,msg in ipairs(calls) do if msg == "  Mount" then listed = true end end
+  check(listed, "queueset list must print configured queue-set names")
 end
 
 print(string.format("[QUEUE SETS LUA] %d management checks passed.",checks))
