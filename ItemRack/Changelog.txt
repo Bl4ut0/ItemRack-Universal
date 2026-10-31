@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.57-beta6 - By Bl4ut0 __
 - Breakout Tooltip Comparison Shift / CVar Control:
   * ShowBreakoutComparison now mirrors Retail WoW comparison behavior: comparisons appear when pressing Shift or when alwaysCompareItems CVar / AlwaysCompareBreakoutItems is enabled.
   * Releasing Shift hides comparison tooltips immediately.

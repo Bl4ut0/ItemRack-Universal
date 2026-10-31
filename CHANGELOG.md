@@ -4,6 +4,8 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+
+## [4.57-beta6] - 2026-10-30
 - **Breakout Tooltip Comparison Shift / CVar Control**:
   - `ItemRack.ShowBreakoutComparison` now mirrors Retail WoW comparison behavior: comparisons appear when pressing Shift (`IsShiftKeyDown()` / `IsModifiedClick("COMPAREITEMS")`), or when automatic comparison is enabled by the player via WoW's console variable (`GetCVarBool("alwaysCompareItems")` or `/console alwaysCompareItems 1`), or via ItemRack's option (`ItemRackSettings.AlwaysCompareBreakoutItems == "ON"`).
   - Releasing Shift immediately hides the comparison tooltips (`ShoppingTooltip1`, `ShoppingTooltip2`, `ShoppingTooltip3`).
