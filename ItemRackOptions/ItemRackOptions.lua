@@ -1883,6 +1883,89 @@ function ItemRackOpt.SlotQueueFrameOnHide()
 	ItemRack.UpdateCombatQueue()
 end
 
+-- Queue-tab source picker: lists the global queue, every standalone queue-set,
+-- and every equipment set's in-set queue (set:<Name>) so any of them can be
+-- edited directly without first selecting the set on the Sets tab.
+function ItemRackOpt.BuildQueueSourceList()
+	local sources = {}
+	if ItemRackUser.EnablePerSetQueues ~= "ON" then
+		table.insert(sources,{ token=nil, label="Global Queues" })
+	end
+	local queueSetNames = {}
+	for name in pairs(ItemRackUser.QueueSets or {}) do
+		table.insert(queueSetNames,name)
+	end
+	table.sort(queueSetNames)
+	for _,name in ipairs(queueSetNames) do
+		table.insert(sources,{ token="queueset:"..name, label=name })
+	end
+	local setNames = {}
+	for name in pairs(ItemRackUser.Sets or {}) do
+		if string.sub(name,1,1) ~= "~" then table.insert(setNames,name) end
+	end
+	table.sort(setNames)
+	for _,name in ipairs(setNames) do
+		table.insert(sources,{ token=name, label="set: "..name })
+	end
+	return sources
+end
+
+-- Map a picker token to the QueueEditingSet value. nil token means "use the
+-- active equipment set" (handled by SetupQueue's fallback).
+function ItemRackOpt.ResolveQueueSource(token)
+	if token == nil or token == "" then return nil end
+	return token
+end
+
+function ItemRackOpt.SelectQueueSource(token)
+	ItemRackOpt.QueueSource = token
+	if ItemRackOpt.SelectedSlot then
+		ItemRackOpt.SetupQueue(ItemRackOpt.SelectedSlot)
+	end
+end
+
+function ItemRackOpt.ToggleQueueSourcePick()
+	local anchor = ItemRackOptQueueSetInfo
+	local pick = ItemRackOptQueueSourcePick
+	local sources = ItemRackOpt.BuildQueueSourceList()
+	table.insert(sources,1,{ token="\1new", label="New Queue-Set..." })
+	if pick and pick:IsShown() then pick:Hide(); return end
+	if not pick then
+		pick = CreateFrame("Frame","ItemRackOptQueueSourcePick",anchor,"BackdropTemplate")
+		pick:SetFrameStrata("DIALOG")
+		pick:SetPoint("BOTTOMLEFT",anchor,"TOPLEFT",0,2)
+		pick:SetBackdrop({bgFile="Interface\\ChatFrame\\ChatFrameBackground",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
+		pick:SetBackdropColor(.1,.1,.1)
+		pick.items = {}
+	end
+	local width = 160
+	for i,source in ipairs(sources) do
+		local item = pick.items[i]
+		if not item then
+			item = CreateFrame("Button","ItemRackOptQueueSourcePick"..i,pick,"ItemRackOptEventEditPickTypeTemplate")
+			item:SetPoint("TOPLEFT",7,-6-(i-1)*18)
+			pick.items[i] = item
+		end
+		item:SetWidth(width)
+		item:SetText(source.label)
+		item:SetScript("OnClick",function()
+			if source.token == "\1new" then
+				pick:Hide()
+				StaticPopup_Show("ITEMRACK_NEW_QUEUESET")
+			else
+				ItemRackOpt.SelectQueueSource(source.token)
+				pick:Hide()
+			end
+		end)
+		item:Show()
+		width = math.max(width,item:GetFontString():GetStringWidth()+16)
+	end
+	for i=#sources+1,#pick.items do pick.items[i]:Hide() end
+	for i=1,#sources do pick.items[i]:SetWidth(width) end
+	pick:SetSize(width+14,12+#sources*18)
+	pick:Show()
+end
+
 function ItemRackOpt.SetupQueue(id)
 	ItemRackOpt.LayoutQueueControls()
 	-- Always ensure the global queue table exists for this slot
@@ -1890,17 +1973,24 @@ function ItemRackOpt.SetupQueue(id)
 		ItemRackUser.Queues[id] = {}
 	end
 	
-	-- Determine the set being edited in the options UI
-	local uiSetName = ItemRackOptSetsName and ItemRackOptSetsName:GetText()
-	local editingSet
-	if ItemRackSettings.EquipOnSetPick == "ON" then
-		editingSet = ItemRackUser.CurrentSet
-	else
-		editingSet = (uiSetName and uiSetName ~= "" and ItemRackUser.Sets[uiSetName]) and uiSetName or ItemRackUser.CurrentSet
+	-- Determine the queue source being edited: a selected queue-set or set:<Name>
+	-- source wins; otherwise fall back to the active equipment set.
+	local editingSet = ItemRackOpt.ResolveQueueSource(ItemRackOpt.QueueSource)
+	if not editingSet then
+		local uiSetName = ItemRackOptSetsName and ItemRackOptSetsName:GetText()
+		if ItemRackSettings.EquipOnSetPick == "ON" then
+			editingSet = ItemRackUser.CurrentSet
+		else
+			editingSet = (uiSetName and uiSetName ~= "" and ItemRackUser.Sets[uiSetName]) and uiSetName or ItemRackUser.CurrentSet
+		end
 	end
 	
-	-- If per-set queues are on, only initialize the currently edited set's queue (not all sets)
-	if ItemRackUser.EnablePerSetQueues == "ON" then
+	-- Ensure the edited source's slot table exists (queue-set or per-set).
+	local queueSetName = type(editingSet) == "string" and string.match(editingSet,"^queueset:(.+)")
+	if queueSetName then
+		local queueSet = ItemRack.CreateQueueSet(queueSetName)
+		if queueSet and not queueSet.Queues[id] then queueSet.Queues[id] = {} end
+	elseif ItemRackUser.EnablePerSetQueues == "ON" then
 		local currentSet = editingSet and ItemRackUser.Sets[editingSet]
 		if currentSet then
 			if not currentSet.Queues then
@@ -1915,12 +2005,23 @@ function ItemRackOpt.SetupQueue(id)
 	ItemRackOpt.SelectedSlot = id
 	ItemRackOpt.SortSelected = nil
 	ItemRackOpt.QueueEditingSet = editingSet
+	if not ItemRackOptQueueSetInfo.sourceClickable then
+		ItemRackOptQueueSetInfo:EnableMouse(true)
+		ItemRackOptQueueSetInfo:SetScript("OnMouseDown",ItemRackOpt.ToggleQueueSourcePick)
+		ItemRackOptQueueSetInfo.sourceClickable = true
+	end
 	ItemRackOptSlotQueueName:SetText(ItemRack.SlotInfo[id].real)
 	ItemRackOpt.PopulateSortList(id)
 	ItemRackOpt.ValidateSortButtons()
 	
 	-- Populate set info at the bottom of the queue frame
-	if ItemRackUser.EnablePerSetQueues == "ON" and editingSet and ItemRackUser.Sets[editingSet] then
+	local queueSetDisplay = type(editingSet) == "string" and string.match(editingSet,"^queueset:(.+)")
+	if queueSetDisplay then
+		local queueSet = ItemRackUser.QueueSets and ItemRackUser.QueueSets[queueSetDisplay]
+		ItemRackOptQueueSetIcon:SetTexture(ItemRackOpt.NormalizeSetIcon(queueSet and queueSet.icon))
+		ItemRackOptQueueSetName:SetText(queueSetDisplay)
+		ItemRackOptQueueSetInfo:Show()
+	elseif ItemRackUser.EnablePerSetQueues == "ON" and editingSet and ItemRackUser.Sets[editingSet] then
 		local set = ItemRackUser.Sets[editingSet]
 		ItemRackOptQueueSetIcon:SetTexture(ItemRackOpt.NormalizeSetIcon(set.icon))
 		ItemRackOptQueueSetName:SetText(editingSet)
@@ -2469,6 +2570,39 @@ StaticPopupDialogs["ITEMRACK_GET_LSI"] = {
 		self:GetEditBox():SetText("https://www.curseforge.com/wow/addons/libsoundindex")
 		self:GetEditBox():HighlightText()
 		self:GetEditBox():SetFocus()
+	end,
+	EditBoxOnEscapePressed = function(self)
+		self:GetParent():Hide()
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+StaticPopupDialogs["ITEMRACK_NEW_QUEUESET"] = {
+	text = "Name the new queue-set:",
+	button1 = "Create",
+	button2 = "Cancel",
+	hasEditBox = 1,
+	editBoxWidth = 220,
+	OnShow = function(self)
+		self:GetEditBox():SetText("")
+		self:GetEditBox():SetFocus()
+	end,
+	OnAccept = function(self)
+		local name = self:GetEditBox():GetText()
+		if name and name ~= "" and ItemRack.CreateQueueSet(name) then
+			ItemRackOpt.SelectQueueSource("queueset:"..name)
+		end
+	end,
+	EditBoxOnEnterPressed = function(self)
+		local parent = self:GetParent()
+		local name = parent:GetEditBox():GetText()
+		if name and name ~= "" and ItemRack.CreateQueueSet(name) then
+			ItemRackOpt.SelectQueueSource("queueset:"..name)
+		end
+		parent:Hide()
 	end,
 	EditBoxOnEscapePressed = function(self)
 		self:GetParent():Hide()

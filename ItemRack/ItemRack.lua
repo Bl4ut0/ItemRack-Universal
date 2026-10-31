@@ -6809,6 +6809,14 @@ local function QueueFieldProxy(field,setname)
 		return ItemRack.UnsupportedQueueViews[field]
 	end
 	ItemRackUser[field] = ItemRackUser[field] or {}
+	local queueSetName = type(setname) == "string" and string.match(setname,"^queueset:(.+)")
+	if queueSetName then
+		ItemRackUser.QueueSets = ItemRackUser.QueueSets or {}
+		local queueSet = ItemRackUser.QueueSets[queueSetName]
+		if not queueSet then return ItemRackUser[field] end
+		queueSet[field] = queueSet[field] or {}
+		return queueSet[field]
+	end
 	local targetSetName = setname or ItemRackUser.CurrentSet
 	local targetSet = ItemRackUser.EnablePerSetQueues == "ON" and targetSetName
 		and ItemRackUser.Sets[targetSetName]

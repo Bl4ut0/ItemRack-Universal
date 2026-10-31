@@ -4,6 +4,8 @@ const { runLua, extractFunction } = require('./lib/lua_harness');
 const policy = fs.readFileSync('ItemRack/ItemRackQueuePolicy.lua', 'utf8');
 const cleanupEvents = extractFunction('ItemRack/ItemRackEvents.lua', 'ItemRack.CleanupEvents');
 const slashHandler = extractFunction('ItemRack/ItemRack.lua', 'ItemRack.SlashHandler');
+const buildSources = extractFunction('ItemRackOptions/ItemRackOptions.lua', 'ItemRackOpt.BuildQueueSourceList');
+const resolveSource = extractFunction('ItemRackOptions/ItemRackOptions.lua', 'ItemRackOpt.ResolveQueueSource');
 
 runLua(String.raw`
 ItemRack = {}
@@ -150,6 +152,41 @@ do
   check(listed, "queueset list must print configured queue-set names")
 end
 
+do
+  ItemRackOpt = {}
+  ${buildSources}
+  ${resolveSource}
+
+  ItemRackUser = {
+    EnablePerSetQueues="OFF",
+    QueueSets={ Mount={}, Alpha={} },
+    Sets={ Raid={}, Dungeon={}, ["~BaseGear"]={} },
+  }
+  local sources = ItemRackOpt.BuildQueueSourceList()
+  check(sources[1].token == nil and sources[1].label == "Global Queues",
+    "the source list must lead with Global Queues when per-set is off")
+  check(sources[2].token == "queueset:Alpha" and sources[3].token == "queueset:Mount",
+    "standalone queue-sets must be listed alphabetically before equipment sets")
+  local sawRaid, sawTilde = false, false
+  for _,entry in ipairs(sources) do
+    if entry.token == "Raid" and entry.label == "set: Raid" then sawRaid = true end
+    if entry.token == "~BaseGear" then sawTilde = true end
+  end
+  check(sawRaid, "each equipment set must appear as a set:<Name> source")
+  check(not sawTilde, "reserved ~ sets must not appear in the source list")
+
+  ItemRackUser.EnablePerSetQueues = "ON"
+  local perSet = ItemRackOpt.BuildQueueSourceList()
+  check(perSet[1].token ~= nil,
+    "Global Queues must be omitted from the source list when per-set is on")
+
+  check(ItemRackOpt.ResolveQueueSource(nil) == nil and ItemRackOpt.ResolveQueueSource("") == nil,
+    "an empty source token must resolve to the active set fallback")
+  check(ItemRackOpt.ResolveQueueSource("queueset:Mount") == "queueset:Mount" and
+    ItemRackOpt.ResolveQueueSource("Raid") == "Raid",
+    "a queue-set or set token must resolve to itself")
+end
+
 print(string.format("[QUEUE SETS LUA] %d management checks passed.",checks))
 `, 'queue-sets');
 
@@ -176,6 +213,10 @@ staticCheck(
 staticCheck(
   core.includes('{ name = "ItemRackUser.EnableQueueSets", val = ItemRackUser.EnableQueueSets }'),
   'The settings dump must include EnableQueueSets.'
+);
+staticCheck(
+  core.includes('string.match(setname,"^queueset:(.+)")'),
+  'QueueFieldProxy must route a queueset: source to ItemRackUser.QueueSets.'
 );
 
 console.log(`[QUEUE SETS STATIC] ${staticChecks} profile-export guards passed.`);
