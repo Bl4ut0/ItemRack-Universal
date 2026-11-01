@@ -1,4 +1,20 @@
 __ Development __
+- Scrollable Dropdown Lists for Set Pickers:
+  * Made all set chooser dropdowns fully scrollable to seamlessly accommodate players with large numbers of sets:
+    1. Sets Tab Dropdown (ItemRackOptSubFrame5): Added mouse-wheel scrolling support across all list buttons (ItemRackOptSetList1..10) and the scroll frame (ItemRackOptSetListScrollFrame), anchored the scroll frame from row 1 down to row 10, and enabled mouse-wheel dispatch on the container frame.
+    2. Queue Active Set Dropdown (ItemRackOptQueueSetPicker): Added mouse-wheel propagation to row buttons so scrolling while hovering over items scrolls the list, ensured vertical scrollbar thumb sizing is explicitly styled, and clamped visible rows to 8 with offset pagination.
+    3. Queue Sync Dropdown (ItemRackOptQueueSyncPicker): Added a vertical slider scrollbar, mouse-wheel scrolling across both the popup frame and individual row buttons, and capped visible rows at 8 with offset scrolling instead of overflowing past the dialog bounds.
+- Queue Tab Active Set Dropdown & Breakout Window Alignment:
+  * Made the bottom-left set indicator on the Queue editor page (ItemRackOptQueueSetInfo) an interactive dropdown button with an arrow indicator and tooltip when "Use per-set queues" is enabled. Clicking the footer opens a scrollable set picker allowing players to switch the editing set context directly from the Queue page.
+  * Changing the set via this dropdown synchronizes both the Sets tab dropdown (ItemRackOptSetsName / ItemRackOpt.SelectedSet) and the Queue editor (ItemRackOpt.SetupQueue), immediately updating the queue list, sync controls, and sort buttons for the newly selected set.
+  * Raised the AutoQueue breakout controls panel (ItemRackOpt.QueueControls) by 25px (y = 21 relative to ItemRackOptSubFrame7, height 348) so its top and bottom borders align flush with the main ItemRack Options window (ItemRackOptFrame).
+- Tooltip Set Info Resolution for Hybrid Clients (TBC Anniversary 2.5.5, Classic Era) & Modern Bag Addons:
+  * Fixed "Show set info in tooltips" failing to display set lines in modern bag addons (e.g. Baganator) and classic/hybrid client versions where TooltipDataProcessor exists in the global environment but classic bag frames use traditional GameTooltip:SetBagItem and OnTooltipSetItem script dispatches.
+  * Removed mutually exclusive if TooltipDataProcessor ... else ... branching in ItemRack.RegisterSetTooltipHooks(). ItemRack now registers TooltipDataProcessor.AddTooltipPostCall AND hooks GameTooltip:HookScript("OnTooltipSetItem", ...) along with SetBagItem, SetInventoryItem, and SetHyperlink concurrently.
+  * Added hooks on ItemRefTooltip (OnTooltipSetItem and SetHyperlink) and ShoppingTooltip1 / ShoppingTooltip2 so item comparison tooltips and chat item links display ItemRack Set: <name> consistently.
+  * Updated ItemRack.OnTooltipItemData to directly query TooltipUtil.GetDisplayedItem(tooltip) and tooltip:GetItem() first before checking getterArgs, preventing premature return on unpopulated container data.
+  * Added safe tooltip:Layout() refresh when dynamic lines are appended to already-sized tooltips without invoking protected Show() methods.
+
 
 __ New in 4.57-beta7 - By Bl4ut0 __
 - Master / Mirrored Set Queues (GitHub #35 / kaidobit):

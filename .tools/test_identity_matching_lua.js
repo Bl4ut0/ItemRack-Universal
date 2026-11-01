@@ -136,7 +136,7 @@ TooltipDataProcessor={AddTooltipPostCall=function(_,fn) registrations=registrati
 GameTooltip={SetBagItem=function() end,SetInventoryItem=function() end,SetHyperlink=function() end}
 function hooksecurefunc() hooks=hooks+1 end
 ItemRack.RegisterSetTooltipHooks(); ItemRack.RegisterSetTooltipHooks()
-assert(registrations==1 and hooks==0,"modern registration must occur once without legacy duplication")
+assert(registrations==1 and hooks==3,"modern and classic hooks must register together idempotently")
 local tooltip={GetItem=function() return "Boots","|Hitem:32267:2649:24056:24062|h[Boots]|h" end,
   AddDoubleLine=function(_,_,name) table.insert(lines,name) end}
 callback(tooltip)
@@ -152,7 +152,7 @@ issecretvalue=function() return true end; callback(tooltip)
 assert(#lines==1,"unavailable and secret links must not be inspected")
 ItemRack.SetTooltipHooksRegistered=nil; TooltipDataProcessor=nil
 ItemRack.RegisterSetTooltipHooks()
-assert(hooks==3,"Classic must retain all three legacy hooks")
+assert(hooks==6,"Classic must retain all three legacy hooks")
 `, 'forever-modern-set-tooltip');
 
 // User report October 31, 2026: TooltipDataProcessor fails to show set info when hovering bag items (e.g. Baganator / modern WoW tooltips).
@@ -215,11 +215,30 @@ ${extractFunction(core, 'ItemRack.OnSetBagItem')}
 ${extractFunction(core, 'ItemRack.OnSetInventoryItem')}
 ${extractFunction(core, 'ItemRack.OnSetHyperlink')}
 ${extractFunction(core, 'ItemRack.OnTooltipItemData')}
+${extractFunction(core, 'ItemRack.RegisterSetTooltipHooks')}
 ` + String.raw`
 -- 1. Bag item via data.getterName and getterArgs
 mockTip:ClearLines()
 ItemRack.OnTooltipItemData(mockTip, { getterName = "GetBagItem", getterArgs = { 0, 1 } })
 assert(#lines == 1 and lines[1].right == "Bis", "bag item must resolve through GetBagItem args")
+-- 1b. Bag item via tooltip.processingInfo and data.id
+mockTip:ClearLines()
+mockTip.processingInfo = { getterName = "GetBagItem", getterArgs = { 0, 1 } }
+ItemRack.OnTooltipItemData(mockTip, { id = 32252 })
+mockTip.processingInfo = nil
+assert(#lines == 1 and lines[1].right == "Bis", "bag item must resolve through tooltip.processingInfo")
+-- 1c. Baganator button owner with owner.BGR.itemLink
+mockTip:ClearLines()
+mockTip.GetOwner = function() return { BGR = { itemLink = "|cffa335ee|Hitem:32252:0:0:0:0:0:0:0:70:0|h[Flashfire Girdle]|h|r" } } end
+ItemRack.OnTooltipItemData(mockTip, { id = 32252 })
+mockTip.GetOwner = nil
+assert(#lines == 1 and lines[1].right == "Bis", "Baganator button owner itemLink must resolve")
+-- 1d. Standard container button owner with parent bag 0 and slot 1
+mockTip:ClearLines()
+mockTip.GetOwner = function() return { GetParent = function() return { GetID = function() return 0 end } end, GetID = function() return 1 end } end
+ItemRack.OnTooltipItemData(mockTip, { id = 32252 })
+mockTip.GetOwner = nil
+assert(#lines == 1 and lines[1].right == "Bis", "standard container button owner bag/slot must resolve")
 -- 2. Duplicate line prevention on repeated calls
 ItemRack.OnTooltipItemData(mockTip, { getterName = "GetBagItem", getterArgs = { 0, 1 } })
 assert(#lines == 1, "duplicate calls must not add duplicate set lines")
@@ -252,6 +271,35 @@ assert(ItemRack.GetIRString("32252") == "32252", "numeric string parsing")
 assert(ItemRack.GetIRString(32252) == "32252", "number parsing")
 assert(ItemRack.GetIRString("|cffa335ee|Hitem:32252:0:0:0:0:0:0:0:70:0|h[Flashfire Girdle]|h|r") == "32252:0:0:0:0:0:0:0:70:0", "hyperlink parsing")
 assert(ItemRack.GetIRString("spell:1234") == 0, "non-item string must return 0")
+
+-- 10. October 31, 2026 report: OnTooltipSetItem must trigger set lines for classic bag/hyperlink items
+mockTip:ClearLines()
+mockTip.scripts = {}
+mockTip.HookScript = function(self, name, handler) self.scripts[name] = handler end
+mockTip.GetItem = function(self) return "Flashfire Girdle", "|cffa335ee|Hitem:32252:0:0:0:0:0:0:0:70:0|h[Flashfire Girdle]|h|r" end
+mockTip.Layout = function(self) self.laidOut = true end
+GameTooltip = mockTip
+
+ItemRack.SetTooltipHooksRegistered = nil
+ItemRack.RegisterSetTooltipHooks()
+assert(mockTip.scripts["OnTooltipSetItem"] ~= nil, "OnTooltipSetItem hook must be registered on GameTooltip")
+mockTip.scripts["OnTooltipSetItem"](mockTip)
+assert(#lines == 1 and lines[1].right == "Bis", "OnTooltipSetItem must add Bis set line for hovered bag item")
+assert(mockTip.laidOut == true, "tooltip:Layout() must refresh tooltip bounds")
+
+-- 11. Deduplication when both OnTooltipSetItem and SetBagItem fire for the same item
+ItemRack.OnSetBagItem(mockTip, 0, 1)
+assert(#lines == 1 and lines[1].right == "Bis", "deduplication must prevent adding duplicate set line")
+
+-- 12. ItemRefTooltip hook registration
+mockTip:ClearLines()
+local mockRefTip = { scripts = {}, HookScript = function(self, n, h) self.scripts[n] = h end, GetItem = function() return "Flashfire Girdle", "|cffa335ee|Hitem:32252:0:0:0:0:0:0:0:70:0|h[Flashfire Girdle]|h|r" end, AddDoubleLine = function(self, left, right) table.insert(lines, { left = left, right = right }) end }
+ItemRefTooltip = mockRefTip
+ItemRack.SetTooltipHooksRegistered = nil
+ItemRack.RegisterSetTooltipHooks()
+assert(mockRefTip.scripts["OnTooltipSetItem"] ~= nil, "OnTooltipSetItem hook must be registered on ItemRefTooltip")
+mockRefTip.scripts["OnTooltipSetItem"](mockRefTip)
+assert(#lines == 1 and lines[1].right == "Bis", "OnTooltipSetItem must add Bis set line on ItemRefTooltip")
 `, 'modern-tooltip-bag-and-hyperlink-data');
 
 // October 13, 2026 Forever report from Venruki: unlike current Retail, the client does not

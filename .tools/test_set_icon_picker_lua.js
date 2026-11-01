@@ -223,6 +223,8 @@ local function region()
     SetAllPoints=function(self,v) self.anchor=v end,SetTexCoord=function(self,...) self.uv={...} end,
     GetTexCoord=function() return 0,1,0,1 end,SetPoint=function() end,
     SetTextColor=function(self,...) self.color={...} end,
+    SetSize=function(self,w,h) self.width=w; self.height=h end,
+    SetWidth=function(self,w) self.width=w end, SetHeight=function(self,h) self.height=h end,
     SetVertexColor=function() end,Show=function(self) self.visible=true end,Hide=function(self) self.visible=false end}
 end
 function CreateFrame(kind,name,parent,template)
@@ -232,7 +234,7 @@ function CreateFrame(kind,name,parent,template)
     "SetHighlightTexture","SetOrientation","SetValueStep","SetThumbTexture","EnableMouseWheel","RegisterForClicks"}) do frame[method]=function() end end
 
   frame.SetSize=function(self,w,h) self.width=w; self.height=h end
-  frame.SetWidth=function(self,w) self.width=w end
+  frame.SetWidth=function(self,w) self.width=w end; frame.SetHeight=function(self,h) self.height=h end; frame.GetWidth=function(self) return self.width or 0 end; frame.GetHeight=function(self) return self.height or 0 end
   frame.SetPoint=function(self,...) self.point={...} end
   frame.ClearAllPoints=function(self) self.point=nil end
   frame.SetParent=function(self,parent) self.parent=parent end
@@ -247,7 +249,7 @@ function CreateFrame(kind,name,parent,template)
   frame.GetName=function(self) return self.name end
   frame.GetID=function(self) return self.id end
   frame.SetID=function(self,v) self.id=v end
-  frame.CreateFontString=region; frame.CreateTexture=region
+  frame.CreateFontString=region; frame.CreateTexture=region; frame.GetThumbTexture=region
   frame.SetText=function(self,v) self.text=v; if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end end
   frame.SetNormalTexture=function(self,v) self.texture=v end
   frame.SetAlpha=function(self,v) self.alpha=v end
@@ -256,7 +258,7 @@ function CreateFrame(kind,name,parent,template)
   frame.GetMinMaxValues=function(self) return self.min,self.max end
   frame.SetValue=function(self,v) self.value=v; if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self,v) end end
   frame.GetValue=function(self) return self.value end
-  frame.IsVisible=function(self) return self.visible and (not self.parent or self.parent:IsVisible()) end
+  frame.IsVisible=function(self) return self.visible and (not self.parent or self.parent:IsVisible()) end; frame.IsShown=function(self) return self.visible end
   frame.Show=function(self) self.visible=true end
   frame.Hide=function(self) self.visible=false; if self.scripts.OnHide then self.scripts.OnHide(self) end end
   frame.LockHighlight=function(self) self.highlight=true end; frame.UnlockHighlight=function(self) self.highlight=false end
@@ -405,7 +407,7 @@ ItemRackOpt.SortListScrollFrameUpdate()
 check(ItemRackOptSortList3Name.text=="Item 99999 (in bank)","open-bank queue row must explain saved location")
 ItemRack.BankOpen=false
 check(ItemRackOpt.GetQueueItemLocation(missing)=="missing", "closed-bank cache must not prove current ownership")
-ItemRackOptSetsName={ClearFocus=function() end,GetText=function() return "Stealth" end}
+ItemRackOptSetsName={ClearFocus=function() end,text="Stealth",GetText=function(self) return (type(self)=="table" and self.text) or "Stealth" end,SetText=function(self,val) if type(self)=="table" then self.text=val else ItemRackOptSetsName.text=val end end}
 ItemRackOptSpec1={GetChecked=function() return false end}; ItemRackOptSpec2=ItemRackOptSpec1
 ItemRack.RegisterEvents=function() end; ItemRackOpt.PopulateEventList=function() end
 ItemRackOpt.ReconcileSetBindings=function() end; ItemRackOpt.ValidateSetButtons=function() end
@@ -596,7 +598,8 @@ check(containerEntry.id==reportedContainerID and containerEntry.priority and con
 -- Exercise the production selector and relocated controls, retaining both
 -- global and inactive-set ownership. Exact item links/build were not supplied.
 ${['ValidateSortButtons','SortMove','ItemStatsDelayOnTextChanged','ItemStatsCheckOnClick',
-  'ItemStatsSwapInDelayOnTextChanged','QueueEnableSlotOnClick']
+  'ItemStatsSwapInDelayOnTextChanged','QueueEnableSlotOnClick',
+  'BuildQueueSetList','ToggleQueueSetPicker','UpdateQueueSetPickerRows','QueueSetInfoOnClick','QueueSetInfoOnEnter','ChangeEditingSet','SetListOnMouseWheel','BuildQueueSyncSetList','ToggleQueueSyncPicker','UpdateQueueSyncPickerRows']
   .map(n => extractFunction(options,'ItemRackOpt.'+n)).join('\n')}
 function IsShiftKeyDown() return true end -- avoid unrelated scrollbar API modeling
 ItemRack.UpdateCombatQueue=function() end
@@ -613,6 +616,8 @@ check(ItemRackOptSlotQueueName.visible and ItemRackOptQueueEnable.visible,
 local panel=ItemRackOpt.QueueControls
 check(panel and panel.parent==ItemRackOptSubFrame7 and panel.point[3]=="TOPRIGHT" and panel.point[4]>0,
   "queue-controls-right-popout: editing controls must be docked outside the main Queue window")
+check(panel.height==348 and panel.point[5]==21,
+  "queue-controls-alignment: breakout panel must be raised by 25px (y=21) with height 348 to align top and bottom with options window")
 local stats=ItemRackOptItemStatsFrame
 check(stats.parent==panel and ItemRackOptQueueEnable.parent==panel
   and ItemRackOpt.QueueIconButton.parent==panel and ItemRackOptSortMoveDelete.parent==panel,
@@ -1022,5 +1027,65 @@ ItemRack.QueueSchemaUnsupported=nil; ItemRackOptSubFrame7:Hide()
 check(not ItemRackOpt.AddQueueStopMarker() and not addStop:IsVisible() and not picker.context
   and #savedInactive==2 and first.delay==13 and inactive.customIcon==9009 and equipment[9]==originalGear,
   "closed Queue must hide restoration and reject stale clicks without changing saved policies or equipment")
+
+-- Queue set dropdown and active context switching regression
+ItemRackOptSubFrame7:Show()
+ItemRackUser.EnablePerSetQueues = "ON"
+
+-- 1. Sets tab dropdown mouse wheel scrolling
+ItemRackOptSetListScrollFrameScrollBar = CreateFrame("Slider", "ItemRackOptSetListScrollFrameScrollBar")
+ItemRackOptSetListScrollFrameScrollBar:SetMinMaxValues(0, 120)
+ItemRackOptSetListScrollFrameScrollBar:SetValue(0)
+ItemRackOptSetListScrollFrameScrollBar:Show()
+ItemRackOpt.SetListOnMouseWheel(nil, -1)
+check(ItemRackOptSetListScrollFrameScrollBar:GetValue() == 24,
+  "set-list-mousewheel: scrolling down must advance scrollbar value by 24")
+ItemRackOpt.SetListOnMouseWheel(nil, 1)
+check(ItemRackOptSetListScrollFrameScrollBar:GetValue() == 0,
+  "set-list-mousewheel: scrolling up must decrease scrollbar value by 24")
+
+-- 2. Populate additional sets to verify scrolling on both queue dropdowns (>8 sets)
+for s = 1, 10 do
+  ItemRackUser.Sets["TestSet"..s] = { equip = {}, icon = 100 }
+end
+
+local setList = ItemRackOpt.BuildQueueSetList()
+check(#setList >= 12, "queue-set-dropdown: set list must contain populated test sets")
+ItemRackOpt.ToggleQueueSetPicker()
+local qPick = ItemRackOptQueueSetPicker
+check(qPick and qPick:IsVisible(), "queue-set-dropdown: toggling set picker must open popup frame")
+check(qPick.slider and qPick.slider:IsShown(), "queue-set-dropdown: slider must be shown when more than 8 sets exist")
+check(qPick.buttons[1] and qPick.buttons[1].scripts["OnMouseWheel"] ~= nil,
+  "queue-set-dropdown: row buttons must have OnMouseWheel script")
+qPick.buttons[1].scripts["OnMouseWheel"](qPick.buttons[1], -1)
+check(qPick.offset == 1, "queue-set-dropdown: mouse wheel down on row button must increment offset")
+qPick.buttons[1].scripts["OnMouseWheel"](qPick.buttons[1], 1)
+check(qPick.offset == 0, "queue-set-dropdown: mouse wheel up on row button must decrement offset")
+
+ItemRackOpt.ChangeEditingSet("PvP")
+check(ItemRackOptSetsName:GetText() == "PvP" and ItemRackOpt.QueueEditingSet == "PvP" and ItemRackOpt.SelectedSet == "PvP",
+  "queue-set-dropdown: changing editing set must update Sets tab dropdown and queue context")
+ItemRackOptSubFrame7:Hide()
+check(not ItemRackOptQueueSetPicker:IsVisible(),
+  "queue-set-dropdown: hiding Queue frame must dismiss the set picker popup")
+
+-- 3. Queue Sync dropdown scrolling
+ItemRackOptSubFrame7:Show()
+ItemRackOptQueueSyncDrop = CreateFrame("Button", "ItemRackOptQueueSyncDrop", ItemRackOptSubFrame7)
+ItemRackOptQueueSyncDrop:SetSize(152, 22)
+ItemRackOptQueueSyncDrop:Show()
+ItemRackOpt.ToggleQueueSyncPicker()
+local syncPick = ItemRackOptQueueSyncPicker
+check(syncPick and syncPick:IsVisible(), "queue-sync-dropdown: toggling sync picker must open popup frame")
+check(syncPick.slider and syncPick.slider:IsShown(), "queue-sync-dropdown: slider must be shown for >8 sets")
+check(syncPick.buttons[1] and syncPick.buttons[1].scripts["OnMouseWheel"] ~= nil,
+  "queue-sync-dropdown: row buttons must have OnMouseWheel script")
+syncPick.buttons[1].scripts["OnMouseWheel"](syncPick.buttons[1], -1)
+check(syncPick.offset == 1, "queue-sync-dropdown: mouse wheel down on sync button must increment offset")
+syncPick.buttons[1].scripts["OnMouseWheel"](syncPick.buttons[1], 1)
+check(syncPick.offset == 0, "queue-sync-dropdown: mouse wheel up on sync button must decrement offset")
+ItemRackOpt.ToggleQueueSyncPicker()
+check(not syncPick:IsVisible(), "queue-sync-dropdown: toggling again must close popup")
+ItemRackOptSubFrame7:Hide()
 print(string.format("[QUEUE ITEM ICON LUA] %d scope, picker, persistence and presentation checks passed.",checks))
 `, 'queue-item-icons');

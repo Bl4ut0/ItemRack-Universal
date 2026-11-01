@@ -46,6 +46,26 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+October 31, 2026 Set Dropdown Scrolling Report:
+"both of the dropdown lists should be scrollable incase the users have a bunch of sets"
+Reported need for complete scrollability across all set dropdown menus (Sets tab chooser, Queues tab active set selector, and Queues breakout sync dropdown) when players have more sets than can fit vertically in the popup dialogs.
+Root cause:
+1. `ItemRackOptSubFrame5` (Sets tab chooser): `ItemRackOptSetListTemplate` row buttons intercepted mouse events without an `OnMouseWheel` script, and `ItemRackOptSetListScrollFrame` was mis-anchored to row 2 instead of row 1, preventing mouse-wheel scrolling over list items.
+2. `ItemRackOptQueueSetPicker` (Queue tab active set dropdown): Individual row buttons lacked `OnMouseWheel` event propagation, causing mouse-wheel events to be swallowed when hovering items.
+3. `ItemRackOptQueueSyncPicker` (Queue breakout sync dropdown): Rendered all sets as unscrollable buttons that extended beyond the dialog boundary with no slider, no mouse wheel, and no row pagination.
+Coverage: `.tools/test_set_icon_picker_lua.js` (`queue-item-icons`) verifies:
+- `ItemRackOpt.SetListOnMouseWheel` updates the scrollbar offset by 24 per tick.
+- `ItemRackOptQueueSetPicker` displays a vertical slider when more than 8 sets exist, and mouse-wheel events on row buttons increment/decrement the offset.
+- `ItemRackOptQueueSyncPicker` displays a vertical slider when more than 8 sets exist, caps visible rows to 8, and mouse-wheel events on row buttons increment/decrement the offset.
+Acceptance: Open the Sets tab, click the set chooser dropdown, and scroll the mouse wheel while hovering set buttons. Open the Queues tab with per-set queues enabled, click the active set dropdown at the bottom, and scroll with mouse wheel and drag the slider. Open the breakout panel, click the Sync Queue dropdown, and scroll with mouse wheel and drag the slider.
+
+October 31, 2026 TBC Anniversary / Baganator tooltip report:
+"still no sets showing up in trooltips when toggled on in ssetting please verify its ability to read and track sets and items on all release candidates"
+Attached screenshot showed character Blauto (Nightslayer, TBC Anniversary) hovering Flashfire Girdle (itemID 32276, stored in Bis set) in Baganator with ShowSetInTooltip enabled, but no "ItemRack Set:" line appeared on the tooltip.
+Root cause: `ItemRack.RegisterSetTooltipHooks()` used mutually exclusive `if TooltipDataProcessor ... else ...` branching. In modern Classic engines (TBC Anniversary 2.5.5, Classic Era 1.15), `TooltipDataProcessor` exists in the global environment, causing ItemRack to take the modern branch and completely skip registering `SetBagItem`, `SetInventoryItem`, `SetHyperlink`, and `OnTooltipSetItem`. In Classic, live container item buttons (including Baganator's mixins) dispatch tooltips through Blizzard's classic `ContainerFrameItemButton_OnEnter` -> `GameTooltip:SetBagItem(bag, slot)` and `OnTooltipSetItem` script, rather than through `TooltipDataProcessor`. Furthermore, clicked chat hyperlinks on `ItemRefTooltip` and comparison tooltips had no `OnTooltipSetItem` or `SetHyperlink` hooks, and `OnTooltipItemData` returned prematurely when container data lagged behind tooltip layout.
+The `modern-tooltip-bag-and-hyperlink-data` suite in `.tools/test_identity_matching_lua.js` executes production tooltip hook registration, `OnTooltipSetItem` script dispatch on `GameTooltip` and `ItemRefTooltip`, and Baganator button item link extraction. It asserts dual registration of both `TooltipDataProcessor` and classic `SetBagItem`/`SetInventoryItem`/`SetHyperlink` hooks, `GameTooltip:Layout()` execution, and line deduplication.
+Live acceptance: on TBC Anniversary, Classic Era, and Retail clients with both `ShowTooltips` and `ShowSetInTooltip` toggled ON, hover items in native bags, Baganator, bank slots, the character sheet, and click item links in chat. Confirm that `ItemRack Set: <name>` appears exactly once on each tooltip for items belonging to saved sets, with no Lua errors, no duplicate lines, and no action bar taint.
+
 October 16 combat-breakout diagnostic follow-up: the original support dump had
 the correct slot but only `Menu={0}`, without evidence identifying which
 discovery check failed. The `breakout-diagnostics-*` cases in the existing

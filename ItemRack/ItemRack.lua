@@ -2440,12 +2440,43 @@ end
 
 function ItemRack.OnTooltipItemData(tooltip, data)
 	if not tooltip or (tooltip.IsForbidden and tooltip:IsForbidden()) then return end
+	if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then return end
 
-	local info = data or (tooltip.GetProcessingTooltipInfo and tooltip:GetProcessingTooltipInfo()) or tooltip.processingInfo
+	local tooltipName = tooltip.GetName and tooltip:GetName()
+	if tooltipName and tooltip.NumLines then
+		for i = 1, tooltip:NumLines() do
+			local left = _G[tooltipName .. "TextLeft" .. i]
+			local text = left and left.GetText and left:GetText()
+			if text and text:find("^ItemRack Set:") then
+				return
+			end
+		end
+	end
+
+	-- 1. Try TooltipUtil.GetDisplayedItem for full link
+	if TooltipUtil and TooltipUtil.GetDisplayedItem then
+		local _, link = TooltipUtil.GetDisplayedItem(tooltip)
+		if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
+			return
+		end
+	end
+
+	-- 2. Try tooltip:GetItem()
+	if type(tooltip.GetItem) == "function" then
+		local ok, _, link = pcall(tooltip.GetItem, tooltip)
+		if ok and link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
+			return
+		end
+	end
+
+	-- 3. Try getter info if available
+	local info = (tooltip.GetProcessingTooltipInfo and tooltip:GetProcessingTooltipInfo()) or tooltip.processingInfo or tooltip.info or data
 	local getterName = info and info.getterName
 	local getterArgs = info and info.getterArgs
 
-	if getterName == "GetBagItem" and getterArgs and getterArgs[1] and getterArgs[2] then
+	if (getterName == "GetBagItem" or getterName == "GetContainerItem") and getterArgs and getterArgs[1] and getterArgs[2] then
 		ItemRack.OnSetBagItem(tooltip, getterArgs[1], getterArgs[2])
 		return
 	elseif getterName == "GetInventoryItem" and getterArgs and getterArgs[2] then
@@ -2454,56 +2485,125 @@ function ItemRack.OnTooltipItemData(tooltip, data)
 	elseif getterName == "GetHyperlink" and getterArgs and getterArgs[1] then
 		ItemRack.OnSetHyperlink(tooltip, getterArgs[1])
 		return
-	end
-
-	if TooltipUtil and TooltipUtil.GetDisplayedItem then
-		local _, link, id = TooltipUtil.GetDisplayedItem(tooltip)
+	elseif getterName == "GetItemByGUID" and getterArgs and getterArgs[1] and C_Item and C_Item.GetItemLinkByGUID then
+		local link = C_Item.GetItemLinkByGUID(getterArgs[1])
 		if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
 			ItemRack.OnSetHyperlink(tooltip, link)
 			return
-		elseif id and id ~= 0 then
-			ItemRack.ListSetsHavingItem(tooltip, tostring(id))
+		end
+	elseif getterName == "GetGuildBankItem" and getterArgs and getterArgs[1] and getterArgs[2] and GetGuildBankItemLink then
+		local link = GetGuildBankItemLink(getterArgs[1], getterArgs[2])
+		if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
+			return
+		end
+	elseif getterName == "GetMerchantItem" and getterArgs and getterArgs[1] and GetMerchantItemLink then
+		local link = GetMerchantItemLink(getterArgs[1])
+		if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
 			return
 		end
 	end
 
+	-- 4. Try tooltip data payload (hyperlink or GUID)
 	if data then
-		if data.guid and C_Item and C_Item.GetItemLinkByGUID then
-			local link = C_Item.GetItemLinkByGUID(data.guid)
-			if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
-				ItemRack.OnSetHyperlink(tooltip, link)
-				return
-			end
-		end
 		if data.hyperlink and type(data.hyperlink) == "string" and not (issecretvalue and issecretvalue(data.hyperlink)) then
 			ItemRack.OnSetHyperlink(tooltip, data.hyperlink)
 			return
 		end
-		if data.id and data.id ~= 0 then
-			ItemRack.ListSetsHavingItem(tooltip, tostring(data.id))
-			return
-		end
-	end
-
-	if type(tooltip.GetItem) == "function" then
-		local ok, _, link = pcall(tooltip.GetItem, tooltip)
-		if ok and link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+	if data.guid and C_Item and C_Item.GetItemLinkByGUID then
+		local link = C_Item.GetItemLinkByGUID(data.guid)
+		if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
 			ItemRack.OnSetHyperlink(tooltip, link)
 			return
 		end
+	end
+	end
+
+	-- 5. Try tooltip owner / mouse focus (e.g. Baganator, standard bag buttons, or character slots)
+	local owner = tooltip.GetOwner and tooltip:GetOwner()
+	if owner then
+		-- Baganator stores itemLink directly on button.BGR.itemLink
+		if owner.BGR and owner.BGR.itemLink and type(owner.BGR.itemLink) == "string" then
+			ItemRack.OnSetHyperlink(tooltip, owner.BGR.itemLink)
+			return
+		end
+		-- Check container item button bag/slot
+		local bagID = (owner.GetBagID and owner:GetBagID()) or (owner.GetParent and owner:GetParent() and owner:GetParent().GetID and owner:GetParent():GetID())
+		local slotID = owner.GetID and owner:GetID()
+		if type(bagID) == "number" and type(slotID) == "number" and bagID >= 0 and slotID > 0 then
+			ItemRack.OnSetBagItem(tooltip, bagID, slotID)
+			return
+		end
+		-- Check bank frame button
+		if type(bagID) == "number" and bagID == -1 and owner.GetInventorySlot then
+			local invSlot = owner:GetInventorySlot()
+			if invSlot then
+				ItemRack.OnSetInventoryItem(tooltip, "player", invSlot)
+				return
+			end
+		end
+		-- Check paper doll character slot
+		if owner.GetInventorySlot or (owner.GetName and owner:GetName() and owner:GetName():find("^Character.*Slot$")) then
+			local invSlot = (owner.GetInventorySlot and owner:GetInventorySlot()) or (owner.GetID and owner:GetID())
+			if invSlot and invSlot > 0 then
+				ItemRack.OnSetInventoryItem(tooltip, "player", invSlot)
+				return
+			end
+		end
+	end
+
+	-- 6. Final fallback: numeric item ID if available
+	local numericID = (data and data.id and data.id ~= 0 and data.id)
+	if not numericID and TooltipUtil and TooltipUtil.GetDisplayedItem then
+		local _, _, id = TooltipUtil.GetDisplayedItem(tooltip)
+		if id and id ~= 0 then numericID = id end
+	end
+	if numericID then
+		ItemRack.ListSetsHavingItem(tooltip, tostring(numericID))
 	end
 end
 
 function ItemRack.RegisterSetTooltipHooks()
 	if ItemRack.SetTooltipHooksRegistered then return end
+
+	-- 1. Modern TooltipDataProcessor post-call (Retail / 10.0+ / modern Classic)
 	if TooltipDataProcessor and type(TooltipDataProcessor.AddTooltipPostCall) == "function"
 	and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item then
 		TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item,ItemRack.OnTooltipItemData)
-	else
-		if GameTooltip and GameTooltip.SetBagItem then hooksecurefunc(GameTooltip,"SetBagItem",ItemRack.OnSetBagItem) end
-		if GameTooltip and GameTooltip.SetInventoryItem then hooksecurefunc(GameTooltip,"SetInventoryItem",ItemRack.OnSetInventoryItem) end
-		if GameTooltip and GameTooltip.SetHyperlink then hooksecurefunc(GameTooltip,"SetHyperlink",ItemRack.OnSetHyperlink) end
 	end
+
+	-- 2. Classic frame script: OnTooltipSetItem (Classic Era, TBC, Wrath, Cata)
+	-- Runs before tooltip sizing/display so lines are seamlessly formatted without taint.
+	local function HookTooltipSetItem(tip)
+		if not tip or not tip.HookScript then return end
+		tip:HookScript("OnTooltipSetItem", function(self)
+			if not self or (self.IsForbidden and self:IsForbidden()) then return end
+			if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then return end
+			if type(self.GetItem) == "function" then
+				local ok, _, link = pcall(self.GetItem, self)
+				if ok and link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+					ItemRack.OnSetHyperlink(self, link)
+				end
+			end
+		end)
+	end
+
+	if GameTooltip then
+		HookTooltipSetItem(GameTooltip)
+		if GameTooltip.SetBagItem then hooksecurefunc(GameTooltip,"SetBagItem",ItemRack.OnSetBagItem) end
+		if GameTooltip.SetInventoryItem then hooksecurefunc(GameTooltip,"SetInventoryItem",ItemRack.OnSetInventoryItem) end
+		if GameTooltip.SetHyperlink then hooksecurefunc(GameTooltip,"SetHyperlink",ItemRack.OnSetHyperlink) end
+	end
+
+	if ItemRefTooltip then
+		HookTooltipSetItem(ItemRefTooltip)
+		if ItemRefTooltip.SetHyperlink then hooksecurefunc(ItemRefTooltip,"SetHyperlink",ItemRack.OnSetHyperlink) end
+	end
+
+	if ShoppingTooltip1 then HookTooltipSetItem(ShoppingTooltip1) end
+	if ShoppingTooltip2 then HookTooltipSetItem(ShoppingTooltip2) end
+
 	ItemRack.SetTooltipHooksRegistered = true
 end
 
@@ -2514,7 +2614,7 @@ do
 		if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then
 			return
 		end
-		if not tooltip or not id or id == 0 then return end
+		if not tooltip or not id or id == 0 or id == "0" then return end
 		if tooltip.IsForbidden and tooltip:IsForbidden() then return end
 
 		local tooltipName = tooltip.GetName and tooltip:GetName()
@@ -2538,9 +2638,14 @@ do
 				end
 			end
 		end
+		local added = false
 		for name in pairs(data) do
 			tooltip:AddDoubleLine("ItemRack Set: ", name, 0,.6,1, 0,.6,1)
 			data[name] = nil
+			added = true
+		end
+		if added and tooltip.Layout then
+			tooltip:Layout()
 		end
 		-- Blizzard owns the tooltip's Show lifecycle. Calling Show from these
 		-- insecure post-hooks can taint protected action-button update paths.

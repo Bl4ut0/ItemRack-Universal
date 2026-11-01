@@ -584,8 +584,8 @@ function ItemRackOpt.OnShow(setname)
 	end
 end
 
-function ItemRackOpt.ChangeEditingSet()
-	local setname = ItemRackUser.CurrentSet
+function ItemRackOpt.ChangeEditingSet(targetSetName)
+	local setname = targetSetName or ItemRackUser.CurrentSet
 	if setname and ItemRackUser.Sets[setname] then
 		local set = ItemRackUser.Sets[setname].equip
 		local marqueeActive = ItemRack.IsTimerActive and ItemRack.IsTimerActive("SlotMarquee")
@@ -599,19 +599,20 @@ function ItemRackOpt.ChangeEditingSet()
 				ItemRackOpt.HoldInv[i].selected = slotSelected
 			end
 		end
-		ItemRackOptSetsName:SetText(setname)
+		if ItemRackOptSetsName and ItemRackOptSetsName.SetText then ItemRackOptSetsName:SetText(setname) end
+		ItemRackOpt.SelectedSet = setname
+		ItemRackOpt.QueueEditingSet = setname
 		ItemRackOpt.selectedIcon = ItemRackOpt.NormalizeSetIcon(ItemRackUser.Sets[setname].icon)
 		ItemRackOpt.selectedIconIndex = nil
-		ItemRackOpt.UpdateInv()
+		if ItemRackOpt.UpdateInv then ItemRackOpt.UpdateInv() end
 		ItemRackOpt.SpecDirty = false
 		ItemRackOpt.SetModified = false
-		ItemRackOptSubFrame5:Hide()
-		if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot ~= nil then
+		if ItemRackOptSubFrame5 then ItemRackOptSubFrame5:Hide() end
+		if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot ~= nil and ItemRackOpt.SetupQueue then
 			ItemRackOpt.SetupQueue(ItemRackOpt.SelectedSlot)
 		end
 	end
 end
-
 function ItemRackOpt.UpdateInv()
 	if ItemRack.IsTimerActive("SlotMarquee") then return end
 	local icon,texture,border,item
@@ -1183,6 +1184,12 @@ function ItemRackOpt.PickSetOnShow()
 	ItemRackOpt.MakeEscable("ItemRackOptFrame","remove")
 	ItemRackOpt.HideCurrentSubFrame(5)
 	ItemRackOpt.SaveInv()
+	if ItemRackOptSubFrame5 and ItemRackOptSubFrame5.EnableMouseWheel then
+		ItemRackOptSubFrame5:EnableMouseWheel(true)
+		ItemRackOptSubFrame5:SetScript("OnMouseWheel", function(self, delta)
+			ItemRackOpt.SetListOnMouseWheel(self, delta)
+		end)
+	end
 	ItemRackOpt.PopulateSetList()
 end
 
@@ -1248,6 +1255,16 @@ function ItemRackOpt.SetListScrollFrameUpdate()
 	end
 end
 
+function ItemRackOpt.SetListOnMouseWheel(self, delta)
+	local scrollBar = _G["ItemRackOptSetListScrollFrameScrollBar"]
+	if scrollBar and scrollBar:IsVisible() then
+		local minVal, maxVal = scrollBar:GetMinMaxValues()
+		local curVal = scrollBar:GetValue()
+		local step = 24
+		scrollBar:SetValue(math.max(minVal, math.min(maxVal, curVal - delta * step)))
+	end
+end
+
 function ItemRackOpt.PopulateSetList()
 	for i in pairs(ItemRackOpt.SetList) do
 		ItemRackOpt.SetList[i] = nil
@@ -1307,6 +1324,11 @@ function ItemRackOpt.SelectSetList(self)
 		end
 		ItemRackOpt.SpecDirty = false
 		ItemRackOpt.SetModified = false
+		ItemRackOpt.SelectedSet = setname
+		ItemRackOpt.QueueEditingSet = setname
+		if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot ~= nil and ItemRackOpt.SetupQueue then
+			ItemRackOpt.SetupQueue(ItemRackOpt.SelectedSlot)
+		end
 	end
 
 	ItemRackOptSubFrame5:Hide()
@@ -2030,7 +2052,7 @@ function ItemRackOpt.ToggleQueueSyncPicker()
 	local pick = ItemRackOptQueueSyncPicker
 	local drop = ItemRackOptQueueSyncDrop
 	if not drop or not drop:IsVisible() then return end
-	if pick and pick:IsShown() then
+	if pick and (pick.IsShown and pick:IsShown() or pick.IsVisible and pick:IsVisible()) then
 		pick:Hide()
 		return
 	end
@@ -2044,52 +2066,305 @@ function ItemRackOpt.ToggleQueueSyncPicker()
 	if not pick then
 		pick = CreateFrame("Frame","ItemRackOptQueueSyncPicker",drop,BackdropTemplateMixin and "BackdropTemplate" or nil)
 		pick:SetFrameStrata("DIALOG")
+		if pick.SetClampedToScreen then pick:SetClampedToScreen(true) end
 		pick:SetPoint("TOPLEFT",drop,"BOTTOMLEFT",-6,-2)
 		pick:SetBackdrop({bgFile="Interface\\ChatFrame\\ChatFrameBackground",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
 		pick:SetBackdropColor(.08,.08,.08,.98)
 		pick.buttons = {}
+		ItemRackOptQueueSyncPicker = pick
 	end
 
-	local numVisible = math.min(#sets, 8)
+	local maxVisible = 8
+	local numVisible = math.min(#sets, maxVisible)
 	local rowHeight = 20
-	pick:SetSize(drop:GetWidth() + 12, 12 + numVisible * rowHeight)
+	local pickerWidth = ((drop.GetWidth and drop:GetWidth()) or 152) + 16
+	pick:SetSize(pickerWidth, 12 + numVisible * rowHeight)
+	pick.sets = sets
+	pick.offset = pick.offset or 0
+	if pick.offset > math.max(0, #sets - maxVisible) then
+		pick.offset = math.max(0, #sets - maxVisible)
+	end
 
-	for i, name in ipairs(sets) do
+	if #sets > maxVisible then
+		if not pick.slider then
+			local slider = CreateFrame("Slider", nil, pick)
+			slider:SetOrientation("VERTICAL")
+			slider:SetSize(12, numVisible * rowHeight - 8)
+			slider:SetPoint("TOPRIGHT", pick, "TOPRIGHT", -6, -10)
+			slider:SetThumbTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+			local thumb = slider.GetThumbTexture and slider:GetThumbTexture()
+			if thumb and thumb.SetSize then thumb:SetSize(14, 18) end
+			local track = slider:CreateTexture(nil, "BACKGROUND")
+			track:SetAllPoints()
+			track:SetTexture("Interface\\Buttons\\WHITE8X8")
+			track:SetVertexColor(.15, .15, .15, 0.8)
+			slider:SetScript("OnValueChanged", function(self, val)
+				local newOffset = math.floor(val + 0.5)
+				if newOffset ~= pick.offset then
+					pick.offset = newOffset
+					ItemRackOpt.UpdateQueueSyncPickerRows()
+				end
+			end)
+			pick.slider = slider
+			pick:EnableMouseWheel(true)
+			pick:SetScript("OnMouseWheel", function(self, delta)
+				local minVal, maxVal = self.slider:GetMinMaxValues()
+				local curVal = self.slider:GetValue()
+				self.slider:SetValue(math.max(minVal, math.min(maxVal, curVal - delta)))
+			end)
+		else
+			pick.slider:SetSize(12, numVisible * rowHeight - 8)
+		end
+		pick.slider:SetMinMaxValues(0, #sets - maxVisible)
+		pick.slider:SetValueStep(1)
+		pick.slider:SetValue(pick.offset)
+		pick.slider:Show()
+	elseif pick.slider then
+		pick.slider:Hide()
+		pick.offset = 0
+	end
+
+	ItemRackOpt.UpdateQueueSyncPickerRows()
+	pick:Show()
+end
+
+function ItemRackOpt.UpdateQueueSyncPickerRows()
+	local pick = ItemRackOptQueueSyncPicker
+	local drop = ItemRackOptQueueSyncDrop
+	if not pick or not pick.sets or not drop then return end
+	local sets = pick.sets
+	local maxVisible = 8
+	local numVisible = math.min(#sets, maxVisible)
+	local rowHeight = 20
+	local pickerWidth = ((drop.GetWidth and drop:GetWidth()) or 152) + 16
+	local hasSlider = #sets > maxVisible
+	local btnWidth = hasSlider and (pickerWidth - 26) or (pickerWidth - 12)
+	local offset = pick.offset or 0
+
+	for i = 1, maxVisible do
+		local idx = offset + i
 		local btn = pick.buttons[i]
 		if not btn then
-			btn = CreateFrame("Button","ItemRackOptQueueSyncPickerBtn"..i,pick,"ItemRackOptEventEditPickTypeTemplate")
+			btn = CreateFrame("Button", "ItemRackOptQueueSyncPickerBtn" .. i, pick, "ItemRackOptEventEditPickTypeTemplate")
 			btn:SetHeight(rowHeight)
-			btn.icon = btn:CreateTexture(nil,"ARTWORK")
-			btn.icon:SetSize(16,16)
-			btn.icon:SetPoint("LEFT",btn,"LEFT",4,0)
-			btn:SetPoint("TOPLEFT",pick,"TOPLEFT",6,-6-(i-1)*rowHeight)
+			btn.icon = btn:CreateTexture(nil, "ARTWORK")
+			if btn.icon and btn.icon.SetSize then btn.icon:SetSize(16, 16) end
+			if btn.icon and btn.icon.SetPoint then btn.icon:SetPoint("LEFT", btn, "LEFT", 4, 0) end
+			btn:SetPoint("TOPLEFT", pick, "TOPLEFT", 6, -6 - (i - 1) * rowHeight)
+			btn:EnableMouseWheel(true)
+			btn:SetScript("OnMouseWheel", function(self, delta)
+				if pick.slider and pick.slider:IsShown() then
+					local minVal, maxVal = pick.slider:GetMinMaxValues()
+					local curVal = pick.slider:GetValue()
+					pick.slider:SetValue(math.max(minVal, math.min(maxVal, curVal - delta)))
+				end
+			end)
 			pick.buttons[i] = btn
 		end
-		btn:SetWidth(drop:GetWidth())
-		local set = ItemRackUser.Sets[name]
-		local iconTexture = set and ItemRackOpt.NormalizeSetIcon(set.icon) or "Interface\\Icons\\INV_Misc_QuestionMark"
-		btn.icon:SetTexture(iconTexture)
-		btn:SetText("   " .. name)
-		btn:SetScript("OnClick",function()
-			pick:Hide()
-			ItemRackOpt.SetQueueSlotSync(ItemRackOpt.SelectedSlot, ItemRackOpt.QueueEditingSet, name)
-		end)
-		btn:Show()
+		btn:SetWidth(btnWidth)
+
+		if idx <= #sets then
+			local name = sets[idx]
+			local set = ItemRackUser.Sets[name]
+			local iconTexture = set and ItemRackOpt.NormalizeSetIcon(set.icon) or "Interface\\Icons\\INV_Misc_QuestionMark"
+			if btn.icon and btn.icon.SetTexture then btn.icon:SetTexture(iconTexture) end
+			btn:SetText("   " .. name)
+			btn:SetScript("OnClick", function()
+				pick:Hide()
+				ItemRackOpt.SetQueueSlotSync(ItemRackOpt.SelectedSlot, ItemRackOpt.QueueEditingSet, name)
+			end)
+			btn:Show()
+		else
+			btn:Hide()
+		end
 	end
-	for i = #sets + 1, #pick.buttons do
+	for i = maxVisible + 1, #pick.buttons do
 		pick.buttons[i]:Hide()
 	end
+end
 
+function ItemRackOpt.BuildQueueSetList()
+	local sets = {}
+	for name in pairs(ItemRackUser.Sets or {}) do
+		if name and not string.match(name, "^~") then
+			table.insert(sets, name)
+		end
+	end
+	table.sort(sets)
+	return sets
+end
+
+function ItemRackOpt.ToggleQueueSetPicker()
+	local drop = ItemRackOptQueueSetInfo
+	if not drop or not drop:IsVisible() then return end
+	if ItemRackUser.EnablePerSetQueues ~= "ON" then return end
+
+	local pick = ItemRackOptQueueSetPicker
+	if pick and pick:IsShown() then
+		pick:Hide()
+		return
+	end
+
+	local sets = ItemRackOpt.BuildQueueSetList()
+	if #sets == 0 then
+		ItemRack.Print("No equipment sets found.")
+		return
+	end
+
+	if not pick then
+		pick = CreateFrame("Frame", "ItemRackOptQueueSetPicker", ItemRackOptSubFrame7, BackdropTemplateMixin and "BackdropTemplate" or nil)
+		pick:SetFrameStrata("DIALOG")
+		if pick.SetClampedToScreen then pick:SetClampedToScreen(true) end
+		pick:SetPoint("BOTTOMLEFT", drop, "TOPLEFT", 0, 4)
+		pick:SetBackdrop({
+			bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			edgeSize = 16,
+			insets = { left = 4, right = 4, top = 4, bottom = 4 }
+		})
+		pick:SetBackdropColor(.08, .08, .08, .98)
+		pick.buttons = {}
+		ItemRackOptQueueSetPicker = pick
+	end
+
+	local maxVisible = 8
+	local numVisible = math.min(#sets, maxVisible)
+	local rowHeight = 20
+	local pickerWidth = 196
+	pick:SetSize(pickerWidth, 12 + numVisible * rowHeight)
+	pick.sets = sets
+	pick.offset = pick.offset or 0
+	if pick.offset > math.max(0, #sets - maxVisible) then
+		pick.offset = math.max(0, #sets - maxVisible)
+	end
+
+	if #sets > maxVisible then
+		if not pick.slider then
+			local slider = CreateFrame("Slider", nil, pick)
+			slider:SetOrientation("VERTICAL")
+			slider:SetSize(12, numVisible * rowHeight - 8)
+			slider:SetPoint("TOPRIGHT", pick, "TOPRIGHT", -8, -10)
+			slider:SetThumbTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+			local thumb = slider.GetThumbTexture and slider:GetThumbTexture()
+			if thumb and thumb.SetSize then thumb:SetSize(14, 18) end
+			local track = slider:CreateTexture(nil, "BACKGROUND")
+			track:SetAllPoints()
+			track:SetTexture("Interface\\Buttons\\WHITE8X8")
+			track:SetVertexColor(.15, .15, .15, 0.8)
+			slider:SetScript("OnValueChanged", function(self, val)
+				local newOffset = math.floor(val + 0.5)
+				if newOffset ~= pick.offset then
+					pick.offset = newOffset
+					ItemRackOpt.UpdateQueueSetPickerRows()
+				end
+			end)
+			pick.slider = slider
+			pick:EnableMouseWheel(true)
+			pick:SetScript("OnMouseWheel", function(self, delta)
+				local minVal, maxVal = self.slider:GetMinMaxValues()
+				local curVal = self.slider:GetValue()
+				self.slider:SetValue(math.max(minVal, math.min(maxVal, curVal - delta)))
+			end)
+		else
+			pick.slider:SetSize(12, numVisible * rowHeight - 8)
+		end
+		pick.slider:SetMinMaxValues(0, #sets - maxVisible)
+		pick.slider:SetValueStep(1)
+		pick.slider:SetValue(pick.offset)
+		pick.slider:Show()
+	elseif pick.slider then
+		pick.slider:Hide()
+		pick.offset = 0
+	end
+
+	ItemRackOpt.UpdateQueueSetPickerRows()
 	pick:Show()
+end
+
+function ItemRackOpt.UpdateQueueSetPickerRows()
+	local pick = ItemRackOptQueueSetPicker
+	if not pick or not pick.sets then return end
+	local sets = pick.sets
+	local maxVisible = 8
+	local rowHeight = 20
+	local pickerWidth = 196
+	local hasSlider = #sets > maxVisible
+	local btnWidth = hasSlider and (pickerWidth - 28) or (pickerWidth - 12)
+	local offset = pick.offset or 0
+	local currentEditing = ItemRackOpt.QueueEditingSet or (ItemRackOptSetsName and ItemRackOptSetsName.GetText and ItemRackOptSetsName:GetText())
+
+	for i = 1, maxVisible do
+		local idx = offset + i
+		local btn = pick.buttons[i]
+		if not btn then
+			btn = CreateFrame("Button", "ItemRackOptQueueSetPickerBtn" .. i, pick, "ItemRackOptEventEditPickTypeTemplate")
+			btn:SetSize(btnWidth, rowHeight)
+			btn.icon = btn:CreateTexture(nil, "ARTWORK")
+			if btn.icon and btn.icon.SetSize then btn.icon:SetSize(16, 16) end
+			if btn.icon and btn.icon.SetPoint then btn.icon:SetPoint("LEFT", btn, "LEFT", 4, 0) end
+			btn:SetPoint("TOPLEFT", pick, "TOPLEFT", 6, -6 - (i - 1) * rowHeight)
+			btn:EnableMouseWheel(true)
+			btn:SetScript("OnMouseWheel", function(self, delta)
+				if pick.slider and pick.slider:IsShown() then
+					local minVal, maxVal = pick.slider:GetMinMaxValues()
+					local curVal = pick.slider:GetValue()
+					pick.slider:SetValue(math.max(minVal, math.min(maxVal, curVal - delta)))
+				end
+			end)
+			pick.buttons[i] = btn
+		else
+			btn:SetSize(btnWidth, rowHeight)
+		end
+
+		if idx <= #sets then
+			local name = sets[idx]
+			local set = ItemRackUser.Sets[name]
+			local iconTexture = set and ItemRackOpt.NormalizeSetIcon(set.icon) or "Interface\\Icons\\INV_Misc_QuestionMark"
+			if btn.icon and btn.icon.SetTexture then btn.icon:SetTexture(iconTexture) end
+			btn:SetText("   " .. name)
+			local fs = btn.GetFontString and btn:GetFontString()
+			if name == currentEditing then
+				if fs and fs.SetTextColor then fs:SetTextColor(1, 0.82, 0, 1) elseif btn.SetTextColor then btn:SetTextColor(1, 0.82, 0, 1) end
+			else
+				if fs and fs.SetTextColor then fs:SetTextColor(1, 1, 1, 1) elseif btn.SetTextColor then btn:SetTextColor(1, 1, 1, 1) end
+			end
+			btn:SetScript("OnClick", function()
+				pick:Hide()
+				ItemRackOpt.ChangeEditingSet(name)
+			end)
+			btn:Show()
+		else
+			btn:Hide()
+		end
+	end
+	for i = maxVisible + 1, #pick.buttons do
+		pick.buttons[i]:Hide()
+	end
+end
+
+function ItemRackOpt.QueueSetInfoOnClick(self, button)
+	if ItemRackUser.EnablePerSetQueues == "ON" then
+		ItemRackOpt.ToggleQueueSetPicker()
+	end
+end
+
+function ItemRackOpt.QueueSetInfoOnEnter(self)
+	if ItemRackUser.EnablePerSetQueues == "ON" then
+		local editingSet = ItemRackOpt.QueueEditingSet or (ItemRackOptSetsName and ItemRackOptSetsName:GetText()) or ItemRackUser.CurrentSet
+		ItemRack.OnTooltip(self, "Active Queue Set: " .. tostring(editingSet or "None"), "Click to choose a different set to view or configure its auto queue.")
+	else
+		ItemRack.OnTooltip(self, "Global Queues", "Per-set queues are disabled. All sets share the global queue. Enable 'Use per-set queues' in Config to configure separate queues per set.")
+	end
 end
 
 -- Keep editing controls outside the list and its scope footer. Reuse the XML
 -- controls so their existing callbacks still edit the same selected entry.
+-- Raised in line with the main options window (height 348, y offset 21 relative to SubFrame7).
 function ItemRackOpt.LayoutQueueControls()
 	if ItemRackOpt.QueueControls then return end
 	local panel = CreateFrame("Frame",nil,ItemRackOptSubFrame7,BackdropTemplateMixin and "BackdropTemplate" or nil)
-	panel:SetSize(176,366)
-	panel:SetPoint("TOPLEFT",ItemRackOptSubFrame7,"TOPRIGHT",12,-4)
+	panel:SetSize(176,348)
+	panel:SetPoint("TOPLEFT",ItemRackOptSubFrame7,"TOPRIGHT",12,21)
 	panel:SetBackdrop({bgFile="Interface\\ChatFrame\\ChatFrameBackground",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
 	panel:SetBackdropColor(.08,.08,.08,.95)
 	ItemRackOpt.QueueControls = panel
@@ -2098,12 +2373,12 @@ function ItemRackOpt.LayoutQueueControls()
 		frame:ClearAllPoints()
 		frame:SetPoint("TOPLEFT",parent,"TOPLEFT",x,y)
 	end
-	place(ItemRackOptQueueEnable,panel,8,-10)
+	place(ItemRackOptQueueEnable,panel,8,-8)
 	local moves = {ItemRackOptSortMoveTop,ItemRackOptSortMoveUp,ItemRackOptSortMoveDown,ItemRackOptSortMoveBottom}
-	for i,button in ipairs(moves) do place(button,panel,10+(i-1)*38,-46) end
-	place(ItemRackOptSortMoveDelete,panel,10,-88)
+	for i,button in ipairs(moves) do place(button,panel,10+(i-1)*38,-40) end
+	place(ItemRackOptSortMoveDelete,panel,10,-74)
 	local addStop = CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
-	addStop:SetSize(156,22); addStop:SetPoint("TOPLEFT",panel,"TOPLEFT",10,-124)
+	addStop:SetSize(156,22); addStop:SetPoint("TOPLEFT",panel,"TOPLEFT",10,-112)
 	addStop:SetText("Add stop marker")
 	addStop:SetScript("OnClick",ItemRackOpt.AddQueueStopMarker)
 	addStop:SetScript("OnEnter",function(self)
@@ -2111,18 +2386,18 @@ function ItemRackOpt.LayoutQueueControls()
 	end)
 	addStop:SetScript("OnLeave",ItemRack.ClearTooltip)
 	ItemRackOpt.QueueStopButton = addStop
-	place(ItemRackOptItemStatsFrame,panel,10,-156)
-	ItemRackOptItemStatsFrame:SetSize(156,156)
+	place(ItemRackOptItemStatsFrame,panel,10,-140)
+	ItemRackOptItemStatsFrame:SetSize(156,126)
 	place(ItemRackOptItemStatsDelay,ItemRackOptItemStatsFrame,52,-4)
-	place(ItemRackOptItemStatsPriority,ItemRackOptItemStatsFrame,0,-32)
-	place(ItemRackOptItemStatsKeepEquipped,ItemRackOptItemStatsFrame,0,-60)
-	place(ItemRackOptItemStatsSwapOnUse,ItemRackOptItemStatsFrame,0,-88)
-	place(ItemRackOptItemStatsSwapInEnable,ItemRackOptItemStatsFrame,0,-116)
-	place(ItemRackOptItemStatsSwapInDelay,ItemRackOptItemStatsFrame,76,-118)
+	place(ItemRackOptItemStatsPriority,ItemRackOptItemStatsFrame,0,-28)
+	place(ItemRackOptItemStatsKeepEquipped,ItemRackOptItemStatsFrame,0,-52)
+	place(ItemRackOptItemStatsSwapOnUse,ItemRackOptItemStatsFrame,0,-76)
+	place(ItemRackOptItemStatsSwapInEnable,ItemRackOptItemStatsFrame,0,-100)
+	place(ItemRackOptItemStatsSwapInDelay,ItemRackOptItemStatsFrame,76,-102)
 
 	local syncCheck = CreateFrame("CheckButton","ItemRackOptQueueSyncCheck",panel,"ItemRackOptSimpleCheckButton")
 	syncCheck:SetSize(20,20)
-	syncCheck:SetPoint("TOPLEFT",panel,"TOPLEFT",10,-312)
+	syncCheck:SetPoint("TOPLEFT",panel,"TOPLEFT",10,-272)
 	syncCheck:SetScript("OnClick",ItemRackOpt.QueueSyncCheckOnClick)
 	syncCheck:SetScript("OnEnter",function(self)
 		ItemRack.OnTooltip(self,"Sync Queue With Set","Mirror this slot's cooldown queue from another set. Changes to the master set will automatically update this slot.")
@@ -2136,7 +2411,7 @@ function ItemRackOpt.LayoutQueueControls()
 	ItemRackOpt.QueueSyncLabel = syncLabel
 
 	local syncDrop = CreateFrame("Button","ItemRackOptQueueSyncDrop",panel,"ItemRackOptCompactDropDownTemplate")
-	syncDrop:SetPoint("TOPLEFT",panel,"TOPLEFT",12,-336)
+	syncDrop:SetPoint("TOPLEFT",panel,"TOPLEFT",12,-298)
 	syncDrop:SetSize(152,22)
 	syncDrop:SetScript("OnClick",ItemRackOpt.ToggleQueueSyncPicker)
 	syncDrop:SetScript("OnEnter",function(self)
@@ -2178,6 +2453,7 @@ function ItemRackOpt.SlotQueueFrameOnHide()
 		_G["ItemRackOptInv"..i]:Show()
 	end
 	ItemRackOptToggleInvAll:Show()
+	if ItemRackOptQueueSetPicker then ItemRackOptQueueSetPicker:Hide() end
 	if ItemRackOptQueueSyncPicker then ItemRackOptQueueSyncPicker:Hide() end
 	ItemRack.UpdateCombatQueue()
 end
@@ -2219,14 +2495,17 @@ function ItemRackOpt.SetupQueue(id)
 		local set = ItemRackUser.Sets[editingSet]
 		ItemRackOptQueueSetIcon:SetTexture(ItemRackOpt.NormalizeSetIcon(set.icon))
 		ItemRackOptQueueSetName:SetText(editingSet)
+		if ItemRackOptQueueSetArrow then ItemRackOptQueueSetArrow:Show() end
 		ItemRackOptQueueSetInfo:Show()
 	elseif ItemRackUser.EnablePerSetQueues == "ON" then
 		ItemRackOptQueueSetIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
 		ItemRackOptQueueSetName:SetText("No Set Selected")
+		if ItemRackOptQueueSetArrow then ItemRackOptQueueSetArrow:Show() end
 		ItemRackOptQueueSetInfo:Show()
 	else
 		ItemRackOptQueueSetIcon:SetTexture("Interface\\AddOns\\ItemRack\\ItemRackGear")
 		ItemRackOptQueueSetName:SetText("Global Queues")
+		if ItemRackOptQueueSetArrow then ItemRackOptQueueSetArrow:Hide() end
 		ItemRackOptQueueSetInfo:Show()
 	end
 	
