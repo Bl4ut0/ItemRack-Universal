@@ -4,8 +4,10 @@ const { extractFunction, runLua } = require('./lib/lua_harness');
 const core = 'ItemRack/ItemRack.lua';
 const queue = 'ItemRack/ItemRackQueue.lua';
 const options = 'ItemRackOptions/ItemRackOptions.lua';
-// October 8 report/video: https://imgur.com/a/v7eD8FY (attached OLaVTW6.mp4).
-// Native layout is modeled; this verifies the anchor contract, not client rendering.
+// October 8 report/video & GitHub Issue #34 (Spiritshroud08 / Zackk):
+// Verifies character-slot and flyout tooltip anchoring without ANCHOR_NONE
+// (which broke GameTooltip_ShowCompareItem on Rings/Weapons/TipTac/RatingBuster)
+// and verifies UpdateTooltip registration (preventing the 0.2s TBC flicker).
 const tooltipSource = fs.readFileSync(core, 'utf8');
 const anchorHooks = tooltipSource.slice(tooltipSource.indexOf('hooksecurefunc(GameTooltip, "Show",'),
   tooltipSource.indexOf('function ItemRack.DockMenuToCharacterSheet'));
@@ -13,20 +15,30 @@ runLua(String.raw`
 ItemRack={SlotInfo={}}
 for i=0,19 do ItemRack.SlotInfo[i]={name='Slot'..i} end
 ItemRack.SlotInfo[11].name='Finger0Slot'
-ItemRackSettings={CharacterSheetMenus='ON',MenuOnShift='OFF',RightSlotsGoLeft='OFF',LeftSlotsGoRight='ON'}
+ItemRackSettings={CharacterSheetMenus='ON',MenuOnShift='OFF',RightSlotsGoLeft='OFF',LeftSlotsGoRight='ON',TooltipFollow='OFF'}
+UIParent={GetEffectiveScale=function() return 1 end,GetWidth=function() return 1920 end}
 local slot={scripts={},GetName=function() return 'CharacterFinger0Slot' end,GetTop=function() return 300 end}
 function slot:GetScript(name) return self.scripts[name] end
 function slot:SetScript(name,handler) self.scripts[name]=handler end
 CharacterFinger0Slot=slot
-ItemRackMenuFrame={visible=true,IsVisible=function(s) return s.visible end,
-  GetName=function() return 'ItemRackMenuFrame' end,GetTop=function() return 300 end}
+ItemRackMenuFrame={visible=true,left=300,right=420,
+  IsVisible=function(s) return s.visible end,
+  GetName=function() return 'ItemRackMenuFrame' end,
+  GetTop=function() return 300 end,
+  GetEffectiveScale=function() return 1 end,
+  GetLeft=function(s) return s.left end,
+  GetRight=function(s) return s.right end}
 GameTooltip={alpha=1,owner=slot,side='none',scripts={},content='saved item',ownerCalls=0}
 function GameTooltip:SetAlpha(a) self.alpha=a end
 function GameTooltip:GetOwner() return self.owner end
 function GameTooltip:SetOwner(o,a) self.owner=o; self.nativeAnchor=a; self.side=a; self.ownerCalls=self.ownerCalls+1 end
 function GameTooltip:SetAnchorType(a) self.nativeAnchor=a end
+function GameTooltip:GetAnchorType() return self.nativeAnchor end
 function GameTooltip:ClearAllPoints() end
-function GameTooltip:SetPoint(p,_,_,_,y) self.side=p=='TOPRIGHT' and 'LEFT' or 'RIGHT'; self.y=y end
+function GameTooltip:SetPoint(p,relTo,relPoint,x,y)
+  self.point=p; self.relTo=relTo; self.relPoint=relPoint
+  self.side=p=='TOPRIGHT' and 'LEFT' or 'RIGHT'; self.y=y
+end
 function GameTooltip:Show() end
 function GameTooltip:HookScript(n,f) self.scripts[n]=f end
 function hooksecurefunc(t,n,f) local old=t[n]; t[n]=function(self,...) old(self,...); f(self,...) end end
@@ -35,19 +47,19 @@ ItemRack.IsEquipmentManagerOpen=function() return false end
 ItemRack.DockMenuToCharacterSheet=function(s) ItemRack.menuDockedTo=s:GetName(); ItemRackMenuFrame.visible=true end
 local nativeEnterCalls=0
 ItemRack.oldPaperDollItemSlotButton_OnEnter=function(s) nativeEnterCalls=nativeEnterCalls+1; GameTooltip:SetOwner(s,'ANCHOR_RIGHT'); GameTooltip:Show() end
+${extractFunction(core,'ItemRack.GetMenuFrameTooltipSide')}
+${extractFunction(core,'ItemRack.AnchorTooltip')}
 ${extractFunction(core,'ItemRack.ApplyTooltipAnchor')}
 ${extractFunction(core,'PaperDollItemSlotButton_OnEnter')}
 ${extractFunction(core,'ItemRack.RegisterCharacterSlotOnEnterHandlers')}
 ${anchorHooks}
-local function nativeLayout()
-  if GameTooltip.nativeAnchor~='ANCHOR_NONE' then GameTooltip.side='RIGHT' end
-end
--- October 11 Forever evidence: CharacterHandsSlot:GetScript('OnEnter') compared
--- false to ItemRack's global wrapper and true to the captured native handler.
--- Start from that real dispatch shape and require explicit, idempotent repair.
+-- Issue #34 + Forever evidence: both OnEnter script AND button.UpdateTooltip field
+-- must be updated from oldPaperDollItemSlotButton_OnEnter to PaperDollItemSlotButton_OnEnter.
 slot.scripts.OnEnter=ItemRack.oldPaperDollItemSlotButton_OnEnter
-assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==1,'Forever-bound native character handler must be replaced explicitly')
-assert(slot:GetScript('OnEnter')==PaperDollItemSlotButton_OnEnter,'character slot must dispatch through ItemRack wrapper')
+slot.UpdateTooltip=ItemRack.oldPaperDollItemSlotButton_OnEnter
+assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==1,'Native character OnEnter and UpdateTooltip handlers must be replaced explicitly')
+assert(slot:GetScript('OnEnter')==PaperDollItemSlotButton_OnEnter,'character slot OnEnter must dispatch through ItemRack wrapper')
+assert(slot.UpdateTooltip==PaperDollItemSlotButton_OnEnter,'character slot UpdateTooltip must dispatch through ItemRack wrapper to prevent 0.2s flicker')
 assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==0,'character handler registration must be idempotent')
 slot:GetScript('OnEnter')(slot)
 assert(nativeEnterCalls==1,'registered ItemRack wrapper must invoke the captured native handler exactly once')
@@ -55,47 +67,52 @@ for _,count in ipairs({1,2,40}) do
   ItemRack.Menu={}; for i=1,count do ItemRack.Menu[i]=i end
   ItemRack.menuDockedTo=nil
   PaperDollItemSlotButton_OnEnter(slot)
-  assert(GameTooltip.nativeAnchor=='ANCHOR_NONE','reported tooltip hop: manual placement must disable native side anchoring')
-  assert(GameTooltip.side=='LEFT' and GameTooltip.alpha==1,'ring tooltip must retain intended left placement')
+  assert(GameTooltip.nativeAnchor=='ANCHOR_RIGHT','Issue #34: manual placement must NOT set ANCHOR_NONE or comparison tooltips will vanish')
+  assert(GameTooltip.side=='RIGHT' and GameTooltip.relTo==ItemRackMenuFrame,'right-side slot tooltip must chain to the right of ItemRackMenuFrame, not over the character panel')
   local ownerCalls=GameTooltip.ownerCalls
   for i=1,3 do
-    nativeLayout()
-    assert(GameTooltip.side=='LEFT','layout refresh must not expose a right-side intermediate position')
     GameTooltip:Show()
-    assert(GameTooltip.side=='LEFT','Show refresh must keep left placement')
+    assert(GameTooltip.side=='RIGHT' and GameTooltip.relTo==ItemRackMenuFrame,'Show refresh (e.g. Syndicator) must keep tooltip to the right of ItemRackMenuFrame')
   end
   assert(GameTooltip.owner==slot and GameTooltip.content=='saved item' and GameTooltip.ownerCalls==ownerCalls,
-    'positioning must preserve native owner/content without rebuilding or showing item data')
+    'positioning must preserve native owner/content without rebuilding item data')
 end
-ItemRackSettings.RightSlotsGoLeft='ON'; PaperDollItemSlotButton_OnEnter(slot)
-assert(GameTooltip.side=='RIGHT' and GameTooltip.nativeAnchor=='ANCHOR_NONE','opposite menu direction must retain right tooltip placement')
--- Stale vertical alignment must not leak from flyout rows into an equipped slot.
-ItemRack.pendingTooltipVerticalOwner={GetTop=function() return 999 end}
+-- When character sheet + menu are near the right edge of the screen, fall back to left side of slot
+ItemRackMenuFrame.left=1600; ItemRackMenuFrame.right=1850
 PaperDollItemSlotButton_OnEnter(slot)
-assert(GameTooltip.y==0,'new character hover must clear stale flyout vertical offset')
+assert(GameTooltip.side=='LEFT' and GameTooltip.relTo==slot,'near right screen edge, slot tooltip must fall back to left of slot')
+ItemRackMenuFrame.left=300; ItemRackMenuFrame.right=420
+
+-- Opposite menu direction (RightSlotsGoLeft == ON): leave Blizzard native ANCHOR_RIGHT untouched
+ItemRackSettings.RightSlotsGoLeft='ON'; PaperDollItemSlotButton_OnEnter(slot)
+assert(ItemRack.pendingTooltipAnchor==nil and GameTooltip.nativeAnchor=='ANCHOR_RIGHT','opposite menu direction must leave native right tooltip placement untouched')
+ItemRackSettings.RightSlotsGoLeft='OFF'
+
 -- Unrelated owners and another character slot must not inherit the pending anchor.
 for _,name in ipairs({'ActionButton1','ContainerFrame1Item1','ItemRackButton11','ItemRackOptInv11','CharacterSlot8'}) do
-  ItemRack.pendingTooltipOwner=slot; ItemRack.pendingTooltipAnchor='ANCHOR_LEFT'
+  ItemRack.pendingTooltipOwner=ItemRackMenuFrame; ItemRack.pendingTooltipAnchor='ANCHOR_RIGHT'
   GameTooltip:SetOwner({GetName=function() return name end},'ANCHOR_RIGHT')
   GameTooltip:Show()
   assert(GameTooltip.nativeAnchor=='ANCHOR_RIGHT' and GameTooltip.side=='ANCHOR_RIGHT','unrelated tooltip must remain untouched: '..name)
   assert(ItemRack.pendingTooltipAnchor==nil,'unrelated tooltip must clear stale override')
 end
--- A flyout tooltip retains its real owner and row alignment.
+
+-- Flyout menu buttons (ItemRackMenu1..N) must anchor natively to ItemRackMenuFrame
+-- so tooltips stay outside multi-column breakouts and retain a valid nativeAnchor for ShoppingTooltips.
 local row={GetName=function() return 'ItemRackMenu1' end,GetTop=function() return 250 end}
-GameTooltip:SetOwner(row,'ANCHOR_RIGHT'); ItemRack.pendingTooltipOwner=ItemRackMenuFrame
-ItemRack.pendingTooltipAnchor='ANCHOR_RIGHT'; ItemRack.pendingTooltipVerticalOwner=row
-GameTooltip:Show()
-assert(GameTooltip.owner==row and GameTooltip.nativeAnchor=='ANCHOR_NONE' and GameTooltip.y==-50,
-  'flyout alignment must not change tooltip ownership')
+ItemRack.menuDockedTo='CharacterFinger0Slot'
+ItemRack.AnchorTooltip(row)
+assert(GameTooltip.owner==ItemRackMenuFrame and GameTooltip.nativeAnchor=='ANCHOR_RIGHT',
+  'Issue #34: flyout button must use native SetOwner(ItemRackMenuFrame, ANCHOR_RIGHT) to prevent overlap and preserve comparison tooltips')
+ItemRackMenuFrame.left=1600; ItemRackMenuFrame.right=1850
+ItemRack.AnchorTooltip(row)
+assert(GameTooltip.owner==ItemRackMenuFrame and GameTooltip.nativeAnchor=='ANCHOR_LEFT',
+  'Issue #34: flyout button near right screen edge must use native SetOwner(ItemRackMenuFrame, ANCHOR_LEFT)')
+ItemRackMenuFrame.left=300; ItemRackMenuFrame.right=420
+
 GameTooltip.scripts.OnHide()
 assert(not ItemRack.pendingTooltipAnchor and not ItemRack.pendingTooltipOwner and not ItemRack.pendingTooltipVerticalOwner,
   'hide must clear the complete positioning context')
--- Missing API clients must not crash or clear item data; live behavior remains acceptance.
-GameTooltip.SetAnchorType=nil; ItemRack.menuDockedTo=slot:GetName()
-GameTooltip:SetOwner(slot,'ANCHOR_RIGHT'); ItemRack.pendingTooltipOwner=slot; ItemRack.pendingTooltipAnchor='ANCHOR_LEFT'
-ItemRack.ApplyTooltipAnchor()
-assert(GameTooltip.side=='LEFT' and GameTooltip.content=='saved item','missing anchor API fallback must remain safe')
 ItemRackSettings.CharacterSheetMenus='OFF'; ItemRack.pendingTooltipAnchor=nil; ItemRackMenuFrame.visible=false
 PaperDollItemSlotButton_OnEnter(slot)
 assert(GameTooltip.nativeAnchor=='ANCHOR_RIGHT','disabled character menus must retain native tooltip behavior')
@@ -119,7 +136,7 @@ TooltipDataProcessor={AddTooltipPostCall=function(_,fn) registrations=registrati
 GameTooltip={SetBagItem=function() end,SetInventoryItem=function() end,SetHyperlink=function() end}
 function hooksecurefunc() hooks=hooks+1 end
 ItemRack.RegisterSetTooltipHooks(); ItemRack.RegisterSetTooltipHooks()
-assert(registrations==1 and hooks==0,"modern registration must occur once without legacy duplication")
+assert(registrations==1 and hooks==3,"modern and classic hooks must register together idempotently")
 local tooltip={GetItem=function() return "Boots","|Hitem:32267:2649:24056:24062|h[Boots]|h" end,
   AddDoubleLine=function(_,_,name) table.insert(lines,name) end}
 callback(tooltip)
@@ -135,20 +152,179 @@ issecretvalue=function() return true end; callback(tooltip)
 assert(#lines==1,"unavailable and secret links must not be inspected")
 ItemRack.SetTooltipHooksRegistered=nil; TooltipDataProcessor=nil
 ItemRack.RegisterSetTooltipHooks()
-assert(hooks==3,"Classic must retain all three legacy hooks")
+assert(hooks==6,"Classic must retain all three legacy hooks")
 `, 'forever-modern-set-tooltip');
+
+// User report October 31, 2026: TooltipDataProcessor fails to show set info when hovering bag items (e.g. Baganator / modern WoW tooltips).
+runLua(String.raw`
+local lines = {}
+local _G = _G or getfenv()
+local mockTip = {
+  numLines = 0,
+  GetName = function() return "GameTooltip" end,
+  NumLines = function(self) return self.numLines end,
+  AddDoubleLine = function(self, left, right)
+    self.numLines = self.numLines + 1
+    local idx = self.numLines
+    _G["GameTooltipTextLeft" .. idx] = { GetText = function() return left end }
+    _G["GameTooltipTextRight" .. idx] = { GetText = function() return right end }
+    table.insert(lines, { left = left, right = right })
+  end,
+  ClearLines = function(self)
+    for i = 1, self.numLines do
+      _G["GameTooltipTextLeft" .. i] = nil
+      _G["GameTooltipTextRight" .. i] = nil
+    end
+    self.numLines = 0
+    lines = {}
+  end
+}
+ItemRack = {
+  iSPatternItemFieldsFromIR = "^(%-?%d+:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*)",
+  iSPatternRuneIDFromIR = ":runeid:(%d+)$",
+  iSPatternBaseIDFromRegular = "item:(%-?%d+)",
+  iSPatternBaseIDFromIR = "^(%-?%d+)",
+  iSPatternRegularToIR = "item:(.-)\\124h",
+  GetID = function(bag, slot)
+    if slot then
+      if bag == 0 and slot == 1 then return "32252:0:0:0:0:0:0:0:70:0" end
+      return 0
+    else
+      if bag == 6 then return "32252:0:0:0:0:0:0:0:70:0" end
+      return 0
+    end
+  end
+}
+ItemRackSettings = { ShowTooltips = "ON", ShowSetInTooltip = "ON" }
+ItemRackUser = {
+  Sets = {
+    Bis = { equip = { [6] = "32252:0:0:0:0:0:0:0:70:0" } },
+    ["~Internal"] = { equip = { [6] = "32252:0:0:0:0:0:0:0:70:0" } }
+  }
+}
+local data = {}
+` + `
+${extractFunction(core, 'ItemRack.NormalizeItemFields')}
+${extractFunction(core, 'ItemRack.SameItemFields')}
+${extractFunction(core, 'ItemRack.GetRuneID')}
+${extractFunction(core, 'ItemRack.HasRuneID')}
+${extractFunction(core, 'ItemRack.MatchesStoredItemFields')}
+${extractFunction(core, 'ItemRack.GetIRString')}
+${extractFunction(core, 'ItemRack.ListSetsHavingItem')}
+${extractFunction(core, 'ItemRack.OnSetBagItem')}
+${extractFunction(core, 'ItemRack.OnSetInventoryItem')}
+${extractFunction(core, 'ItemRack.OnSetHyperlink')}
+${extractFunction(core, 'ItemRack.OnTooltipItemData')}
+${extractFunction(core, 'ItemRack.RegisterSetTooltipHooks')}
+` + String.raw`
+-- 1. Bag item via data.getterName and getterArgs
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { getterName = "GetBagItem", getterArgs = { 0, 1 } })
+assert(#lines == 1 and lines[1].right == "Bis", "bag item must resolve through GetBagItem args")
+-- 1b. Bag item via tooltip.processingInfo and data.id
+mockTip:ClearLines()
+mockTip.processingInfo = { getterName = "GetBagItem", getterArgs = { 0, 1 } }
+ItemRack.OnTooltipItemData(mockTip, { id = 32252 })
+mockTip.processingInfo = nil
+assert(#lines == 1 and lines[1].right == "Bis", "bag item must resolve through tooltip.processingInfo")
+-- 1c. Baganator button owner with owner.BGR.itemLink
+mockTip:ClearLines()
+mockTip.GetOwner = function() return { BGR = { itemLink = "|cffa335ee|Hitem:32252:0:0:0:0:0:0:0:70:0|h[Flashfire Girdle]|h|r" } } end
+ItemRack.OnTooltipItemData(mockTip, { id = 32252 })
+mockTip.GetOwner = nil
+assert(#lines == 1 and lines[1].right == "Bis", "Baganator button owner itemLink must resolve")
+-- 1d. Standard container button owner with parent bag 0 and slot 1
+mockTip:ClearLines()
+mockTip.GetOwner = function() return { GetParent = function() return { GetID = function() return 0 end } end, GetID = function() return 1 end } end
+ItemRack.OnTooltipItemData(mockTip, { id = 32252 })
+mockTip.GetOwner = nil
+assert(#lines == 1 and lines[1].right == "Bis", "standard container button owner bag/slot must resolve")
+-- 2. Duplicate line prevention on repeated calls
+ItemRack.OnTooltipItemData(mockTip, { getterName = "GetBagItem", getterArgs = { 0, 1 } })
+assert(#lines == 1, "duplicate calls must not add duplicate set lines")
+-- 3. Equipped item via data.getterName and getterArgs
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { getterName = "GetInventoryItem", getterArgs = { "player", 6 } })
+assert(#lines == 1 and lines[1].right == "Bis", "inventory item must resolve through GetInventoryItem args")
+-- 4. Target inspection must NOT display player set info
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { getterName = "GetInventoryItem", getterArgs = { "target", 6 } })
+assert(#lines == 0, "target unit inspection must not display player set info")
+-- 5. Raw item string without |h via getterArgs
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { getterName = "GetHyperlink", getterArgs = { "item:32252:0:0:0:0:0:0:0:70:0" } })
+assert(#lines == 1 and lines[1].right == "Bis", "raw item string must be parsed by GetHyperlink")
+-- 6. data.hyperlink with raw item string
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { hyperlink = "item:32252:0:0:0:0:0:0:0:70:0" })
+assert(#lines == 1 and lines[1].right == "Bis", "data.hyperlink must resolve raw item strings")
+-- 7. data.id numeric fallback
+mockTip:ClearLines()
+ItemRack.OnTooltipItemData(mockTip, { id = 32252 })
+assert(#lines == 1 and lines[1].right == "Bis", "data.id must resolve numeric item fallback")
+-- 8. Forbidden tooltips must be skipped without errors
+local forbiddenTip = { IsForbidden = function() return true end }
+ItemRack.OnTooltipItemData(forbiddenTip, { id = 32252 })
+-- 9. GetIRString parsing variants
+assert(ItemRack.GetIRString("item:32252:0:0:0:0:0:0:0:70:0") == "32252:0:0:0:0:0:0:0:70:0", "raw item string parsing")
+assert(ItemRack.GetIRString("32252") == "32252", "numeric string parsing")
+assert(ItemRack.GetIRString(32252) == "32252", "number parsing")
+assert(ItemRack.GetIRString("|cffa335ee|Hitem:32252:0:0:0:0:0:0:0:70:0|h[Flashfire Girdle]|h|r") == "32252:0:0:0:0:0:0:0:70:0", "hyperlink parsing")
+assert(ItemRack.GetIRString("spell:1234") == 0, "non-item string must return 0")
+
+-- 10. October 31, 2026 report: OnTooltipSetItem must trigger set lines for classic bag/hyperlink items
+mockTip:ClearLines()
+mockTip.scripts = {}
+mockTip.HookScript = function(self, name, handler) self.scripts[name] = handler end
+mockTip.GetItem = function(self) return "Flashfire Girdle", "|cffa335ee|Hitem:32252:0:0:0:0:0:0:0:70:0|h[Flashfire Girdle]|h|r" end
+mockTip.Layout = function(self) self.laidOut = true end
+GameTooltip = mockTip
+
+ItemRack.SetTooltipHooksRegistered = nil
+ItemRack.RegisterSetTooltipHooks()
+assert(mockTip.scripts["OnTooltipSetItem"] ~= nil, "OnTooltipSetItem hook must be registered on GameTooltip")
+mockTip.scripts["OnTooltipSetItem"](mockTip)
+assert(#lines == 1 and lines[1].right == "Bis", "OnTooltipSetItem must add Bis set line for hovered bag item")
+assert(mockTip.laidOut == true, "tooltip:Layout() must refresh tooltip bounds")
+
+-- 11. Deduplication when both OnTooltipSetItem and SetBagItem fire for the same item
+ItemRack.OnSetBagItem(mockTip, 0, 1)
+assert(#lines == 1 and lines[1].right == "Bis", "deduplication must prevent adding duplicate set line")
+
+-- 12. ItemRefTooltip hook registration
+mockTip:ClearLines()
+local mockRefTip = { scripts = {}, HookScript = function(self, n, h) self.scripts[n] = h end, GetItem = function() return "Flashfire Girdle", "|cffa335ee|Hitem:32252:0:0:0:0:0:0:0:70:0|h[Flashfire Girdle]|h|r" end, AddDoubleLine = function(self, left, right) table.insert(lines, { left = left, right = right }) end }
+ItemRefTooltip = mockRefTip
+ItemRack.SetTooltipHooksRegistered = nil
+ItemRack.RegisterSetTooltipHooks()
+assert(mockRefTip.scripts["OnTooltipSetItem"] ~= nil, "OnTooltipSetItem hook must be registered on ItemRefTooltip")
+mockRefTip.scripts["OnTooltipSetItem"](mockRefTip)
+assert(#lines == 1 and lines[1].right == "Bis", "OnTooltipSetItem must add Bis set line on ItemRefTooltip")
+`, 'modern-tooltip-bag-and-hyperlink-data');
 
 // October 13, 2026 Forever report from Venruki: unlike current Retail, the client does not
 // enable automatic comparison tooltips by default, so ItemRack flyout rows only
 // compare while the player holds the client comparison modifier.
 const breakoutComparisonFunctions = [
+  extractFunction(core, 'ItemRack.ShouldCompareBreakoutItems'),
+  extractFunction(core, 'ItemRack.OnModifierStateChanged'),
   extractFunction(core, 'ItemRack.MenuTooltip'),
   extractFunction(core, 'ItemRack.ShowBreakoutComparison'),
   extractFunction(core, 'ItemRack.TooltipUpdate'),
+  extractFunction(core, 'ItemRack.ClearTooltip'),
 ].join('\n');
 runLua(String.raw`
 local compareCalls,hidden1,hidden2=0,0,0
-local owner={GetName=function() return 'ItemRackMenu1' end,GetID=function() return 1 end}
+local owner={
+  GetName=function() return 'ItemRackMenu1' end,
+  GetID=function() return 1 end,
+  IsVisible=function() return true end,
+  IsMouseOver=function() return true end,
+}
+ItemRackMenuFrame={
+  IsVisible=function() return true end,
+  GetCenter=function() return 100 end,
+}
 ItemRack={
   AnchorTooltip=function() end,
   FindItem=function() return nil,0,1 end,
@@ -157,7 +333,7 @@ ItemRack={
   StartTimer=function() end,
   StopTimer=function() end,
 }
-ItemRackSettings={ShowTooltips='ON',AlwaysCompareBreakoutItems='ON',MenuOnShift='OFF'}
+ItemRackSettings={ShowTooltips='ON',AlwaysCompareBreakoutItems='OFF',MenuOnShift='OFF'}
 GameTooltip={SetBagItem=function() end,Show=function() end}
 ShoppingTooltip1={Hide=function() hidden1=hidden1+1 end}
 ShoppingTooltip2={Hide=function() hidden2=hidden2+1 end}
@@ -168,34 +344,124 @@ function GameTooltip_ShowCompareItem(tooltip)
 end
 function IsShiftKeyDown() return false end
 ${breakoutComparisonFunctions}
+owner.UpdateTooltip=ItemRack.MenuTooltip
 local function hoverBreakout()
   ItemRack.MenuTooltip(owner)
-  ItemRack.TooltipUpdate()
 end
 
+-- Fresh default: AlwaysCompareBreakoutItems='OFF', no Shift, no CVar -> no comparison on hover
 hoverBreakout()
-assert(compareCalls==1,'Forever breakout must request comparison when its default-on option is enabled')
+assert(compareCalls==0,'Breakout must not show comparison by default without Shift or CVar')
+assert(ItemRack.TooltipType=='BAG','ItemRack.TooltipType must be preserved for zero-cooldown items')
 
+-- Pressing Shift: comparison is invoked
+function IsShiftKeyDown() return true end
+hoverBreakout()
+assert(compareCalls==1,'Breakout comparison must show when Shift key is held')
+
+-- Releasing Shift: comparison tooltips must hide
+function IsShiftKeyDown() return false end
+hoverBreakout()
+assert(compareCalls==1 and hidden1>=1 and hidden2>=1,'Releasing Shift must hide comparison tooltips')
+
+-- Turning on AlwaysCompareBreakoutItems option forces comparison without Shift
+ItemRackSettings.AlwaysCompareBreakoutItems='ON'
+hoverBreakout()
+assert(compareCalls==2,'AlwaysCompareBreakoutItems=ON must show comparison without Shift')
 ItemRackSettings.AlwaysCompareBreakoutItems='OFF'
-hoverBreakout()
-assert(compareCalls==1,'disabled option must leave comparison behavior to the WoW client')
 
+-- Enabling WoW client CVar alwaysCompareItems shows comparison without Shift
+function GetCVarBool(cvar) return cvar == 'alwaysCompareItems' end
+hoverBreakout()
+assert(compareCalls==3,'WoW CVar alwaysCompareItems=true must show comparison without Shift')
+GetCVarBool = nil
+
+-- Menu on Shift suppresses comparisons while opening a flyout
 ItemRackSettings.AlwaysCompareBreakoutItems='ON'
 ItemRackSettings.MenuOnShift='ON'
 function IsShiftKeyDown() return true end
+local hiddenBefore = hidden1
 hoverBreakout()
-assert(compareCalls==1 and hidden1==1 and hidden2==1,
+assert(compareCalls==3 and hidden1>hiddenBefore,
   'Menu on Shift must retain its intentional comparison suppression')
 
 ItemRackSettings.MenuOnShift='OFF'
 function IsShiftKeyDown() return false end
 GameTooltip_ShowCompareItem=nil
 hoverBreakout()
-assert(compareCalls==1,'clients without the comparison helper must remain safe')
+assert(compareCalls==3,'clients without the comparison helper must remain safe')
 
 GameTooltip_ShowCompareItem=function() compareCalls=compareCalls+1 end
+compareCalls = 0
 ItemRack.ShowBreakoutComparison({GetName=function() return 'ItemRackOptInv1' end})
-assert(compareCalls==1,'the breakout option must not alter unrelated ItemRack tooltips')
+assert(compareCalls==0,'the breakout option must not alter unrelated ItemRack tooltips')
+
+-- Modifier key state change must refresh active breakout tooltip and update dressup cursor
+local inspectCursor, resetCursorCalls = 0, 0
+function IsModifiedClick(action) return action == "DRESSUP" end
+function ShowInspectCursor() inspectCursor = inspectCursor + 1 end
+function ResetCursor() resetCursorCalls = resetCursorCalls + 1 end
+function MouseIsOver(frame) return frame == owner end
+
+-- Holding Shift during modifier state change triggers comparison
+function IsShiftKeyDown() return true end
+hoverBreakout()
+compareCalls = 0
+ItemRack.OnModifierStateChanged()
+assert(compareCalls == 1, 'MODIFIER_STATE_CHANGED with Shift must trigger comparison on active breakout owner')
+assert(inspectCursor >= 1, 'Dressup modifier must trigger inspect cursor update')
+assert(ItemRack.TooltipType == 'BAG', 'Tooltip state must remain active and not drop on modifier press')
+
+-- ClearTooltip on leave clears state and resets cursor
+local tooltipHidden = 0
+GameTooltip.Hide = function() tooltipHidden = tooltipHidden + 1 end
+ItemRack.ClearTooltip(owner)
+assert(ItemRack.TooltipType == nil, 'ClearTooltip must reset TooltipType')
+assert(tooltipHidden >= 1, 'ClearTooltip must hide GameTooltip')
+assert(resetCursorCalls >= 1, 'ClearTooltip must reset cursor')
+
+-- Verify breakout comparison disables mouse capture to prevent flicker loops without overriding Blizzard native tooltip positioning
+ItemRackSettings.AlwaysCompareBreakoutItems = 'ON'
+function IsShiftKeyDown() return false end
+local mouseDisabled = 0
+ShoppingTooltip1.EnableMouse = function(self, state) if not state then mouseDisabled = mouseDisabled + 1 end end
+ShoppingTooltip2.EnableMouse = function(self, state) if not state then mouseDisabled = mouseDisabled + 1 end end
+compareCalls = 0
+
+ItemRack.ShowBreakoutComparison(owner)
+assert(mouseDisabled == 2, 'ShowBreakoutComparison must disable mouse capture on ShoppingTooltip1/2 to prevent OnLeave flicker loops')
+assert(compareCalls == 1, 'ShowBreakoutComparison must invoke GameTooltip_ShowCompareItem')
+
+-- Issue #34 / Retail validation: ShowBreakoutComparison must NOT show comparison tooltips for:
+-- 1) Options slot/queue pickers (ItemRack.menuInclude)
+compareCalls = 0
+ItemRack.menuInclude = 1
+ItemRack.ShowBreakoutComparison(owner)
+assert(compareCalls == 0, 'ShowBreakoutComparison must not trigger on Options menuInclude pickers')
+ItemRack.menuInclude = nil
+
+-- 2) Set menus (ItemRack.menuOpen >= 20)
+ItemRack.menuOpen = 20
+ItemRack.ShowBreakoutComparison(owner)
+assert(compareCalls == 0, 'ShowBreakoutComparison must not trigger on Set menus (menuOpen >= 20)')
+ItemRack.menuOpen = 11
+
+-- 3) Empty slot (0) or MENU entries
+ItemRack.Menu[1] = 0
+ItemRack.ShowBreakoutComparison(owner)
+assert(compareCalls == 0, 'ShowBreakoutComparison must not trigger on empty slot entry')
+ItemRack.Menu[1] = '100'
+
+-- 4) Already-equipped items (GameTooltip:IsEquippedItem())
+GameTooltip.IsEquippedItem = function() return true end
+ItemRack.ShowBreakoutComparison(owner)
+assert(compareCalls == 0, 'ShowBreakoutComparison must not compare an already-equipped item against itself')
+GameTooltip.IsEquippedItem = function() return false end
+
+-- 5) Shrunk / TinyTooltips (ShrinkTooltip returns true)
+ItemRack.ShrinkTooltip = function() return true end
+hoverBreakout()
+assert(compareCalls == 0, 'TinyTooltips / shrunk tooltips must suppress automatic breakout comparison')
 `, 'forever-breakout-comparison-default');
 
 const functions = [
@@ -210,6 +476,7 @@ const functions = [
   extractFunction(core, 'ItemRack.MatchesStoredItemID'),
   extractFunction(core, 'ItemRack.FindItem'),
   extractFunction(core, 'ItemRack.FindItemInBags'),
+  extractFunction(core, 'ItemRack.ShouldCompareBreakoutItems'),
   extractFunction(core, 'ItemRack.ShowBreakoutComparison'),
   extractFunction(core, 'ItemRack.IDTooltip'),
   extractFunction(queue, 'ItemRack.QueueHasExplicitIdentityEntry'),

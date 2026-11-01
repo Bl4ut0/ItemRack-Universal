@@ -1073,6 +1073,8 @@ function ItemRack.CreateMenuButton(i)
 end
 ItemRack.IsForever=function() return false end
 ItemRack.StoreMenuSnapshot=function() end
+ItemRack.MenuDiagnosticReject=function() end
+${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.ConsiderMenuCandidate')}
 ItemRack.DiscoverEquipmentMenuItems=${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.DiscoverEquipmentMenuItems').replace('function ItemRack.DiscoverEquipmentMenuItems', 'function')}
 ${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.BuildMenu')}
 for _,orientation in ipairs({"VERTICAL","HORIZONTAL"}) do

@@ -119,5 +119,53 @@ do
     "disabled context inheritance must expose raw current-set fields, not global fields")
 end
 
+do
+  local user = baseUser()
+  user.Sets.MasterSet = {
+    equip = {},
+    Queues = { [13]={ { id="MasterTrinket" } } },
+    QueuesEnabled = { [13]=true },
+  }
+  user.Sets.Current.QueueSync = { [13]="MasterSet" }
+  local context = resolve(user,13)
+  check(context.owner == "MasterSet" and context.list[1].id == "MasterTrinket" and context.enabled == true and context.mirroredFrom == "MasterSet",
+    "mirrored set queue must resolve master set queue tuple and record mirroredFrom")
+
+  -- Explicit set inspection
+  local explicit = resolve(user,13,"Current")
+  check(explicit.owner == "MasterSet" and explicit.list[1].id == "MasterTrinket" and explicit.enabled == true and explicit.mirroredFrom == "MasterSet",
+    "explicit set inspection on mirrored set must resolve to master set")
+end
+
+do
+  local user = baseUser()
+  user.Sets.Master = { equip={}, Queues={ [13]={ { id="ChainMaster" } } }, QueuesEnabled={ [13]=true } }
+  user.Sets.Middle = { equip={}, QueueSync={ [13]="Master" } }
+  user.Sets.Current.QueueSync = { [13]="Middle" }
+  local context = resolve(user,13)
+  check(context.owner == "Master" and context.list[1].id == "ChainMaster" and context.mirroredFrom == "Master",
+    "chained queue mirroring must resolve to the terminal master set")
+end
+
+do
+  local user = baseUser()
+  user.Sets.SetA = { equip={}, QueueSync={ [13]="SetB" }, Queues={ [13]={ { id="FallbackA" } } }, QueuesEnabled={ [13]=true } }
+  user.Sets.SetB = { equip={}, QueueSync={ [13]="SetA" } }
+  user.CurrentSet = "SetA"
+  local context = resolve(user,13)
+  check(context.owner ~= false and context.list ~= nil,
+    "circular queue mirroring must safely terminate without infinite recursion")
+end
+
+do
+  local user = baseUser()
+  user.Sets.Current.QueueSync = { [13]="GhostSet" }
+  user.Sets.Current.Queues = { [13]={ { id="LocalFallback" } } }
+  user.Sets.Current.QueuesEnabled = { [13]=true }
+  local context = resolve(user,13)
+  check(context.owner == "Current" and context.list[1].id == "LocalFallback",
+    "missing master set must fall back safely to local set queue")
+end
+
 print(string.format("[QUEUE POLICY LUA] %d atomic resolution checks passed.",checks))
 `, 'queue-policy');

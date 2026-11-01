@@ -3,6 +3,7 @@ const { extractFunction, runLua } = require('./lib/lua_harness');
 const coreFile = 'ItemRack/ItemRack.lua';
 const requestRefresh = extractFunction(coreFile, 'ItemRack.RequestInventoryRefresh');
 const flushRefresh = extractFunction(coreFile, 'ItemRack.FlushInventoryRefresh');
+const checkCombatQueue = extractFunction(coreFile, 'ItemRack.CheckCombatQueue');
 const transactionFinalized = extractFunction(coreFile, 'ItemRack.OnEquipmentTransactionFinalized');
 
 runLua(String.raw`
@@ -34,6 +35,7 @@ ItemRack = {
 
 ${requestRefresh}
 ${flushRefresh}
+${checkCombatQueue}
 ${transactionFinalized}
 
 local checks = 0
@@ -51,12 +53,28 @@ check(ItemRackOpt.Inv[4].id == "slot:4" and ItemRackOpt.Inv[5].id == nil,
 
 -- Dirty state remains pending across an active/chained transaction. The final
 -- transaction callback is the single point that schedules presentation work.
+local reconcileCalls = 0
+local combatQueueHookCalls = 0
+ItemRack.QueueStateReady = true
+ItemRack.ReconcileEquippedSnapshot = function(fromEvent)
+  reconcileCalls = reconcileCalls + 1
+  assert(fromEvent == false, "transaction finalization must reconcile with fromEvent=false")
+  return nil, false, false
+end
+local origCheckCombatQueue = ItemRack.CheckCombatQueue
+ItemRack.CheckCombatQueue = function()
+  combatQueueHookCalls = combatQueueHookCalls + 1
+  origCheckCombatQueue()
+end
+
 ItemRack.ActiveEquipmentTransaction={ id=7 }
 for i=1,8 do ItemRack.RequestInventoryRefresh("transaction_event") end
 check(#timers == 0,"active transaction must defer expensive presentation work")
 ItemRack.ActiveEquipmentTransaction=nil
 ItemRack.OnEquipmentTransactionFinalized({ status="complete" })
 check(#timers == 1,"finalized transaction must release the deferred batch")
+check(reconcileCalls == 1,"finalized transaction must reconcile equipped snapshot once")
+check(combatQueueHookCalls == 1,"finalized transaction must check combat queue once")
 runTimer()
 check(buttonUpdates == 2 and ItemRack.InventoryRefreshState.lastBatchEvents == 9,
   "transaction events and finalization must collapse into one batch")
@@ -82,6 +100,24 @@ check(buttonUpdates == 4 and menuBuilds == 3 and optionUpdates == 3,
 check(ItemRack.InventoryRefreshState.batches == 4
   and ItemRack.InventoryRefreshState.totalMilliseconds > 0,
   "refresh metrics must record batches and measured execution time")
+
+-- Test CheckCombatQueue logic directly
+ItemRack.CheckCombatQueue = origCheckCombatQueue
+ItemRack.CombatQueue = { [1] = 100 }
+ItemRack.GetEquippedSlotState = function(slot) return "resolved", 100 end
+ItemRack.MatchesStoredItemID = function(a, b) return a == b end
+local metadataCleared, visualsUpdated = 0, 0
+ItemRack.ClearCombatQueueMetadata = function(slot) metadataCleared = metadataCleared + 1 end
+ItemRack.UpdateCombatQueue = function() visualsUpdated = visualsUpdated + 1 end
+
+ItemRack.CheckCombatQueue()
+check(ItemRack.CombatQueue[1] == nil and metadataCleared == 1 and visualsUpdated == 1,
+  "CheckCombatQueue must clear fulfilled entries and update visuals")
+
+-- Empty CombatQueue must be a no-op
+visualsUpdated = 0
+ItemRack.CheckCombatQueue()
+check(visualsUpdated == 0, "empty CombatQueue must not trigger visual updates")
 
 print(string.format("[INVENTORY REFRESH LUA] %d coalescing and transaction checks passed.",checks))
 `, 'inventory-refresh');

@@ -240,6 +240,14 @@ SLASH COMMANDS
   recent diagnostics. Review the report before sharing because it can include
   set names and item information.
 
+  Breakout discovery is recorded automatically, even with debug off. For a
+  combat-only empty menu, hover the same button before and during combat, then
+  run /itemrack dump before reloading or relogging. The report keeps per-slot
+  discovery/filter results and sampled public tooltip rejection text, cache
+  changes, rendering stages, client build, custom-icon switches and loaded
+  addon names. Secret/inaccessible values are marked rather than printed.
+  /itemrack debug clear intentionally clears this evidence for a fresh test.
+
 
 MACRO FUNCTIONS
 ---------------
@@ -398,7 +406,7 @@ Tooltips:
   tooltips.
 * Tooltips beside buttons [Account-wide; Fresh-profile default: OFF; requires Show
   tooltips] Anchors ItemRack tooltips near the cursor.
-* Always compare breakout items [Account-wide; Fresh-profile default: ON;
+* Always compare breakout items [Account-wide; Fresh-profile default: OFF;
   requires Show tooltips] Requests the equipped-item comparison beside ItemRack
   flyout rows even when the WoW client normally requires its comparison
   modifier. Turning it off follows the client's comparison CVar and modifier.

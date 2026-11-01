@@ -852,6 +852,9 @@
 			<OnClick>
 				ItemRackOpt.SelectSetList(self)
 			</OnClick>
+			<OnMouseWheel>
+				ItemRackOpt.SetListOnMouseWheel(self, delta)
+			</OnMouseWheel>
 		</Scripts>
 	</Button>
 
@@ -2166,7 +2169,7 @@
 
 							<ScrollFrame name="ItemRackOptSetListScrollFrame" inherits="FauxScrollFrameTemplate">
 								<Anchors>
-									<Anchor point="TOPLEFT" relativeTo="ItemRackOptSetList2">
+									<Anchor point="TOPLEFT" relativeTo="ItemRackOptSetList1">
 										<Offset>
 											<AbsDimension x="0" y="4"/>
 										</Offset>
@@ -2184,6 +2187,9 @@
 									<OnShow>
 										ItemRackOpt.SetListScrollFrameUpdate()
 									</OnShow>
+									<OnMouseWheel>
+										ItemRackOpt.SetListOnMouseWheel(self, delta)
+									</OnMouseWheel>
 								</Scripts>
 							</ScrollFrame>
 						</Frames>
@@ -2872,7 +2878,7 @@
 					</Button>
 
 					<!-- Set info at the bottom of the queue frame -->
-					<Frame name="ItemRackOptQueueSetInfo">
+					<Button name="ItemRackOptQueueSetInfo">
 						<Size>
 							<AbsDimension x="200" y="24"/>
 						</Size>
@@ -2903,9 +2909,47 @@
 									</Anchors>
 									<Color r="0.8" g="0.8" b="0.8"/>
 								</FontString>
+								<Texture name="ItemRackOptQueueSetArrow" file="Interface\AddOns\ItemRack\ItemRackButtons">
+									<Size>
+										<AbsDimension x="14" y="14"/>
+									</Size>
+									<Anchors>
+										<Anchor point="LEFT" relativeTo="ItemRackOptQueueSetName" relativePoint="RIGHT">
+											<Offset>
+												<AbsDimension x="4" y="0"/>
+											</Offset>
+										</Anchor>
+									</Anchors>
+									<TexCoords left=".375" right=".5" top=".125" bottom=".25"/>
+								</Texture>
 							</Layer>
 						</Layers>
-					</Frame>
+						<HighlightTexture file="Interface\QuestFrame\UI-QuestTitleHighlight" alphaMode="ADD">
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="-2" y="2"/>
+									</Offset>
+								</Anchor>
+								<Anchor point="BOTTOMRIGHT">
+									<Offset>
+										<AbsDimension x="2" y="-2"/>
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</HighlightTexture>
+						<Scripts>
+							<OnClick>
+								ItemRackOpt.QueueSetInfoOnClick(self, button)
+							</OnClick>
+							<OnEnter>
+								ItemRackOpt.QueueSetInfoOnEnter(self)
+							</OnEnter>
+							<OnLeave>
+								GameTooltip:Hide()
+							</OnLeave>
+						</Scripts>
+					</Button>
 
 				</Frames>
 			</Frame>

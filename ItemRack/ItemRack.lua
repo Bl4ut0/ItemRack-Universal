@@ -143,17 +143,52 @@ if not GetNumTalentTabs and C_SpecializationInfo and C_SpecializationInfo.GetNum
 	end
 end
 
+-- Safe aura lookup for player across all client versions (Retail/Classic/TBC/Wrath/Cata).
+-- Protected against nil-unpack errors in Blizzard's AuraUtil during Edit Mode or UI transitions.
+function ItemRack.FindPlayerAura(buff)
+	if not buff then return nil end
+	if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellName then
+		local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellName, buff)
+		if ok and aura then
+			return aura.name or buff
+		end
+	end
+	if AuraUtil and AuraUtil.FindAuraByName then
+		local ok, result = pcall(AuraUtil.FindAuraByName, buff, "player")
+		if ok and result then
+			return result
+		end
+	end
+	if UnitBuff then
+		local ok, result = pcall(function()
+			for i = 1, 40 do
+				local name = UnitBuff("player", i)
+				if not name then break end
+				if name == buff then return name end
+			end
+			return nil
+		end)
+		if ok and result then
+			return result
+		end
+	end
+	return nil
+end
+
 -- Compatibility shim for AuraUtil.FindAuraByName (may not exist in TBC 2.5.5)
 if not AuraUtil or not AuraUtil.FindAuraByName then
 	AuraUtil = AuraUtil or {}
 	AuraUtil.FindAuraByName = function(name, unit, filter)
+		if unit == "player" then
+			return ItemRack.FindPlayerAura(name)
+		end
 		for i = 1, 40 do
-			local buffName = UnitBuff(unit, i, filter)
+			local buffName = UnitBuff and UnitBuff(unit, i, filter)
 			if not buffName then break end
 			if buffName == name then return buffName end
 		end
 		for i = 1, 40 do
-			local debuffName = UnitDebuff(unit, i, filter)
+			local debuffName = UnitDebuff and UnitDebuff(unit, i, filter)
 			if not debuffName then break end
 			if debuffName == name then return debuffName end
 		end
@@ -437,7 +472,7 @@ ItemRackSettings = {
 	NotifyThirty = "OFF", -- notify when a used item reaches 30 seconds cooldown
 	NotifyChatAlso = "OFF", -- send cooldown notifications to chat also
 	ShowTooltips = "ON", -- show all itemrack tooltips
-	AlwaysCompareBreakoutItems = "ON", -- show equipped-item comparisons for ItemRack flyout rows
+	AlwaysCompareBreakoutItems = "OFF", -- show equipped-item comparisons for ItemRack flyout rows
 	TinyTooltips = "OFF", -- whether to condense tooltips to most important info
 	TinyTooltipsQuickAccess = "OFF", -- whether to apply tiny tooltips only to quick access (not character sheet menus)
 	TinyTooltipsSubMenusOnly = "OFF", -- whether to restrict tiny tooltips to popup sub-menu items only (not the main slot button)
@@ -607,6 +642,7 @@ function ItemRack.InitEventHandlers()
 		handler.ENGRAVING_MODE_CHANGED = ItemRack.OnRuneUpdated
 		handler.CVAR_UPDATE = ItemRack.OnRuneIconsCVarUpdate
 	end
+	handler.MODIFIER_STATE_CHANGED = ItemRack.OnModifierStateChanged
 --	handler.PET_BATTLE_OPENING_START = ItemRack.OnEnteringPetBattle
 --	handler.PET_BATTLE_CLOSE = ItemRack.OnLeavingPetBattle
 end
@@ -1645,16 +1681,18 @@ function ItemRack.ReconcileEquippedSnapshot(fromInventoryEvent)
 				ItemRack.EquippedSnapshot[i] = currentID
 				stateChanged = true
 			else
+				local isNewTransition = false
 				if not previousID or previousID == 0 or not ItemRack.SameExactID(previousID, currentID) then
 					ItemRack.QueueDiagnostic("equip_transition", { current = currentID, previous = previousID, slot = i })
 					if ItemRack.RecordEquipTime then
 						ItemRack.RecordEquipTime(i, currentID, transitionTime)
 					end
 					stateChanged = true
+					isNewTransition = true
 				end
 				ItemRack.EquippedSnapshot[i] = currentID
 				local record = ItemRack.EquipTimers and ItemRack.EquipTimers[i]
-				if record and record.pending and ItemRack.SameExactID(record.id, currentID)
+				if not isNewTransition and record and record.pending and ItemRack.SameExactID(record.id, currentID)
 				and ItemRack.RecordEquipTime then
 					ItemRack.RecordEquipTime(i, currentID, record.transitionTime or record.time)
 				end
@@ -1727,7 +1765,7 @@ function ItemRack.FlushInventoryRefresh()
 
 	if ItemRack.UpdateButtons then ItemRack.UpdateButtons() end
 	if ItemRack.RefreshQuickAccessMenuSnapshots and not InCombatLockdown() then
-		ItemRack.RefreshQuickAccessMenuSnapshots()
+		ItemRack.RefreshQuickAccessMenuSnapshots(nil,"inventory_refresh")
 	end
 	if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.BuildMenu then
 		ItemRack.BuildMenu()
@@ -1757,7 +1795,46 @@ function ItemRack.FlushInventoryRefresh()
 	return true
 end
 
+function ItemRack.CheckCombatQueue()
+	if not ItemRack.CombatQueue or not next(ItemRack.CombatQueue) then
+		return
+	end
+	ItemRack.Debug("CombatQueue", "checking CombatQueue entries")
+	local dirty = false
+	for slot, queuedID in pairs(ItemRack.CombatQueue) do
+		local equippedState, equippedID = ItemRack.GetEquippedSlotState(slot)
+		local match = equippedState == "resolved" and queuedID and ItemRack.MatchesStoredItemID(queuedID, equippedID)
+		ItemRack.Debug("CombatQueue", "  slot="..tostring(slot).." queued="..tostring(queuedID).." equipped="..tostring(equippedID).." match="..tostring(match))
+		if match then
+			ItemRack.CombatQueue[slot] = nil
+			ItemRack.ClearCombatQueueMetadata(slot)
+			dirty = true
+		end
+	end
+	if dirty then
+		ItemRack.Debug("CombatQueue", "cleared fulfilled entries")
+		ItemRack.UpdateCombatQueue()
+	end
+end
+
 function ItemRack.OnEquipmentTransactionFinalized(request)
+	if ItemRack.QueueStateReady == true and ItemRack.ReconcileEquippedSnapshot then
+		local unresolved, changed, readinessRestored = ItemRack.ReconcileEquippedSnapshot(false)
+		if unresolved and ItemRack.ScheduleEquippedStateRetry then
+			ItemRack.ScheduleEquippedStateRetry()
+		end
+		if readinessRestored then
+			if ItemRack.TryEquipPendingQueueSet then
+				ItemRack.TryEquipPendingQueueSet()
+			end
+			if ItemRack.RunAllEvents then
+				ItemRack.RunAllEvents("Equipped item data resolved")
+			end
+		end
+	end
+	if ItemRack.CheckCombatQueue then
+		ItemRack.CheckCombatQueue()
+	end
 	ItemRack.RequestInventoryRefresh("transaction_"..tostring(request and request.status or "finished"))
 end
 
@@ -2009,7 +2086,7 @@ function ItemRack.OnUnitInventoryChanged(self,event,unit)
 		end
 
 		local unresolvedSlot, readinessRestored
-		if stateWasReady then
+		if stateWasReady and not ItemRack.ActiveEquipmentTransaction then
 			local _
 			unresolvedSlot, _, readinessRestored = ItemRack.ReconcileEquippedSnapshot(true)
 		end
@@ -2023,23 +2100,8 @@ function ItemRack.OnUnitInventoryChanged(self,event,unit)
 			end
 		end
 		-- Clear any CombatQueue entries that have been fulfilled by the swap
-		if next(ItemRack.CombatQueue) then
-			ItemRack.Debug("CombatQueue", "OnUnitInventoryChanged: checking CombatQueue entries")
-			local dirty = false
-			for slot, queuedID in pairs(ItemRack.CombatQueue) do
-				local equippedState, equippedID = ItemRack.GetEquippedSlotState(slot)
-				local match = equippedState == "resolved" and queuedID and ItemRack.MatchesStoredItemID(queuedID, equippedID)
-				ItemRack.Debug("CombatQueue", "  slot="..tostring(slot).." queued="..tostring(queuedID).." equipped="..tostring(equippedID).." match="..tostring(match))
-				if match then
-					ItemRack.CombatQueue[slot] = nil
-					ItemRack.ClearCombatQueueMetadata(slot)
-					dirty = true
-				end
-			end
-			if dirty then
-				ItemRack.Debug("CombatQueue", "OnUnitInventoryChanged: cleared fulfilled entries")
-				ItemRack.UpdateCombatQueue()
-			end
+		if not ItemRack.ActiveEquipmentTransaction and ItemRack.CheckCombatQueue then
+			ItemRack.CheckCombatQueue()
 		end
 		-- Secure set macros can update weapon slots after PostClick has projected
 		-- the full pending set. Refresh that projection on the observed inventory
@@ -2062,7 +2124,7 @@ end
 function ItemRack.OnLeavingCombatOrDeath()
 	ItemRack.inCombat = InCombatLockdown()
 	if not ItemRack.inCombat and ItemRack.RefreshQuickAccessMenuSnapshots then
-		ItemRack.RefreshQuickAccessMenuSnapshots()
+		ItemRack.RefreshQuickAccessMenuSnapshots(nil,"combat_exit_refresh")
 	end
 	ItemRack.Debug("Combat", "OnLeavingCombatOrDeath: InCombatLockdown="..tostring(InCombatLockdown()))
 	if ItemRack.NowCasting then
@@ -2189,7 +2251,7 @@ function ItemRack.OnEnteringCombat()
 	-- Lua. Capture one final public-data view when that window is available;
 	-- other builds retain the latest normal inventory-refresh snapshot.
 	if ItemRack.RefreshQuickAccessMenuSnapshots and not InCombatLockdown() then
-		ItemRack.RefreshQuickAccessMenuSnapshots()
+		ItemRack.RefreshQuickAccessMenuSnapshots(nil,"combat_entry_refresh")
 	end
 	ItemRack.inCombat = 1
 	ItemRack.Debug("Combat", "OnEnteringCombat: InCombatLockdown="..tostring(InCombatLockdown()))
@@ -2362,10 +2424,13 @@ function ItemRack.OnActiveTalentGroupChanged()
 end
 
 function ItemRack.OnSetBagItem(tooltip, bag, slot)
+	if not bag or not slot then return end
 	ItemRack.ListSetsHavingItem(tooltip, ItemRack.GetID(bag, slot))
 end
 
 function ItemRack.OnSetInventoryItem(tooltip, unit, inv_slot)
+	if unit and unit ~= "player" then return end
+	if not inv_slot then return end
 	ItemRack.ListSetsHavingItem(tooltip, ItemRack.GetID(inv_slot))
 end
 
@@ -2373,23 +2438,172 @@ function ItemRack.OnSetHyperlink(tooltip, link)
 	if type(link) == "string" then ItemRack.ListSetsHavingItem(tooltip,ItemRack.GetIRString(link)) end
 end
 
-function ItemRack.OnTooltipItemData(tooltip)
-	if not tooltip or type(tooltip.GetItem) ~= "function" then return end
-	local ok,_,link = pcall(tooltip.GetItem,tooltip)
-	if not ok or (issecretvalue and issecretvalue(link)) then return end
-	ItemRack.OnSetHyperlink(tooltip,link)
+function ItemRack.OnTooltipItemData(tooltip, data)
+	if not tooltip or (tooltip.IsForbidden and tooltip:IsForbidden()) then return end
+	if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then return end
+
+	local tooltipName = tooltip.GetName and tooltip:GetName()
+	if tooltipName and tooltip.NumLines then
+		for i = 1, tooltip:NumLines() do
+			local left = _G[tooltipName .. "TextLeft" .. i]
+			local text = left and left.GetText and left:GetText()
+			if text and text:find("^ItemRack Set:") then
+				return
+			end
+		end
+	end
+
+	-- 1. Try TooltipUtil.GetDisplayedItem for full link
+	if TooltipUtil and TooltipUtil.GetDisplayedItem then
+		local _, link = TooltipUtil.GetDisplayedItem(tooltip)
+		if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
+			return
+		end
+	end
+
+	-- 2. Try tooltip:GetItem()
+	if type(tooltip.GetItem) == "function" then
+		local ok, _, link = pcall(tooltip.GetItem, tooltip)
+		if ok and link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
+			return
+		end
+	end
+
+	-- 3. Try getter info if available
+	local info = (tooltip.GetProcessingTooltipInfo and tooltip:GetProcessingTooltipInfo()) or tooltip.processingInfo or tooltip.info or data
+	local getterName = info and info.getterName
+	local getterArgs = info and info.getterArgs
+
+	if (getterName == "GetBagItem" or getterName == "GetContainerItem") and getterArgs and getterArgs[1] and getterArgs[2] then
+		ItemRack.OnSetBagItem(tooltip, getterArgs[1], getterArgs[2])
+		return
+	elseif getterName == "GetInventoryItem" and getterArgs and getterArgs[2] then
+		ItemRack.OnSetInventoryItem(tooltip, getterArgs[1], getterArgs[2])
+		return
+	elseif getterName == "GetHyperlink" and getterArgs and getterArgs[1] then
+		ItemRack.OnSetHyperlink(tooltip, getterArgs[1])
+		return
+	elseif getterName == "GetItemByGUID" and getterArgs and getterArgs[1] and C_Item and C_Item.GetItemLinkByGUID then
+		local link = C_Item.GetItemLinkByGUID(getterArgs[1])
+		if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
+			return
+		end
+	elseif getterName == "GetGuildBankItem" and getterArgs and getterArgs[1] and getterArgs[2] and GetGuildBankItemLink then
+		local link = GetGuildBankItemLink(getterArgs[1], getterArgs[2])
+		if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
+			return
+		end
+	elseif getterName == "GetMerchantItem" and getterArgs and getterArgs[1] and GetMerchantItemLink then
+		local link = GetMerchantItemLink(getterArgs[1])
+		if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
+			return
+		end
+	end
+
+	-- 4. Try tooltip data payload (hyperlink or GUID)
+	if data then
+		if data.hyperlink and type(data.hyperlink) == "string" and not (issecretvalue and issecretvalue(data.hyperlink)) then
+			ItemRack.OnSetHyperlink(tooltip, data.hyperlink)
+			return
+		end
+	if data.guid and C_Item and C_Item.GetItemLinkByGUID then
+		local link = C_Item.GetItemLinkByGUID(data.guid)
+		if link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+			ItemRack.OnSetHyperlink(tooltip, link)
+			return
+		end
+	end
+	end
+
+	-- 5. Try tooltip owner / mouse focus (e.g. Baganator, standard bag buttons, or character slots)
+	local owner = tooltip.GetOwner and tooltip:GetOwner()
+	if owner then
+		-- Baganator stores itemLink directly on button.BGR.itemLink
+		if owner.BGR and owner.BGR.itemLink and type(owner.BGR.itemLink) == "string" then
+			ItemRack.OnSetHyperlink(tooltip, owner.BGR.itemLink)
+			return
+		end
+		-- Check container item button bag/slot
+		local bagID = (owner.GetBagID and owner:GetBagID()) or (owner.GetParent and owner:GetParent() and owner:GetParent().GetID and owner:GetParent():GetID())
+		local slotID = owner.GetID and owner:GetID()
+		if type(bagID) == "number" and type(slotID) == "number" and bagID >= 0 and slotID > 0 then
+			ItemRack.OnSetBagItem(tooltip, bagID, slotID)
+			return
+		end
+		-- Check bank frame button
+		if type(bagID) == "number" and bagID == -1 and owner.GetInventorySlot then
+			local invSlot = owner:GetInventorySlot()
+			if invSlot then
+				ItemRack.OnSetInventoryItem(tooltip, "player", invSlot)
+				return
+			end
+		end
+		-- Check paper doll character slot
+		if owner.GetInventorySlot or (owner.GetName and owner:GetName() and owner:GetName():find("^Character.*Slot$")) then
+			local invSlot = (owner.GetInventorySlot and owner:GetInventorySlot()) or (owner.GetID and owner:GetID())
+			if invSlot and invSlot > 0 then
+				ItemRack.OnSetInventoryItem(tooltip, "player", invSlot)
+				return
+			end
+		end
+	end
+
+	-- 6. Final fallback: numeric item ID if available
+	local numericID = (data and data.id and data.id ~= 0 and data.id)
+	if not numericID and TooltipUtil and TooltipUtil.GetDisplayedItem then
+		local _, _, id = TooltipUtil.GetDisplayedItem(tooltip)
+		if id and id ~= 0 then numericID = id end
+	end
+	if numericID then
+		ItemRack.ListSetsHavingItem(tooltip, tostring(numericID))
+	end
 end
 
 function ItemRack.RegisterSetTooltipHooks()
 	if ItemRack.SetTooltipHooksRegistered then return end
+
+	-- 1. Modern TooltipDataProcessor post-call (Retail / 10.0+ / modern Classic)
 	if TooltipDataProcessor and type(TooltipDataProcessor.AddTooltipPostCall) == "function"
 	and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item then
 		TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item,ItemRack.OnTooltipItemData)
-	else
-		if GameTooltip and GameTooltip.SetBagItem then hooksecurefunc(GameTooltip,"SetBagItem",ItemRack.OnSetBagItem) end
-		if GameTooltip and GameTooltip.SetInventoryItem then hooksecurefunc(GameTooltip,"SetInventoryItem",ItemRack.OnSetInventoryItem) end
-		if GameTooltip and GameTooltip.SetHyperlink then hooksecurefunc(GameTooltip,"SetHyperlink",ItemRack.OnSetHyperlink) end
 	end
+
+	-- 2. Classic frame script: OnTooltipSetItem (Classic Era, TBC, Wrath, Cata)
+	-- Runs before tooltip sizing/display so lines are seamlessly formatted without taint.
+	local function HookTooltipSetItem(tip)
+		if not tip or not tip.HookScript then return end
+		tip:HookScript("OnTooltipSetItem", function(self)
+			if not self or (self.IsForbidden and self:IsForbidden()) then return end
+			if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then return end
+			if type(self.GetItem) == "function" then
+				local ok, _, link = pcall(self.GetItem, self)
+				if ok and link and type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+					ItemRack.OnSetHyperlink(self, link)
+				end
+			end
+		end)
+	end
+
+	if GameTooltip then
+		HookTooltipSetItem(GameTooltip)
+		if GameTooltip.SetBagItem then hooksecurefunc(GameTooltip,"SetBagItem",ItemRack.OnSetBagItem) end
+		if GameTooltip.SetInventoryItem then hooksecurefunc(GameTooltip,"SetInventoryItem",ItemRack.OnSetInventoryItem) end
+		if GameTooltip.SetHyperlink then hooksecurefunc(GameTooltip,"SetHyperlink",ItemRack.OnSetHyperlink) end
+	end
+
+	if ItemRefTooltip then
+		HookTooltipSetItem(ItemRefTooltip)
+		if ItemRefTooltip.SetHyperlink then hooksecurefunc(ItemRefTooltip,"SetHyperlink",ItemRack.OnSetHyperlink) end
+	end
+
+	if ShoppingTooltip1 then HookTooltipSetItem(ShoppingTooltip1) end
+	if ShoppingTooltip2 then HookTooltipSetItem(ShoppingTooltip2) end
+
 	ItemRack.SetTooltipHooksRegistered = true
 end
 
@@ -2400,10 +2614,23 @@ do
 		if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then
 			return
 		end
-		if not id or id == 0 then return end
+		if not tooltip or not id or id == 0 or id == "0" then return end
+		if tooltip.IsForbidden and tooltip:IsForbidden() then return end
+
+		local tooltipName = tooltip.GetName and tooltip:GetName()
+		if tooltipName and tooltip.NumLines then
+			for i = 1, tooltip:NumLines() do
+				local left = _G[tooltipName .. "TextLeft" .. i]
+				local text = left and left.GetText and left:GetText()
+				if text and text:find("^ItemRack Set:") then
+					return
+				end
+			end
+		end
+
 		local matchesStoredFields = ItemRack.MatchesStoredItemFields
 		for name, set in pairs(ItemRackUser.Sets) do
-			if not name:match("^~") then
+			if not name:match("^~") and set.equip then
 				for _, item in pairs(set.equip) do
 					if matchesStoredFields(item, id) then
 						data[name] = true
@@ -2411,9 +2638,14 @@ do
 				end
 			end
 		end
+		local added = false
 		for name in pairs(data) do
 			tooltip:AddDoubleLine("ItemRack Set: ", name, 0,.6,1, 0,.6,1)
 			data[name] = nil
+			added = true
+		end
+		if added and tooltip.Layout then
+			tooltip:Layout()
 		end
 		-- Blizzard owns the tooltip's Show lifecycle. Calling Show from these
 		-- insecure post-hooks can taint protected action-button update paths.
@@ -2522,6 +2754,7 @@ function ItemRack.InitCore()
 		ItemRackFrame:RegisterEvent("ENGRAVING_MODE_CHANGED")
 		ItemRackFrame:RegisterEvent("CVAR_UPDATE")
 	end
+	ItemRackFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
 	--end
 	ItemRack.StartTimer("CooldownUpdate")
 	ItemRack.ReflectAlpha()
@@ -2551,7 +2784,7 @@ function ItemRack.InitCore()
 	end
 	ItemRackSettings.LeftSlotsGoRight = ItemRackSettings.LeftSlotsGoRight or "ON" -- 4.28
 	ItemRackSettings.RightSlotsGoLeft = ItemRackSettings.RightSlotsGoLeft or "OFF" -- 4.27.3
-	ItemRackSettings.AlwaysCompareBreakoutItems = ItemRackSettings.AlwaysCompareBreakoutItems or "ON"
+	ItemRackSettings.AlwaysCompareBreakoutItems = ItemRackSettings.AlwaysCompareBreakoutItems or "OFF"
 	ItemRackSettings.TinyTooltipsQuickAccess = ItemRackSettings.TinyTooltipsQuickAccess or "OFF"
 	ItemRackSettings.TinyTooltipsSubMenusOnly = ItemRackSettings.TinyTooltipsSubMenusOnly or "OFF"
 	ItemRackSettings.DisableTooltipsInCombat = ItemRackSettings.DisableTooltipsInCombat or "OFF"
@@ -2709,7 +2942,21 @@ ItemRack.iSPatternEnhancementsFromIR = "^(%-?%d+):(%-?%d*):(%-?%d*):(%-?%d*):(%-
 ItemRack.iSPatternItemFieldsFromIR = "^(%-?%d+:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*)" --extracts the first 8 item-identifying fields (itemID:enchant:gem1:gem2:gem3:gem4:suffix:unique), ignoring level/spec/etc trailing fields
 ItemRack.iSPatternRuneIDFromIR = ":runeid:(%d+)$"
 function ItemRack.GetIRString(inputString,baseid,regular)
-	return string.match(tostring(inputString or ""), (baseid and (regular and ItemRack.iSPatternBaseIDFromRegular or ItemRack.iSPatternBaseIDFromIR) or ItemRack.iSPatternRegularToIR)) or 0
+	local str = tostring(inputString or "")
+	if baseid then
+		if regular then
+			return str:match("item:(%-?%d+)") or str:match("^(%-?%d+)") or 0
+		else
+			return str:match("^(%-?%d+)") or 0
+		end
+	end
+	local ir = str:match("item:(.-)\124h")
+	if ir then return ir end
+	ir = str:match("item:([%d:%-]+)")
+	if ir then return ir end
+	ir = str:match("^([%d:%-]+:runeid:%d+)") or str:match("^([%d:%-]+)")
+	if ir then return ir end
+	return 0
 end
 
 -- itemrack itemstring updater.
@@ -3394,7 +3641,7 @@ function ItemRack.IsRed(which)
 	end
 end
 
-function ItemRack.PlayerCanWear(invslot,bag,slot)
+function ItemRack.PlayerCanWear(invslot,bag,slot,diagnostic)
 	local found = false
 	local txt = false
 
@@ -3409,14 +3656,23 @@ function ItemRack.PlayerCanWear(invslot,bag,slot)
 
 	for i=2,ItemRackTooltip:NumLines() do
 		txt = _G["ItemRackTooltipTextLeft"..i]:GetText()
+		if diagnostic then
+			diagnostic.stage = "tooltip_filter"
+			diagnostic.tooltipLine = i
+			diagnostic.tooltipText = ItemRack.MenuDiagnosticValue(txt)
+		end
 		-- if either left or right text is red and this isn't a Durability x/x line, this item can't be worn
-		if (ItemRack.IsRed("Left"..i) or ItemRack.IsRed("Right"..i)) and not string.find(txt,ItemRack.DURABILITY_PATTERN) and not string.match(txt,ItemRack.REQUIRES_PATTERN) then
+		local red = ItemRack.IsRed("Left"..i) or ItemRack.IsRed("Right"..i)
+		if diagnostic then diagnostic.tooltipRed=ItemRack.MenuDiagnosticValue(red) end
+		if red and not string.find(txt,ItemRack.DURABILITY_PATTERN) and not string.match(txt,ItemRack.REQUIRES_PATTERN) then
+			if diagnostic then diagnostic.wearReason="red_tooltip" end
 			return nil
 		end
 	end
 
 	local _,_,itemType = ItemRack.GetInfoByID(ItemRack.GetID(bag,slot))
 	if (itemType=="INVTYPE_WEAPON" or itemType=="INVTYPE_WEAPONOFFHAND") and invslot==17 and not ItemRack.CanWearOneHandOffHand then
+		if diagnostic then diagnostic.wearReason="offhand_capability" end
 		-- if this is a One-Hand going to offhand, and player can't wear one-hand offhands, this item can't be worn
 		return nil
 	end
@@ -3636,6 +3892,141 @@ function ItemRack.AlreadyInMenu(id)
 	end
 end
 
+-- Bounded, always-on menu evidence. Only public scalars enter this recorder;
+-- recording does not rescan inventory or alter discovery/equip decisions.
+function ItemRack.MenuDiagnosticValue(value)
+	if issecretvalue then
+		local ok,secret = pcall(issecretvalue,value)
+		if not ok then return "<unavailable>" end
+		if secret then return "<secret>" end
+	end
+	if canaccessvalue then
+		local ok,accessible = pcall(canaccessvalue,value)
+		if not ok or not accessible then return "<inaccessible>" end
+	end
+	local kind = type(value)
+	if kind=="string" then return string.sub(value,1,180) end
+	if kind=="number" or kind=="boolean" then return value end
+	if kind=="nil" then return "<nil>" end
+	return "<"..kind..">"
+end
+
+function ItemRack.MenuDiagnosticCall(callback,...)
+	if type(callback)~="function" then return "<missing>" end
+	local ok,value = pcall(callback,...)
+	if not ok then return "<error>" end
+	return ItemRack.MenuDiagnosticValue(value)
+end
+
+function ItemRack.MenuDiagnosticCounts(items)
+	local counts = { rows=0,items=0,empty=0,configuration=0,inaccessible=0 }
+	for _,item in ipairs(items or {}) do
+		local value = ItemRack.MenuDiagnosticValue(item)
+		counts.rows = counts.rows+1
+		if value==0 then counts.empty=counts.empty+1
+		elseif value=="MENU" then counts.configuration=counts.configuration+1
+		elseif value=="<secret>" or value=="<inaccessible>" or value=="<unavailable>" then
+			counts.inaccessible=counts.inaccessible+1
+		else counts.items=counts.items+1 end
+	end
+	return counts
+end
+
+function ItemRack.BeginMenuDiagnostic(slot,menuInclude,source)
+	local state = ItemRack.MenuDiagnostics or { sequence=0,recent={},latest={} }
+	ItemRack.MenuDiagnostics = state
+	state.sequence = state.sequence+1
+	local record = {
+		sequence=state.sequence, time=ItemRack.MenuDiagnosticCall(GetTime),
+		slot=slot, included=menuInclude and true or false, source=source,
+		lockdown=ItemRack.MenuDiagnosticCall(InCombatLockdown),
+		unitCombat=ItemRack.MenuDiagnosticCall(UnitAffectingCombat,"player"),
+		internalCombat=ItemRack.MenuDiagnosticValue(ItemRack.inCombat),
+		owner=ItemRack.MenuDiagnosticValue(ItemRack.menuDockedTo),
+		allowHidden=ItemRack.MenuDiagnosticValue(ItemRackSettings.AllowHidden),
+		hideTradables=ItemRack.MenuDiagnosticValue(ItemRackSettings.HideTradables),
+		customMenuIcons=ItemRack.MenuDiagnosticValue(ItemRackUser.CustomMenuIcons),
+		stage="begin", completed=false, visited=0,missingIDs=0,missingMetadata=0,
+		emptyBagSlots=0,unresolvedLinks=0,idProviderUnavailable=0,nonEquipment=0,
+		slotMismatch=0,wearRejected=0,soulboundRejected=0,hiddenRejected=0,
+		duplicates=0,accepted=0,bagSlots={},samples={},
+	}
+	local phase = record.lockdown==true and "combat" or
+		((record.unitCombat==true or record.internalCombat==1 or record.internalCombat==true) and "transition" or "ooc")
+	record.phase = phase
+	state.latest[tostring(slot)..":"..(menuInclude and "included" or "bags")..":"..phase] = record
+	state.recent[#state.recent+1] = record
+	if #state.recent>24 then table.remove(state.recent,1) end
+	return record
+end
+
+function ItemRack.MenuDiagnosticReject(record,reason,itemID,detail)
+	if not record then return end
+	record[reason] = (record[reason] or 0)+1
+	if #record.samples>=6 then return end
+	local value = ItemRack.MenuDiagnosticValue(itemID)
+	local base = type(value)=="string" and string.match(value,"^%-?%d+") or value
+	record.samples[#record.samples+1] = {
+		reason=reason,bag=record.bag,position=record.position,item=base,
+		detail=ItemRack.MenuDiagnosticValue(detail),
+		tooltipLine=reason=="wearRejected" and record.tooltipLine or nil,
+		tooltipText=reason=="wearRejected" and record.tooltipText or nil,
+		tooltipRed=reason=="wearRejected" and record.tooltipRed or nil,
+	}
+end
+
+function ItemRack.FinishMenuDiagnostic(record)
+	if not record then return end
+	record.result = ItemRack.MenuDiagnosticCounts(ItemRack.Menu)
+	record.completed = true
+	record.stage = "complete"
+end
+
+function ItemRack.GetMenuDiagnosticReport()
+	local state = ItemRack.MenuDiagnostics or { recent={},latest={} }
+	local frame = ItemRackMenuFrame
+	local parent = frame and frame.GetParent and frame:GetParent()
+	local snapshots = {}
+	for key,items in pairs(ItemRack.MenuSnapshots or {}) do
+		snapshots[key] = ItemRack.MenuDiagnosticCounts(items)
+	end
+	local addons = {}
+	local count = ItemRack.MenuDiagnosticCall(GetNumAddOns)
+	if type(count)=="number" then
+		for i=1,count do
+			if ItemRack.MenuDiagnosticCall(IsAddOnLoaded,i)==true then
+				local name = ItemRack.MenuDiagnosticCall(GetAddOnInfo,i)
+				if type(name)=="string" and not string.match(name,"^Blizzard_") then
+					addons[#addons+1] = name
+					if #addons>=100 then break end
+				end
+			end
+		end
+	end
+	return {
+		schema=1,clientVersion=wowver,clientBuild=wowbuild,interface=wowtoc,
+		locale=ItemRack.MenuDiagnosticCall(GetLocale),
+		durabilityPattern=ItemRack.MenuDiagnosticValue(ItemRack.DURABILITY_PATTERN),
+		requiresPattern=ItemRack.MenuDiagnosticValue(ItemRack.REQUIRES_PATTERN),
+		project=ItemRack.MenuDiagnosticValue(WOW_PROJECT_ID),
+		lockdown=ItemRack.MenuDiagnosticCall(InCombatLockdown),
+		unitCombat=ItemRack.MenuDiagnosticCall(UnitAffectingCombat,"player"),
+		menuSlot=ItemRack.menuOpen,menu=ItemRack.MenuDiagnosticCounts(ItemRack.Menu),
+		shown=frame and ItemRack.MenuDiagnosticCall(frame.IsShown,frame),
+		protected=frame and ItemRack.MenuDiagnosticCall(frame.IsProtected,frame),
+		parent=parent and ItemRack.MenuDiagnosticCall(parent.GetName,parent),
+		parentProtected=parent and ItemRack.MenuDiagnosticCall(parent.IsProtected,parent),
+		customMenuIcons=ItemRackUser.CustomMenuIcons,customCharacterIcons=ItemRackUser.CustomCharacterIcons,
+		providers={
+			itemInfoNamespaced=C_Item and GetItemInfo==C_Item.GetItemInfo or false,
+			itemInfoGlobalChanged=type(_G.GetItemInfo)=="function" and GetItemInfo~=_G.GetItemInfo or false,
+			containerNamespaced=C_Container and GetContainerNumSlots==C_Container.GetContainerNumSlots or false,
+			nativeCandidates=type(GetInventoryItemsForSlot)=="function",
+		},
+		snapshots=snapshots,latest=state.latest,recent=state.recent,loadedAddons=addons,
+	}
+end
+
 function ItemRack.AddToMenu(itemID)
 	if ItemRackSettings.AllowHidden=="OFF" or (IsAltKeyDown() or not ItemRack.IsHidden(itemID)) then
 		table.insert(ItemRack.Menu,itemID)
@@ -3646,9 +4037,12 @@ function ItemRack.GetMenuSnapshotKey(id,menuInclude)
 	return tostring(id)..":"..(menuInclude and "included" or "bags")
 end
 
-function ItemRack.StoreMenuSnapshot(id,menuInclude)
+function ItemRack.StoreMenuSnapshot(id,menuInclude,diagnostic)
 	if type(id)~="number" or id<0 or id>=20 then return false end
 	ItemRack.MenuSnapshots = ItemRack.MenuSnapshots or {}
+	if diagnostic then
+		diagnostic.snapshotPrevious = ItemRack.MenuDiagnosticCounts(ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(id,menuInclude)])
+	end
 	local snapshot = {}
 	for i=1,#(ItemRack.Menu) do
 		local item = ItemRack.Menu[i]
@@ -3657,6 +4051,7 @@ function ItemRack.StoreMenuSnapshot(id,menuInclude)
 		end
 	end
 	ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(id,menuInclude)] = snapshot
+	if diagnostic then diagnostic.snapshotWritten=ItemRack.MenuDiagnosticCounts(snapshot) end
 	return true
 end
 
@@ -3670,7 +4065,66 @@ function ItemRack.RestoreMenuSnapshot(id,menuInclude)
 	return true
 end
 
-function ItemRack.DiscoverEquipmentMenuItems(id,menuInclude)
+function ItemRack.ConsiderMenuCandidate(id,bag,position,diagnostic)
+	if diagnostic then
+		diagnostic.visited=diagnostic.visited+1
+		diagnostic.bag,diagnostic.position=bag,position
+		diagnostic.stage="item_link"
+	end
+	local itemID = ItemRack.GetID(bag,position)
+	if diagnostic then
+		diagnostic.stage="item_metadata"
+		diagnostic.tooltipLine,diagnostic.tooltipText,diagnostic.tooltipRed=nil,nil,nil
+		if ItemRack.MenuDiagnosticValue(itemID)==0 then
+			diagnostic.missingIDs=diagnostic.missingIDs+1
+			-- Distinguish a genuinely empty bag slot from an occupied slot whose
+			-- link could not be resolved. This extra read is evidence only.
+			local numericID = ItemRack.MenuDiagnosticCall(GetContainerItemID,bag,position)
+			if type(numericID)=="number" and numericID>0 then
+				ItemRack.MenuDiagnosticReject(diagnostic,"unresolvedLinks",numericID)
+			elseif numericID=="<nil>" or numericID==0 then
+				diagnostic.emptyBagSlots=diagnostic.emptyBagSlots+1
+			else diagnostic.idProviderUnavailable=diagnostic.idProviderUnavailable+1 end
+		end
+	end
+	local itemName,itemTexture,equipSlot = ItemRack.GetInfoByID(itemID)
+	if diagnostic then
+		diagnostic.equipType=ItemRack.MenuDiagnosticValue(equipSlot)
+		diagnostic.stage="slot_match"
+		if ItemRack.MenuDiagnosticValue(itemID)~=0 and diagnostic.equipType=="<nil>" then
+			ItemRack.MenuDiagnosticReject(diagnostic,"missingMetadata",itemID)
+		elseif diagnostic.equipType=="" then
+			diagnostic.nonEquipment=diagnostic.nonEquipment+1
+		end
+	end
+	if not ItemRack.SlotInfo[id][equipSlot] then
+		if diagnostic then diagnostic.slotMismatch=diagnostic.slotMismatch+1 end
+		return
+	end
+	if diagnostic then diagnostic.stage="wearability"; diagnostic.wearReason=nil end
+	if not ItemRack.PlayerCanWear(id,bag,position,diagnostic) then
+		ItemRack.MenuDiagnosticReject(diagnostic,"wearRejected",itemID,diagnostic and diagnostic.wearReason)
+		return
+	end
+	if diagnostic then diagnostic.stage="soulbound_filter" end
+	if ItemRackSettings.HideTradables~="OFF" and not ItemRack.IsSoulbound(bag,position) then
+		ItemRack.MenuDiagnosticReject(diagnostic,"soulboundRejected",itemID)
+		return
+	end
+	if id==0 and ItemRack.AlreadyInMenu(itemID) then
+		if diagnostic then diagnostic.duplicates=diagnostic.duplicates+1 end
+		return
+	end
+	local before = #(ItemRack.Menu)
+	if diagnostic then diagnostic.stage="hidden_filter" end
+	ItemRack.AddToMenu(itemID)
+	if diagnostic then
+		if #(ItemRack.Menu)>before then diagnostic.accepted=diagnostic.accepted+1
+		else ItemRack.MenuDiagnosticReject(diagnostic,"hiddenRejected",itemID) end
+	end
+end
+
+function ItemRack.DiscoverEquipmentMenuItems(id,menuInclude,diagnostic)
 	local itemID,itemName,equipSlot,itemTexture
 	if menuInclude then
 		itemID = ItemRack.GetID(id)
@@ -3685,26 +4139,20 @@ function ItemRack.DiscoverEquipmentMenuItems(id,menuInclude)
 		end
 	end
 	for i=0,4 do
-		for j=1,GetContainerNumSlots(i) do
-			itemID = ItemRack.GetID(i,j)
-			itemName,itemTexture,equipSlot = ItemRack.GetInfoByID(itemID)
-			if ItemRack.SlotInfo[id][equipSlot] and ItemRack.PlayerCanWear(id,i,j) and (ItemRackSettings.HideTradables=="OFF" or ItemRack.IsSoulbound(i,j)) then
-				if id~=0 or not ItemRack.AlreadyInMenu(itemID) then
-					ItemRack.AddToMenu(itemID)
-				end
-			end
+		if diagnostic then diagnostic.stage="bag_slots"; diagnostic.bag=i end
+		local slots = GetContainerNumSlots(i)
+		if diagnostic then diagnostic.bagSlots[i]=ItemRack.MenuDiagnosticValue(slots) end
+		for j=1,slots do
+			ItemRack.ConsiderMenuCandidate(id,i,j,diagnostic)
 		end
 	end
 	if ItemRack.BankOpen then
 		for _,i in pairs(ItemRack.BankSlots) do
-			for j=1,GetContainerNumSlots(i) do
-				itemID = ItemRack.GetID(i,j)
-				itemName,itemTexture,equipSlot = ItemRack.GetInfoByID(itemID)
-				if ItemRack.SlotInfo[id][equipSlot] and ItemRack.PlayerCanWear(id,i,j) and (ItemRackSettings.HideTradables=="OFF" or ItemRack.IsSoulbound(i,j)) then
-					if id~=0 or not ItemRack.AlreadyInMenu(itemID) then
-						ItemRack.AddToMenu(itemID)
-					end
-				end
+			if diagnostic then diagnostic.stage="bag_slots"; diagnostic.bag=i end
+			local slots = GetContainerNumSlots(i)
+			if diagnostic then diagnostic.bagSlots[i]=ItemRack.MenuDiagnosticValue(slots) end
+			for j=1,slots do
+				ItemRack.ConsiderMenuCandidate(id,i,j,diagnostic)
 			end
 		end
 	elseif ItemRack.GetID(id)~=0 and ItemRackSettings.AllowEmpty=="ON" then
@@ -3712,14 +4160,16 @@ function ItemRack.DiscoverEquipmentMenuItems(id,menuInclude)
 	end
 end
 
-function ItemRack.RefreshQuickAccessMenuSnapshots(onlySlot)
+function ItemRack.RefreshQuickAccessMenuSnapshots(onlySlot,reason)
 	if not ItemRack.IsForever() or InCombatLockdown() then return false end
 	local activeMenu = ItemRack.Menu
 	for id in pairs(ItemRackUser.Buttons or {}) do
 		if id<20 and (onlySlot==nil or onlySlot==id) then
+			local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,nil,reason or "snapshot_refresh")
 			ItemRack.Menu = {}
-			ItemRack.DiscoverEquipmentMenuItems(id,nil)
-			ItemRack.StoreMenuSnapshot(id,nil)
+			ItemRack.DiscoverEquipmentMenuItems(id,nil,diagnostic)
+			ItemRack.StoreMenuSnapshot(id,nil,diagnostic)
+			if diagnostic then ItemRack.FinishMenuDiagnostic(diagnostic) end
 		end
 	end
 	ItemRack.Menu = activeMenu
@@ -3742,6 +4192,7 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 	end
 
 	local inCombat = InCombatLockdown()
+	local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,menuInclude,"build")
 	ItemRack.Debug("UI", "BuildMenu called. id:", id, "InCombat:", inCombat, "menuOpen:", ItemRack.menuOpen)
 
 	local showButtonMenu = (ItemRackButtonMenu and ItemRack.menuMovable) and (IsAltKeyDown() or ItemRackUser.Locked=="OFF")
@@ -3755,11 +4206,13 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 	local restoredCombatSnapshot = id<20 and inCombat and ItemRack.IsForever()
 	and ItemRack.RestoreMenuSnapshot(id,menuInclude)
 	if restoredCombatSnapshot then
+		if diagnostic then diagnostic.restoredSnapshot=true end
 		ItemRack.Debug("UI", "BuildMenu restored Forever combat snapshot. id:", id, "items:", #(ItemRack.Menu))
 	elseif id<20 then
-		ItemRack.DiscoverEquipmentMenuItems(id,menuInclude)
+		if diagnostic then diagnostic.restoredSnapshot=false end
+		ItemRack.DiscoverEquipmentMenuItems(id,menuInclude,diagnostic)
 		if not inCombat then
-			ItemRack.StoreMenuSnapshot(id,menuInclude)
+			ItemRack.StoreMenuSnapshot(id,menuInclude,diagnostic)
 		end
 	else
 		for i in pairs(ItemRackUser.Sets) do
@@ -3771,6 +4224,10 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 	end
 	if showButtonMenu then
 		table.insert(ItemRack.Menu,"MENU")
+	end
+	if diagnostic then
+		diagnostic.result=ItemRack.MenuDiagnosticCounts(ItemRack.Menu)
+		diagnostic.stage="render"
 	end
 
 	if #(ItemRack.Menu)<1 then
@@ -3853,6 +4310,7 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 		end
 
 		for i=1,#(ItemRack.Menu) do
+			if diagnostic then diagnostic.renderRow=i end
 			button = ItemRack.CreateMenuButton(i,ItemRack.Menu[i]) or ItemRackButtonMenu
 			button:SetPoint("TOPLEFT",ItemRackMenuFrame,ItemRack.menuDock,xpos,ypos)
 			button:SetFrameLevel(ItemRackMenuFrame:GetFrameLevel()+1)
@@ -3928,7 +4386,9 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 
 		ItemRack.StartTimer("MenuMouseover")
 		ItemRackMenuFrame:Show()
+		if diagnostic then diagnostic.stage="cooldowns" end
 		ItemRack.UpdateMenuCooldowns()
+		if diagnostic then diagnostic.stage="row_overlays" end
 		local count
 		local border
 		for i=1,#(ItemRack.Menu) do
@@ -3963,6 +4423,7 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
 			ItemRack.SetRuneIconOverlay(_G["ItemRackMenu"..i],runeItemID,_G["ItemRackMenu"..i.."Icon"],16,"BOTTOMLEFT")
 		end
 	end
+	if diagnostic then ItemRack.FinishMenuDiagnostic(diagnostic) end
 end
 
 -- Renderer projection for menu item cooldowns (keyed by baseID). The shared
@@ -4093,6 +4554,7 @@ function ItemRack.CreateMenuButton(idx,itemID)
 		button:SetScript("OnClick",ItemRack.MenuOnClick)
 		button:SetScript("OnEnter",ItemRack.MenuTooltip)
 		button:SetScript("OnLeave",ItemRack.ClearTooltip)
+		button.UpdateTooltip = ItemRack.MenuTooltip
 		button.icon = _G["ItemRackMenu"..idx.."Icon"]
 		CreateFrame("Frame",nil,button,"ItemRackTimeTemplate")
 
@@ -4117,6 +4579,9 @@ function ItemRack.CreateMenuButton(idx,itemID)
 		_G["ItemRackMenu"..idx.."Icon"]:SetTexture(select(2,GetInventorySlotInfo(ItemRack.SlotInfo[ItemRack.menuOpen].name)))
 	end
 	button = _G["ItemRackMenu"..idx]
+	if button and not button.UpdateTooltip then
+		button.UpdateTooltip = ItemRack.MenuTooltip
+	end
 	return button
 end
 
@@ -4176,6 +4641,7 @@ function ItemRack.MenuOnClick(self,button)
 		if ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
 			ItemRackOpt.Inv[ItemRack.menuOpen].id = item
 			ItemRackOpt.Inv[ItemRack.menuOpen].selected = 1
+			ItemRackOpt.SetModified = true
 			ItemRackOpt.UpdateInv()
 			ItemRackMenuFrame:Hide()
 		end
@@ -4231,6 +4697,7 @@ function ItemRack.MenuOnClick(self,button)
 			if ItemRackSettings.EquipOnSetPick=="ON" and ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
 				ItemRackOpt.Inv[ItemRack.menuOpen].id = item
 				ItemRackOpt.Inv[ItemRack.menuOpen].selected = 1
+				ItemRackOpt.SetModified = true
 				ItemRackOpt.UpdateInv()
 			end
 			if ItemRack.menuOpen>=13 and ItemRack.menuOpen<=14 and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then
@@ -5071,6 +5538,23 @@ function ItemRack.InventoryTooltip(self)
 end
 
 -- request a tooltip of a menu item (called when hovering over a button in the popout menu of SET NAMES that comes up when clicking the minimap button or bar addon plugin, this is NOT the "Sets" dropdown INSIDE ItemRack's GUI)
+function ItemRack.OnModifierStateChanged(self, event, ...)
+	if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.TooltipOwner then
+		local owner = ItemRack.TooltipOwner
+		if owner.UpdateTooltip and type(owner.IsVisible) == "function" and owner:IsVisible() then
+			local isOver = false
+			if type(MouseIsOver) == "function" then
+				isOver = MouseIsOver(owner)
+			elseif type(GetMouseFocus) == "function" then
+				isOver = (GetMouseFocus() == owner)
+			end
+			if isOver then
+				owner:UpdateTooltip()
+			end
+		end
+	end
+end
+
 function ItemRack.MenuTooltip(self)
 	if ItemRackSettings.ShowTooltips ~= "ON" then return end
 	if ItemRackSettings.DisableTooltipsInCombat == "ON" and ItemRack.inCombat then return end
@@ -5083,19 +5567,71 @@ function ItemRack.MenuTooltip(self)
 		local invMaybe
 		invMaybe,ItemRack.TooltipBag,ItemRack.TooltipSlot = ItemRack.FindItem(ItemRack.Menu[self:GetID()])
 		if ItemRack.TooltipBag and ItemRack.TooltipSlot then
-			ItemRack.StartTimer("TooltipUpdate",0)
+			ItemRack.TooltipUpdate()
 		else -- if invMaybe then
 			ItemRack.IDTooltip(self,ItemRack.Menu[id])
 		end
 	end
+
+	if type(IsModifiedClick) == "function" and IsModifiedClick("DRESSUP") then
+		if type(ShowInspectCursor) == "function" then
+			ShowInspectCursor()
+		elseif type(CursorUpdate) == "function" then
+			CursorUpdate(self)
+		end
+	else
+		if type(ResetCursor) == "function" then
+			ResetCursor()
+		end
+	end
 end
 
--- request a tooltip of a straight item id (called when hovering over items from the currently displayed set inside ItemRack's GUI)
-function ItemRack.ShowBreakoutComparison(owner)
-	if ItemRackSettings.AlwaysCompareBreakoutItems ~= "ON" then return end
-	if ItemRackSettings.MenuOnShift == "ON" and IsShiftKeyDown() then return end
+-- check whether comparison tooltips should be displayed for a breakout item
+function ItemRack.ShouldCompareBreakoutItems(owner)
+	if ItemRack.menuInclude or (ItemRack.menuOpen and ItemRack.menuOpen >= 20) then return false end
 	local ownerName = (owner and type(owner.GetName) == "function") and owner:GetName() or ""
-	if not string.match(ownerName, "^ItemRackMenu%d+$") then return end
+	if not string.match(ownerName, "^ItemRackMenu%d+$") then return false end
+	if type(owner.GetID) == "function" and type(ItemRack.Menu) == "table" then
+		local menuID = ItemRack.Menu[owner:GetID()]
+		if not menuID or menuID == 0 or menuID == "0" or menuID == "MENU" then
+			return false
+		end
+	end
+	if type(GameTooltip.IsEquippedItem) == "function" and GameTooltip:IsEquippedItem() then
+		return false
+	end
+	if ItemRackSettings.MenuOnShift == "ON" and IsShiftKeyDown() then
+		return false
+	end
+
+	local always = (ItemRackSettings.AlwaysCompareBreakoutItems == "ON")
+		or (type(GetCVarBool) == "function" and GetCVarBool("alwaysCompareItems"))
+		or (type(GetCVar) == "function" and GetCVar("alwaysCompareItems") == "1")
+		or (type(C_CVar) == "table" and type(C_CVar.GetCVarBool) == "function" and C_CVar.GetCVarBool("alwaysCompareItems"))
+	if always then
+		return true
+	end
+
+	local shiftDown = (type(IsShiftKeyDown) == "function" and IsShiftKeyDown())
+		or (type(IsModifiedClick) == "function" and IsModifiedClick("COMPAREITEMS"))
+	if shiftDown then
+		return true
+	end
+
+	return false
+end
+
+-- request a tooltip comparison of a straight item id against currently equipped gear
+function ItemRack.ShowBreakoutComparison(owner)
+	if not ItemRack.ShouldCompareBreakoutItems(owner) then
+		if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
+		if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
+		if ShoppingTooltip3 and ShoppingTooltip3.Hide then ShoppingTooltip3:Hide() end
+		return
+	end
+	if ShoppingTooltip1 and ShoppingTooltip1.EnableMouse then ShoppingTooltip1:EnableMouse(false) end
+	if ShoppingTooltip2 and ShoppingTooltip2.EnableMouse then ShoppingTooltip2:EnableMouse(false) end
+	if ShoppingTooltip3 and ShoppingTooltip3.EnableMouse then ShoppingTooltip3:EnableMouse(false) end
 	if type(GameTooltip_ShowCompareItem) == "function" then
 		GameTooltip_ShowCompareItem(GameTooltip)
 	end
@@ -5103,6 +5639,12 @@ end
 
 function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style ID
 	if ItemRackSettings.ShowTooltips ~= "ON" then return end
+	if not itemID or itemID == 0 or itemID == "0" then
+		ItemRack.AnchorTooltip(self)
+		GameTooltip:SetText(EMPTY or "Empty Slot")
+		GameTooltip:Show()
+		return
+	end
 	exactOnly = exactOnly and not ItemRack.IsBareItemID(itemID)
 	-- Clear any stale character-sheet tooltip anchor so it doesn't interfere
 	ItemRack.pendingTooltipAnchor = nil
@@ -5126,9 +5668,15 @@ function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style
 			GameTooltip:SetHyperlink(itemID)
 		end
 	end
-	ItemRack.ShrinkTooltip(self)
+	local shrunk = ItemRack.ShrinkTooltip(self)
 	GameTooltip:Show()
-	ItemRack.ShowBreakoutComparison(self)
+	if not shrunk then
+		ItemRack.ShowBreakoutComparison(self)
+	else
+		if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
+		if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
+		if ShoppingTooltip3 and ShoppingTooltip3.Hide then ShoppingTooltip3:Hide() end
+	end
 	
 	-- Suppress WoW's default compare tooltips if MenuOnShift is active
 	-- Otherwise holding shift to open the menu covers the screen in 3 tooltips
@@ -5140,8 +5688,33 @@ end
 
 function ItemRack.ClearTooltip(self)
 	GameTooltip:Hide()
+	if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
+	if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
+	if ShoppingTooltip3 and ShoppingTooltip3.Hide then ShoppingTooltip3:Hide() end
 	ItemRack.StopTimer("TooltipUpdate")
 	ItemRack.TooltipType = nil
+	ItemRack.TooltipOwner = nil
+	if type(ResetCursor) == "function" then
+		ResetCursor()
+	end
+end
+
+function ItemRack.GetMenuFrameTooltipSide()
+	local uiScale = (UIParent and type(UIParent.GetEffectiveScale) == "function" and UIParent:GetEffectiveScale()) or 1
+	local frameScale = (ItemRackMenuFrame and type(ItemRackMenuFrame.GetEffectiveScale) == "function" and ItemRackMenuFrame:GetEffectiveScale()) or uiScale
+	local scaleRatio = frameScale / uiScale
+	local right = ((ItemRackMenuFrame and type(ItemRackMenuFrame.GetRight) == "function" and ItemRackMenuFrame:GetRight()) or 0) * scaleRatio
+	local left = ((ItemRackMenuFrame and type(ItemRackMenuFrame.GetLeft) == "function" and ItemRackMenuFrame:GetLeft()) or 0) * scaleRatio
+	local screenWidth = (UIParent and type(UIParent.GetWidth) == "function" and UIParent:GetWidth())
+		or (type(GetScreenWidth) == "function" and GetScreenWidth())
+		or 1920
+	local spaceRight = screenWidth - right
+	local spaceLeft = left
+	if spaceRight >= spaceLeft then
+		return "ANCHOR_RIGHT"
+	else
+		return "ANCHOR_LEFT"
+	end
 end
 
 function ItemRack.AnchorTooltip(owner)
@@ -5166,34 +5739,16 @@ function ItemRack.AnchorTooltip(owner)
 		
 		if slot then
 			if isPopoutButton then
-				-- Tooltips for items inside the menu:
-				-- We measure physical screen space using EffectiveScale for reliable placement on scaled/ultrawide UIs.
-				local scale = ItemRackMenuFrame:GetEffectiveScale()
-				local right = (ItemRackMenuFrame:GetRight() or 0) * scale
-				local left = (ItemRackMenuFrame:GetLeft() or 0) * scale
-				
-				local spaceRight = GetScreenWidth() - right
-				local spaceLeft = left
-				
-				if spaceRight >= spaceLeft then
-					GameTooltip:SetOwner(ItemRackMenuFrame, "ANCHOR_RIGHT")
-					ItemRack.pendingTooltipAnchor = "ANCHOR_RIGHT"
-				else
-					GameTooltip:SetOwner(ItemRackMenuFrame, "ANCHOR_LEFT")
-					ItemRack.pendingTooltipAnchor = "ANCHOR_LEFT"
-				end
-
-				-- Store vertical owner so ApplyTooltipAnchor can reposition the tooltip
-				-- to align with the specific button instead of the top of the menu frame.
-				ItemRack.pendingTooltipOwner = ItemRackMenuFrame
-				ItemRack.pendingTooltipVerticalOwner = owner
+				-- Anchor directly to ItemRackMenuFrame using native SetOwner so the
+				-- tooltip sits outside all breakout columns without needing ANCHOR_NONE.
+				GameTooltip:SetOwner(ItemRackMenuFrame, ItemRack.GetMenuFrameTooltipSide())
 			else
 				-- Tooltips for the character sheet slot itself (when hovering the slot while menu is open):
 				if slot == 0 or (slot >= 16 and slot <= 18) then
 					GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 				elseif slot==1 or slot==2 or slot==3 or slot==15 or slot==5 or slot==4 or slot==19 or slot==9 then
 					if ItemRackSettings.LeftSlotsGoRight == "ON" then
-						GameTooltip:SetOwner(ItemRackMenuFrame, "ANCHOR_RIGHT")
+						GameTooltip:SetOwner(ItemRackMenuFrame, ItemRack.GetMenuFrameTooltipSide())
 					else
 						GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 					end
@@ -5201,7 +5756,7 @@ function ItemRack.AnchorTooltip(owner)
 					if ItemRackSettings.RightSlotsGoLeft == "ON" then
 						GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 					else
-						GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
+						GameTooltip:SetOwner(ItemRackMenuFrame, ItemRack.GetMenuFrameTooltipSide())
 					end
 				end
 			end
@@ -5214,7 +5769,9 @@ function ItemRack.AnchorTooltip(owner)
 			end
 		end
 	elseif ItemRackSettings.TooltipFollow=="ON" then
-		if owner.GetLeft and owner:GetLeft() and owner:GetLeft()<400 then
+		if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and string.match(ownerName, "^ItemRackMenu%d") then
+			GameTooltip:SetOwner(ItemRackMenuFrame, ItemRack.GetMenuFrameTooltipSide())
+		elseif owner.GetLeft and owner:GetLeft() and owner:GetLeft()<400 then
 			GameTooltip:SetOwner(owner,"ANCHOR_RIGHT")
 		else
 			GameTooltip:SetOwner(owner,"ANCHOR_LEFT")
@@ -5241,12 +5798,18 @@ function ItemRack.TooltipUpdate()
 			GameTooltip:SetInventoryItem("player",ItemRack.TooltipSlot)
 			cooldown = GetInventoryItemCooldown("player",ItemRack.TooltipSlot) or 0
 		end
-		ItemRack.ShrinkTooltip(ItemRack.TooltipOwner) -- if TinyTooltips on, shrink it
+		local shrunk = ItemRack.ShrinkTooltip(ItemRack.TooltipOwner) -- if TinyTooltips on, shrink it
 		if ItemRack.TooltipType=="INVENTORY" and ItemRack.TooltipBag then
 			GameTooltip:AddLine("Queued: "..ItemRack.TooltipBag)
 		end
 		GameTooltip:Show()
-		ItemRack.ShowBreakoutComparison(ItemRack.TooltipOwner)
+		if not shrunk then
+			ItemRack.ShowBreakoutComparison(ItemRack.TooltipOwner)
+		else
+			if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
+			if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
+			if ShoppingTooltip3 and ShoppingTooltip3.Hide then ShoppingTooltip3:Hide() end
+		end
 		
 		-- Suppress WoW's default compare tooltips if MenuOnShift is active
 		if ItemRackSettings.MenuOnShift=="ON" and IsShiftKeyDown() then
@@ -5255,9 +5818,11 @@ function ItemRack.TooltipUpdate()
 		end
 		
 		if cooldown==0 then
-			-- stop updates if this trinket has no cooldown
+			-- stop updates if this item has no cooldown
 			ItemRack.StopTimer("TooltipUpdate")
-			ItemRack.TooltipType = nil
+			-- Preserve ItemRack.TooltipType so modifier refreshes (Shift/Ctrl) keep active context
+		else
+			ItemRack.StartTimer("TooltipUpdate",1)
 		end
 	end
 
@@ -5348,7 +5913,12 @@ function ItemRack.ShrinkTooltip(owner)
 		GameTooltip:AddLine(charge,1,1,1)
 		GameTooltip:AddLine(durability,1,1,1)
 		GameTooltip:AddLine(cooldown,1,1,1)
+		if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
+		if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
+		if ShoppingTooltip3 and ShoppingTooltip3.Hide then ShoppingTooltip3:Hide() end
+		return true
 	end
+	return false
 end
 
 function ItemRack.SetTooltip(self,setname)
@@ -5506,7 +6076,13 @@ end
 
 ItemRack.oldPaperDollItemSlotButton_OnEnter = PaperDollItemSlotButton_OnEnter
 function PaperDollItemSlotButton_OnEnter(self)
+	if self and self.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter then
+		self.UpdateTooltip = PaperDollItemSlotButton_OnEnter
+	end
 	if ItemRackSettings.CharacterSheetMenus ~= "ON" or ItemRack.IsEquipmentManagerOpen() then
+		ItemRack.pendingTooltipAnchor = nil
+		ItemRack.pendingTooltipOwner = nil
+		ItemRack.pendingTooltipVerticalOwner = nil
 		if ItemRackMenuFrame:IsVisible() and ItemRack.menuDockedTo then
 			ItemRackMenuFrame:Hide()
 			ItemRack.menuDockedTo = nil
@@ -5535,12 +6111,6 @@ function PaperDollItemSlotButton_OnEnter(self)
 		end
 	end
 	
-	-- Hide the tooltip during the Blizzard handler to prevent a visible "snap"
-	-- from the default position to our desired position.
-	if isMenuOpen and slot then
-		GameTooltip:SetAlpha(0)
-	end
-	
 	-- Call the original Blizzard function FIRST, completely untouched.
 	-- We MUST NOT modify GameTooltip.SetOwner or any other secure table — doing so
 	-- taints the GameTooltip table, which propagates to Blizzard action bar OnEnter
@@ -5549,11 +6119,9 @@ function PaperDollItemSlotButton_OnEnter(self)
 	ItemRack.pendingTooltipVerticalOwner = nil
 	ItemRack.oldPaperDollItemSlotButton_OnEnter(self)
 	
-	-- AFTER the secure handler and its post-hooks have finished, reposition and
-	-- reveal the tooltip without invoking protected tooltip lifecycle methods.
+	-- AFTER the secure handler and its post-hooks have finished, reposition the
+	-- tooltip outside the breakout menu when the menu opens to the right of the slot.
 	if isMenuOpen and slot then
-		local desiredOwner, desiredAnchor
-		
 		local menuOnRight
 		if slot == 0 or (slot >= 16 and slot <= 18) then
 			menuOnRight = false
@@ -5563,64 +6131,57 @@ function PaperDollItemSlotButton_OnEnter(self)
 			menuOnRight = (ItemRackSettings.RightSlotsGoLeft ~= "ON")
 		end
 		
-		if slot == 0 or (slot >= 16 and slot <= 18) then
-			-- Bottom slots: menu goes down. Tooltip to the right is fine.
-			desiredOwner = self
-			desiredAnchor = "ANCHOR_RIGHT"
-		else
-			if menuOnRight then
-				-- Menu rendered to the right. Tooltip should go left (if room) or chain to the right of the menu.
-				if slot==1 or slot==2 or slot==3 or slot==15 or slot==5 or slot==4 or slot==19 or slot==9 then
-					-- Left side slots: No room on the left, chain to the right of the menu
-					desiredOwner = ItemRackMenuFrame
-					desiredAnchor = "ANCHOR_RIGHT"
-				else
-					-- Right side slots: Abundant room on the left (over character model)
-					desiredOwner = self
-					desiredAnchor = "ANCHOR_LEFT"
-				end
+		if menuOnRight then
+			local side = ItemRack.GetMenuFrameTooltipSide and ItemRack.GetMenuFrameTooltipSide() or "ANCHOR_RIGHT"
+			if side == "ANCHOR_RIGHT" then
+				ItemRack.pendingTooltipOwner = ItemRackMenuFrame
+				ItemRack.pendingTooltipAnchor = "ANCHOR_RIGHT"
 			else
-				-- Menu rendered to the left. Tooltip should go right.
-				desiredOwner = self
-				desiredAnchor = "ANCHOR_RIGHT"
+				ItemRack.pendingTooltipOwner = self
+				ItemRack.pendingTooltipAnchor = "ANCHOR_LEFT"
 			end
+			ItemRack.ApplyTooltipAnchor()
+		else
+			ItemRack.pendingTooltipAnchor = nil
+			ItemRack.pendingTooltipOwner = nil
 		end
-		
-		-- Store the desired anchor for asynchronous tooltip refreshes.
-		ItemRack.pendingTooltipAnchor = desiredAnchor
-		ItemRack.pendingTooltipOwner = desiredOwner
-		
-		-- Apply positioning and reveal
-		ItemRack.ApplyTooltipAnchor()
-		GameTooltip:SetAlpha(1)
 	else
 		ItemRack.pendingTooltipAnchor = nil
 		ItemRack.pendingTooltipOwner = nil
 	end
 end
 
--- Some clients bind the character-slot OnEnter script to the function object
--- that existed when Blizzard created the frame. Replacing the global name does
--- not update that stored handler, so install ItemRack's wrapper explicitly while
--- preserving the captured native handler that the wrapper calls exactly once.
+-- Some clients bind the character-slot OnEnter script or UpdateTooltip field to
+-- the function object that existed when Blizzard created the frame. Replacing the
+-- global name does not update those stored references, so install ItemRack's wrapper
+-- explicitly on both while preserving the captured native handler.
 function ItemRack.RegisterCharacterSlotOnEnterHandlers()
 	local registered = 0
 	for i=0,19 do
 		local slotInfo = ItemRack.SlotInfo[i]
 		local button = slotInfo and _G["Character"..slotInfo.name]
-		if button and button.GetScript and button.SetScript
-		and button:GetScript("OnEnter") == ItemRack.oldPaperDollItemSlotButton_OnEnter then
-			button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)
-			registered = registered + 1
+		if button then
+			local updated = false
+			if button.GetScript and button.SetScript
+			and button:GetScript("OnEnter") == ItemRack.oldPaperDollItemSlotButton_OnEnter then
+				button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)
+				updated = true
+			end
+			if button.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter then
+				button.UpdateTooltip = PaperDollItemSlotButton_OnEnter
+				updated = true
+			end
+			if updated then
+				registered = registered + 1
+			end
 		end
 	end
 	return registered
 end
 
--- Apply the stored tooltip anchor after PaperDollItemSlotButton_OnEnter and
--- asynchronous tooltip refreshes that may restore Blizzard's default anchor.
--- Disable native side anchoring without resetting the owner or item contents.
--- Otherwise a layout refresh can restore the old side before our Show hook runs.
+-- Apply the stored character-slot tooltip anchor after PaperDollItemSlotButton_OnEnter
+-- and asynchronous tooltip refreshes, without setting ANCHOR_NONE (which would cause
+-- GameTooltip_ShowCompareItem to wipe all points when comparison tooltips slide).
 function ItemRack.ApplyTooltipAnchor()
 	local anchor = ItemRack.pendingTooltipAnchor
 	local owner = ItemRack.pendingTooltipOwner
@@ -5636,41 +6197,25 @@ function ItemRack.ApplyTooltipAnchor()
 		return
 	end
 	
-	-- Only apply to ItemRack-related tooltips that aren't the standard action buttons (which handle themselves)
 	local tooltipOwner = GameTooltip:GetOwner()
 	if not tooltipOwner or not tooltipOwner.GetName then return end
 	local ownerName = tooltipOwner:GetName() or ""
 	
-	-- Only the docked character slot and its flyout belong to this context.
-	-- Options, quick-access buttons and other character slots must remain untouched.
-	if not (ownerName == ItemRack.menuDockedTo or tooltipOwner == ItemRackMenuFrame or ownerName:match("^ItemRackMenu%d+$")) then
-		-- Not an ItemRack menu/character tooltip — clear stale pending state
+	-- Only the docked character slot belongs to this manual offset context.
+	-- Flyout buttons use native SetOwner(ItemRackMenuFrame, ...); options,
+	-- quick-access buttons and other character slots must remain untouched.
+	if ownerName ~= ItemRack.menuDockedTo then
 		ItemRack.pendingTooltipAnchor = nil
 		ItemRack.pendingTooltipOwner = nil
 		ItemRack.pendingTooltipVerticalOwner = nil
 		return
 	end
 	
-	-- Apply the desired anchor
-	-- SetOwner would clear/rebuild tooltip data. SetAnchorType preserves it and
-	-- prevents native layout from competing with the manual points below.
-	if type(GameTooltip.SetAnchorType) == "function" then
-		GameTooltip:SetAnchorType("ANCHOR_NONE")
-	end
 	GameTooltip:ClearAllPoints()
-	local verticalOwner = ItemRack.pendingTooltipVerticalOwner
 	if anchor == "ANCHOR_RIGHT" then
-		local yOffset = 0
-		if verticalOwner and verticalOwner:GetTop() and owner:GetTop() then
-			yOffset = verticalOwner:GetTop() - owner:GetTop()
-		end
-		GameTooltip:SetPoint("TOPLEFT", owner, "TOPRIGHT", 5, yOffset)
+		GameTooltip:SetPoint("TOPLEFT", owner, "TOPRIGHT", 0, 0)
 	elseif anchor == "ANCHOR_LEFT" then
-		local yOffset = 0
-		if verticalOwner and verticalOwner:GetTop() and owner:GetTop() then
-			yOffset = verticalOwner:GetTop() - owner:GetTop()
-		end
-		GameTooltip:SetPoint("TOPRIGHT", owner, "TOPLEFT", -5, yOffset)
+		GameTooltip:SetPoint("TOPRIGHT", owner, "TOPLEFT", 0, 0)
 	elseif anchor == "ANCHOR_BOTTOMLEFT" then
 		GameTooltip:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, 0)
 	end
@@ -5691,6 +6236,14 @@ GameTooltip:HookScript("OnHide", function()
 	ItemRack.pendingTooltipOwner = nil
 	ItemRack.pendingTooltipVerticalOwner = nil
 end)
+
+if ItemRackMenuFrame then
+	ItemRackMenuFrame.UpdateTooltip = function(self)
+		if ItemRack.TooltipOwner and ItemRack.TooltipOwner.UpdateTooltip then
+			ItemRack.TooltipOwner:UpdateTooltip()
+		end
+	end
+end
 
 function ItemRack.DockMenuToCharacterSheet(self)
 	local name = self:GetName()
@@ -5983,6 +6536,20 @@ function ItemRack.BeginSetBinding(setname)
 	if not set or not set.equip then return nil end
 	ItemRack.SetBindingRequestSequence = ItemRack.SetBindingRequestSequence + 1
 	local wasEquipped = ItemRack.IsSetEquipped and ItemRack.IsSetEquipped(setname) and true or false
+	if wasEquipped and ItemRackUser.CurrentSet and ItemRackUser.CurrentSet ~= setname
+	and ItemRackUser.Sets[ItemRackUser.CurrentSet]
+	and ItemRack.IsSetEquipped and ItemRack.IsSetEquipped(ItemRackUser.CurrentSet) then
+		local buried = false
+		for sName, sData in pairs(ItemRackUser.Sets) do
+			if not string.match(sName, "^~") and sData.oldset == setname and sName ~= setname then
+				buried = true
+				break
+			end
+		end
+		if not buried then
+			wasEquipped = false
+		end
+	end
 	local intent = "equip"
 	if ItemRackSettings.EquipToggle == "ON" then
 		intent = wasEquipped and "unequip" or "equip"
@@ -6267,7 +6834,11 @@ function ItemRack.SlashHandler(arg1)
 			if not set1 then
 				ItemRack.ToggleSet(sets)
 			else
-				if ItemRack.IsSetEquipped(set1) then
+				if ItemRackUser.CurrentSet == set1 and ItemRack.IsSetEquipped(set1) then
+					ItemRack.EquipSet(set2)
+				elseif ItemRackUser.CurrentSet == set2 and ItemRack.IsSetEquipped(set2) then
+					ItemRack.EquipSet(set1)
+				elseif ItemRack.IsSetEquipped(set1) then
 					ItemRack.EquipSet(set2)
 				else
 					ItemRack.EquipSet(set1)
@@ -6308,7 +6879,8 @@ function ItemRack.SlashHandler(arg1)
 		elseif subcmd == "clear" then
 			ItemRack.LogBuffer = {}
 			ItemRack.ClearQueueDiagnostics()
-			ItemRack.Print("Diagnostic log and AutoQueue trace buffers cleared.")
+			ItemRack.MenuDiagnostics = nil
+			ItemRack.Print("Diagnostic log, AutoQueue and breakout recorders cleared.")
 		elseif subcmd == "status" then
 			ItemRack.PrintDebugStatus()
 		elseif subcmd == "audit" then
@@ -6322,6 +6894,7 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.Print("  /itemrack debug audit : Scans and repairs SavedVariables issues")
 			ItemRack.Print("  /itemrack debug <tag> : Toggles specific tag (Available: events, equip, queue, combatqueue, api, ui, combat)")
 			ItemRack.Print("  /itemrack dump : Opens a support dump; the AutoQueue recorder is populated only while Queue debug is enabled")
+			ItemRack.Print("  Breakout discovery records are collected automatically, even with debug disabled.")
 		elseif subcmd then
 			-- Toggle specific tag (case insensitive match against known tags)
 			local foundTag
@@ -6464,7 +7037,36 @@ function ItemRack.SlashHandler(arg1)
 				table.insert(tempQueueTrace, queueTrace[i])
 			end
 			dumpText = dumpText .. "\n\n=== AUTOQUEUE FLIGHT RECORDER (Last 250 entries) ===\n" .. table.concat(tempQueueTrace, "\n")
+			-- Failure in optional evidence collection must not suppress the support dump.
+			local menuOK,menuReport = pcall(ItemRack.GetMenuDiagnosticReport)
+			dumpText = dumpText .. "\n\n=== BREAKOUT DISCOVERY DIAGNOSTICS ===\n"
+			if menuOK then
+				dumpText = dumpText .. ItemRackLogFrame.Serialize(menuReport)
+			else
+				dumpText = dumpText .. "Breakout report unavailable; other diagnostic sections are retained."
+			end
 			
+			dumpText = dumpText .. "\n\n=== ENABLED ADDONS ===\n"
+			local getNumAddOns = (C_AddOns and C_AddOns.GetNumAddOns) or _G.GetNumAddOns
+			local getAddOnInfo = (C_AddOns and C_AddOns.GetAddOnInfo) or _G.GetAddOnInfo
+			local isAddOnLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or _G.IsAddOnLoaded
+			local getAddOnMetadata = (C_AddOns and C_AddOns.GetAddOnMetadata) or _G.GetAddOnMetadata
+			if type(getNumAddOns) == "function" and type(getAddOnInfo) == "function" then
+				local addonLines = {}
+				local numAddOns = getNumAddOns() or 0
+				for i = 1, numAddOns do
+					local name, title, _, loadable = getAddOnInfo(i)
+					local loaded = type(isAddOnLoaded) == "function" and isAddOnLoaded(i) or false
+					if loaded or loadable then
+						local ver = (type(getAddOnMetadata) == "function" and name and getAddOnMetadata(name, "Version")) or ""
+						local stateStr = loaded and "LOADED" or "ENABLED"
+						table.insert(addonLines, string.format("%s (%s) [%s]", tostring(name or title or i), tostring(ver ~= "" and ver or "n/a"), stateStr))
+					end
+				end
+				dumpText = dumpText .. table.concat(addonLines, "\n")
+			else
+				dumpText = dumpText .. "Addon enumeration API unavailable."
+			end
 			dumpText = dumpText .. "\n\n=== RUNTIME STATE DUMP ===\n"
 			dumpText = dumpText .. "ItemRack.Version = " .. tostring(ItemRack.Version) .. "\n"
 			dumpText = dumpText .. "ItemRack.BuildID = " .. tostring(ItemRack.BuildID) .. "\n"

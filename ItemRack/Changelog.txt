@@ -1,4 +1,77 @@
 __ Development __
+- Scrollable Dropdown Lists for Set Pickers:
+  * Made all set chooser dropdowns fully scrollable to seamlessly accommodate players with large numbers of sets:
+    1. Sets Tab Dropdown (ItemRackOptSubFrame5): Added mouse-wheel scrolling support across all list buttons (ItemRackOptSetList1..10) and the scroll frame (ItemRackOptSetListScrollFrame), anchored the scroll frame from row 1 down to row 10, and enabled mouse-wheel dispatch on the container frame.
+    2. Queue Active Set Dropdown (ItemRackOptQueueSetPicker): Added mouse-wheel propagation to row buttons so scrolling while hovering over items scrolls the list, ensured vertical scrollbar thumb sizing is explicitly styled, and clamped visible rows to 8 with offset pagination.
+    3. Queue Sync Dropdown (ItemRackOptQueueSyncPicker): Added a vertical slider scrollbar, mouse-wheel scrolling across both the popup frame and individual row buttons, and capped visible rows at 8 with offset scrolling instead of overflowing past the dialog bounds.
+- Queue Tab Active Set Dropdown & Breakout Window Alignment:
+  * Made the bottom-left set indicator on the Queue editor page (ItemRackOptQueueSetInfo) an interactive dropdown button with an arrow indicator and tooltip when "Use per-set queues" is enabled. Clicking the footer opens a scrollable set picker allowing players to switch the editing set context directly from the Queue page.
+  * Changing the set via this dropdown synchronizes both the Sets tab dropdown (ItemRackOptSetsName / ItemRackOpt.SelectedSet) and the Queue editor (ItemRackOpt.SetupQueue), immediately updating the queue list, sync controls, and sort buttons for the newly selected set.
+  * Raised the AutoQueue breakout controls panel (ItemRackOpt.QueueControls) by 25px (y = 21 relative to ItemRackOptSubFrame7, height 348) so its top and bottom borders align flush with the main ItemRack Options window (ItemRackOptFrame).
+- Tooltip Set Info Resolution for Hybrid Clients (TBC Anniversary 2.5.5, Classic Era) & Modern Bag Addons:
+  * Fixed "Show set info in tooltips" failing to display set lines in modern bag addons (e.g. Baganator) and classic/hybrid client versions where TooltipDataProcessor exists in the global environment but classic bag frames use traditional GameTooltip:SetBagItem and OnTooltipSetItem script dispatches.
+  * Removed mutually exclusive if TooltipDataProcessor ... else ... branching in ItemRack.RegisterSetTooltipHooks(). ItemRack now registers TooltipDataProcessor.AddTooltipPostCall AND hooks GameTooltip:HookScript("OnTooltipSetItem", ...) along with SetBagItem, SetInventoryItem, and SetHyperlink concurrently.
+  * Added hooks on ItemRefTooltip (OnTooltipSetItem and SetHyperlink) and ShoppingTooltip1 / ShoppingTooltip2 so item comparison tooltips and chat item links display ItemRack Set: <name> consistently.
+  * Updated ItemRack.OnTooltipItemData to directly query TooltipUtil.GetDisplayedItem(tooltip) and tooltip:GetItem() first before checking getterArgs, preventing premature return on unpopulated container data.
+  * Added safe tooltip:Layout() refresh when dynamic lines are appended to already-sized tooltips without invoking protected Show() methods.
+
+
+__ New in 4.57-beta7 - By Bl4ut0 __
+- Master / Mirrored Set Queues (GitHub #35 / kaidobit):
+  * Added the ability to mirror/sync a slot's cooldown queue from any other equipment set (e.g. sharing a master Trinket queue across multiple specs, stances, or farming sets without re-creating queues manually).
+  * In the Options Queue tab for any slot (ItemRackOptSubFrame7), added a "Sync with set" checkbox and set dropdown picker to mirror another set's queue configuration.
+  * When synced, the queue list and AutoQueue enabled state are dynamically resolved from the master set. Any changes made to the master set immediately reflect across all follower sets.
+  * Mirrored queues are protected from accidental edits on follower sets: reordering, stop markers, delay/priority editing, and icon customization are disabled with clear status indicators showing the master set name.
+  * Unchecking "Sync with set" keeps an exact independent copy of the master queue so players can customize it without starting from scratch.
+  * Deleting a master set automatically decouples follower sets and preserves an independent copy of the queue so followers never lose their configuration.
+  * Extended pure queue resolution in ItemRackQueuePolicy.lua with cycle detection and fallback guards; added 5 new atomic policy assertions in .tools/test_queue_policy_lua.js.
+- Set Info in Tooltips for Modern Clients & Bag Addons (Baganator / Blizzard bags):
+  * Fixed "Show set info in tooltips" failing to display set lines when hovering bag items in modern WoW clients and bag addons like Baganator.
+  * OnTooltipItemData now extracts bag/slot or worn slot indices from TooltipDataProcessor data (GetBagItem, GetInventoryItem, GetHyperlink) and resolves exact item identity through ItemRack.GetID.
+  * Added fallback resolution using TooltipUtil.GetDisplayedItem, C_Item.GetItemLinkByGUID, data.hyperlink, and numeric data.id.
+  * Enhanced GetIRString to parse raw item strings (item:...) and numeric IDs without requiring |h hyperlink formatting.
+  * Added duplicate line guards to prevent multiple set lines on repeated tooltip updates.
+
+__ New in 4.57-beta6 - By Bl4ut0 __
+- Breakout Tooltip Comparison Shift / CVar Control:
+  * ShowBreakoutComparison now mirrors Retail WoW comparison behavior: comparisons appear when pressing Shift or when alwaysCompareItems CVar / AlwaysCompareBreakoutItems is enabled.
+  * Releasing Shift hides comparison tooltips immediately.
+  * Changed AlwaysCompareBreakoutItems default to OFF so breakout rows follow client comparison settings out of the box.
+- GitHub #33 follow-up (neferens):
+  * Foreign/unqueued active trinkets not present in the new set's queue (e.g. Gadgetzan Transporter) are now evicted and replaced by the new set's top queue item on set switch.
+  * Active trinkets present in the new set's queue continue to hold until used or superseded by priority candidates.
+  * IsSetEquipped now checks slots governed by per-set queues even when unselected in set.equip.
+
+__ New in 4.57-beta5 - By Bl4ut0 __
+- GitHub #34 (Spiritshroud08): fixed disappearing breakout tooltips on Rings, Weapons, and armor slots with TipTac Reborn, RatingBuster Classic, Syndicator, TacoTip, TSM, and Leatrix Plus, as well as character-sheet tooltip flickering:
+  * Removed GameTooltip:SetAnchorType("ANCHOR_NONE") so Blizzard's GameTooltip_ShowCompareItem screen-edge slide no longer wipes tooltip anchors when dual ShoppingTooltips open.
+  * Anchored breakout menu buttons (ItemRackMenu1..N) natively to ItemRackMenuFrame (ANCHOR_RIGHT / ANCHOR_LEFT) so tooltips never overlap multi-column breakout menus at any scale.
+  * Positioned right-side character slot tooltips to the right of ItemRackMenuFrame rather than over the Character Panel, and registered PaperDollItemSlotButton_OnEnter on button.UpdateTooltip to prevent the 0.2s GameTooltip_OnUpdate flicker.
+  * Restricted ShowBreakoutComparison to equipment breakout items (excluding Options pickers, Set menus, empty slots, already-equipped items, and TinyTooltips/minimal tooltips).
+  * Added an ENABLED ADDONS section to /itemrack dump.
+- GitHub #33 follow-up (neferens): fixed per-set queues and the Options Queue UI not switching to the new set's queue contents/order when switching sets:
+  * Higher-ranked queue items now replace lower-ranked passive equipped items immediately upon set switch without requiring Priority to be checked on passive items.
+  * EndSetSwap now updates the Options editing set and live-refreshes the open Slot Queue page (ItemRackOptSubFrame7) to the newly equipped set's queue list and footer (unless the user has unsaved edits on the Sets tab).
+  * ToggleSet, set keybindings, and /itemrack toggle now equip the target set when switching between sets that share identical gear and differ only in per-set queues.
+
+__ New in 4.57-beta4 - By Bl4ut0 __
+- Resolved performance impacts and frame stutter experienced during gear swaps (especially with AutoQueue enabled or the Character Frame open):
+  * AutoQueue passive item settling: ItemRack.RecordEquipTime previously scheduled 12 asynchronous retry timers (600ms) for any equipped item with zero initial cooldown, causing passive armor slots to repeatedly query cooldowns and slot states. Passive items without on-use effects now settle immediately on attempt 0 with zero retry timers, while on-use items cap retries at 4 attempts (200ms).
+  * Single transition dispatch: Guarded against immediate duplicate RecordEquipTime dispatches on the same inventory transition event.
+  * PaperDoll slot update optimization: Optimized ItemRack.RefreshCustomItemIcons(targetButton) hooked into Blizzard's PaperDollItemSlotButton_Update. Rather than scanning all 20 slots and re-texturing toolbar buttons for every single character slot update (380 scans per character frame update), it now targets only the updated slot button and exits immediately when custom character icons are disabled.
+  * Transaction-aware inventory reconciliation: Deferred equipped snapshot reconciliation during active multi-slot transactions, performing snapshot reconciliation and combat queue checks cleanly once upon transaction finalization rather than on every intermediate event.
+  * Empty slot popout tooltip: Hovering the "Empty Slot" row in breakout menus now properly displays localized Blizzard "Empty" text instead of failing on item:0 lookups.
+
+__ New in 4.57-beta3 - By Bl4ut0 __
+- Fixed comparison tooltips (ShoppingTooltip1 and ShoppingTooltip2) stacking and overlapping directly on top of GameTooltip when hovering items in quick-access popout menus near the screen edge. Removed custom anchor coordinate overrides that forced comparison tooltips to TOPRIGHT, allowing Blizzard's native GameTooltip_ShowCompareItem engine to calculate screen boundaries and position tooltips cleanly, while preserving mouse capture suppression (EnableMouse(false)) to prevent hover flicker loops.
+
+__ New in 4.57-beta2 - By Bl4ut0 __
+- GitHub #34 follow-up: fixed breakout item tooltips dropping when pressing Shift (compare) or Ctrl (inspect) while mousing over character sheet breakout rows. Popout buttons now define .UpdateTooltip callbacks, match GameTooltip ownership to the hovered button, update synchronously, and retain tooltip context on zero-cooldown items so modifier key changes refresh in-place without closing the tooltip.
+- GitHub #32: protected against AuraUtil.lua:25 attempt to call a nil value errors when Edit Mode is engaged on modern/Retail clients by routing buff checks through safe ItemRack.FindPlayerAura(buff) with pcall fallbacks across all WoW versions.
+- GitHub #33: fixed passive trinket queues not equipping preferred passive trinkets when switching between sets with blank trinket slots (e.g. Hand of Justice not yielding to Mark of the Champion). The queue engine now recognizes passive equipped items and allows unqueued passive items to yield to the active set's top queue item while maintaining hold protection for ready on-use trinkets.
+
+__ New in 4.57-beta1 - By Bl4ut0 __
+- Improved /itemrack dump with automatic, bounded combat-breakout diagnostics. Capture each slot's discovery/filter counts, sampled tooltip rejection text, cache changes and incomplete rendering stages, plus client build, API providers, custom-icon switches and loaded addons. Public item samples omit player GUIDs; secret/inaccessible values are redacted. Reproduce the empty breakout and send one dump before reloading. The underlying Forever combat-breakout issue remains under investigation.
 
 __ New in 4.56.1 - By Bl4ut0 __
 - Fixed weapon-only set hotkeys failing to swap weapons in combat when "Full-set hotkeys swap weapons in combat" is OFF and the set has a specialization checkbox assigned to the current spec or on a single-spec character. Weapon-only sets now keep their immediate combat macro unless equipping the set requires switching talent groups, and set bindings refresh when the active talent group changes.

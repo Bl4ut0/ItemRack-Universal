@@ -46,6 +46,48 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+October 31, 2026 Set Dropdown Scrolling Report:
+"both of the dropdown lists should be scrollable incase the users have a bunch of sets"
+Reported need for complete scrollability across all set dropdown menus (Sets tab chooser, Queues tab active set selector, and Queues breakout sync dropdown) when players have more sets than can fit vertically in the popup dialogs.
+Root cause:
+1. `ItemRackOptSubFrame5` (Sets tab chooser): `ItemRackOptSetListTemplate` row buttons intercepted mouse events without an `OnMouseWheel` script, and `ItemRackOptSetListScrollFrame` was mis-anchored to row 2 instead of row 1, preventing mouse-wheel scrolling over list items.
+2. `ItemRackOptQueueSetPicker` (Queue tab active set dropdown): Individual row buttons lacked `OnMouseWheel` event propagation, causing mouse-wheel events to be swallowed when hovering items.
+3. `ItemRackOptQueueSyncPicker` (Queue breakout sync dropdown): Rendered all sets as unscrollable buttons that extended beyond the dialog boundary with no slider, no mouse wheel, and no row pagination.
+Coverage: `.tools/test_set_icon_picker_lua.js` (`queue-item-icons`) verifies:
+- `ItemRackOpt.SetListOnMouseWheel` updates the scrollbar offset by 24 per tick.
+- `ItemRackOptQueueSetPicker` displays a vertical slider when more than 8 sets exist, and mouse-wheel events on row buttons increment/decrement the offset.
+- `ItemRackOptQueueSyncPicker` displays a vertical slider when more than 8 sets exist, caps visible rows to 8, and mouse-wheel events on row buttons increment/decrement the offset.
+Acceptance: Open the Sets tab, click the set chooser dropdown, and scroll the mouse wheel while hovering set buttons. Open the Queues tab with per-set queues enabled, click the active set dropdown at the bottom, and scroll with mouse wheel and drag the slider. Open the breakout panel, click the Sync Queue dropdown, and scroll with mouse wheel and drag the slider.
+
+October 31, 2026 TBC Anniversary / Baganator tooltip report:
+"still no sets showing up in trooltips when toggled on in ssetting please verify its ability to read and track sets and items on all release candidates"
+Attached screenshot showed character Blauto (Nightslayer, TBC Anniversary) hovering Flashfire Girdle (itemID 32276, stored in Bis set) in Baganator with ShowSetInTooltip enabled, but no "ItemRack Set:" line appeared on the tooltip.
+Root cause: `ItemRack.RegisterSetTooltipHooks()` used mutually exclusive `if TooltipDataProcessor ... else ...` branching. In modern Classic engines (TBC Anniversary 2.5.5, Classic Era 1.15), `TooltipDataProcessor` exists in the global environment, causing ItemRack to take the modern branch and completely skip registering `SetBagItem`, `SetInventoryItem`, `SetHyperlink`, and `OnTooltipSetItem`. In Classic, live container item buttons (including Baganator's mixins) dispatch tooltips through Blizzard's classic `ContainerFrameItemButton_OnEnter` -> `GameTooltip:SetBagItem(bag, slot)` and `OnTooltipSetItem` script, rather than through `TooltipDataProcessor`. Furthermore, clicked chat hyperlinks on `ItemRefTooltip` and comparison tooltips had no `OnTooltipSetItem` or `SetHyperlink` hooks, and `OnTooltipItemData` returned prematurely when container data lagged behind tooltip layout.
+The `modern-tooltip-bag-and-hyperlink-data` suite in `.tools/test_identity_matching_lua.js` executes production tooltip hook registration, `OnTooltipSetItem` script dispatch on `GameTooltip` and `ItemRefTooltip`, and Baganator button item link extraction. It asserts dual registration of both `TooltipDataProcessor` and classic `SetBagItem`/`SetInventoryItem`/`SetHyperlink` hooks, `GameTooltip:Layout()` execution, and line deduplication.
+Live acceptance: on TBC Anniversary, Classic Era, and Retail clients with both `ShowTooltips` and `ShowSetInTooltip` toggled ON, hover items in native bags, Baganator, bank slots, the character sheet, and click item links in chat. Confirm that `ItemRack Set: <name>` appears exactly once on each tooltip for items belonging to saved sets, with no Lua errors, no duplicate lines, and no action bar taint.
+
+October 16 combat-breakout diagnostic follow-up: the original support dump had
+the correct slot but only `Menu={0}`, without evidence identifying which
+discovery check failed. The `breakout-diagnostics-*` cases in the existing
+`.tools/test_forever_combat_menu_lua.js` execute production discovery and the
+actual PlayerCanWear tooltip filter. They distinguish normal discovery,
+unresolved links on occupied slots versus empty bag space, nil equipment data,
+slot mismatches, red-tooltip rejection, hidden/soulbound policies, snapshot
+replacement/restoration, unit-combat/lockdown transition differences, provider
+exceptions and populated models interrupted during cooldown rendering.
+They also check bounded history, retained combat evidence after OOC activity,
+exact client and custom-icon fields, loaded addon names, and redaction without
+stringifying secret values. Substituting HEAD's pre-instrumentation discovery
+function fails `breakout-diagnostics-success`; current production passes.
+This verifies the new evidence, not the still-unidentified live failure.
+Acceptance: on a working and an affected Forever client, hover a configured
+breakout before combat, enter combat, hover the same button, then run
+`/itemrack dump` before reload/relog. Check the BREAKOUT DISCOVERY DIAGNOSTICS
+section contains both states, distinguishes real items from Empty Slot, and
+captures the rejection/unfinished stage. Repeat with debug OFF and after combat
+exit; confirm recording does not change menus, item selection, swaps or errors.
+`/itemrack debug clear` intentionally discards these records for a fresh capture.
+
 October 16 settings-clarity request: old Flyout Menu direction label did not
 identify the minimap source, and quick-access breakouts lacked a direction control.
 `settings-direction-and-clarity` in `.tools/test_button_scales_lua.js` fails with
@@ -63,6 +105,13 @@ and confirm minimap, broker, set-button and character-sheet menus stay independe
 Check scaled screen edges and entering combat with a picker already open.
 
 October 16, 2026 Forever build 1.60.1.70338 / ItemRack 4.54 report:
+Status correction after the owner retested 4.56/4.56.1: this report remains
+unresolved for some Forever clients. The regression below models empty bag
+enumeration; that cause was not measured on the original client. It stubs the
+wearability filter and renderer, and therefore does not verify the original
+failure. See the Retail ItemRack comparison and evidence requirements in
+`TECHNICAL_CHANGES.md` before claiming another fix.
+
 every quick-access equipment breakout lost its usable rows during combat. The
 supplied runtime dump captured slot 13 with the menu visible and correctly
 parented, but `ItemRack.Menu` contained only entry `0` (Empty Slot); debug logs
@@ -124,6 +173,20 @@ standard suite before its fix is considered complete:
    client behavior verified solely because the automated suite is green.
 
 ### Report coverage in the standard gate
+
+October 30, 2026 user reports (GitHub #33 follow-up by neferens; Retail comparison parity):
+1) Breakout tooltip comparisons on hover without Shift: Root cause: ShowBreakoutComparison unconditionally called GameTooltip_ShowCompareItem whenever AlwaysCompareBreakoutItems was "ON", which defaulted to "ON", cluttering the screen and causing dual-tooltip overlaps without holding Shift. Fixed by introducing ShouldCompareBreakoutItems, evaluating IsShiftKeyDown(), alwaysCompareItems CVar, and AlwaysCompareBreakoutItems, defaulting the option to "OFF", and hiding ShoppingTooltip1/2/3 when Shift is released or comparison is suppressed. Extended forever-breakout-comparison-default in .tools/test_identity_matching_lua.js. In-game acceptance: hover breakout rows with Shift held and released; verify comparisons appear and disappear cleanly; toggle /console alwaysCompareItems 1/0 and verify matching behavior.
+2) Trinket eviction on set switch: When swapping to a set with an AutoQueue slot, wearing an active trinket not in the queue (e.g. Ultrasafe Transporter: Gadgetzan) blocked the queue swap because canSwap saw isEquippedActive = true and ready = true. Fixed by gating active-item protection to items that are actually present in the queue (isEquippedInQueue), allowing unqueued active items to yield immediately to the set's queue candidate while keeping hold protection for queued active items. Extended .tools/test_queue_runtime_lua.js. In-game acceptance: equip Gadgetzan Transporter, switch to a set whose queue has Mark of the Champion; verify Gadgetzan is evicted and Mark of the Champion is equipped.
+
+October 26, 2026 user reports (GitHub #34 follow-up by Spiritshroud08 / Zackk, YouTube https://youtu.be/7praxNQzg8w; GitHub #33 follow-up by neferens):
+1) Tooltip disappearing, flickering, and third-party addon collisions (TipTac Reborn, Syndicator, RatingBuster Classic, TacoTip, TSM, Leatrix Plus): Root causes: a) ItemRack.ApplyTooltipAnchor set GameTooltip:SetAnchorType("ANCHOR_NONE"), which caused Blizzard's GameTooltip_ShowCompareItem screen-edge horizontal slide (self:SetAnchorType(self:GetAnchorType(), offsetX, 0)) to clear all SetPoint anchors and make GameTooltip + ShoppingTooltip1/2 vanish whenever comparison tooltips reached the screen edge (especially 3-wide Ring/Weapon comparisons or wider TipTac/RatingBuster tooltips); b) PaperDollItemSlotButton_OnEnter forced right-side character slots to ANCHOR_LEFT over the Character Panel, while RegisterCharacterSlotOnEnterHandlers updated OnEnter but left button.UpdateTooltip pointing to Blizzard's captured oldPaperDollItemSlotButton_OnEnter, causing a 0.2s GameTooltip_OnUpdate hop between left and right (or locking over the Character Panel when Syndicator invoked GameTooltip:Show()); c) ShowBreakoutComparison did not exclude Options menuInclude pickers, Set menus, empty slots, already-equipped items, or TinyTooltips. Fixed by removing ANCHOR_NONE, anchoring breakout buttons natively to ItemRackMenuFrame (ANCHOR_RIGHT / ANCHOR_LEFT), chaining right-side character slot tooltips to the right of ItemRackMenuFrame, updating button.UpdateTooltip in RegisterCharacterSlotOnEnterHandlers, and guarding ShowBreakoutComparison and ShrinkTooltip. Extended reported-character-tooltip-anchor-hop and forever-breakout-comparison-default in .tools/test_identity_matching_lua.js. In-game acceptance: test character sheet slots and multi-column breakout menus (gloves, legs, rings, weapons) with and without TipTac Reborn, RatingBuster Classic, Syndicator, TacoTip, TSM, and Leatrix Plus.
+2) Per-set queue order switching (neferens): Because ItemRackOpt.PopulateSortList adds all carried wearable items for a slot into every queue with priority = false, two sets with reversed passive trinket orders both have matchedCurrent = true (with the old set's trinket at index 2 of the new set's queue). Updated AutoQueueItemToEquip so passive equipped items (not isEquippedActive) yield to higher-ranked queue candidates (i < currentMatchIndex) even when matchedCurrent is true, while stopping at i == currentMatchIndex; updated EquipSet and EndSetSwap to clear queue state for set.Queues slots and run PeriodicQueueCheck() immediately. Extended .tools/test_queue_runtime_lua.js with the 2-entry reordered passive queue regression.
+
+October 23, 2026 user report (GitHub #34 follow-up): Breakout popout tooltips on the character sheet dropped immediately when pressing Shift or Ctrl while mousing over ItemRackMenu%d buttons. Root causes: popout buttons lacked .UpdateTooltip, GameTooltip:SetOwner assigned ItemRackMenuFrame instead of the hovered button, and TooltipUpdate wiped TooltipType to nil on zero-cooldown items. Named forever-breakout-comparison-default in .tools/test_identity_matching_lua.js verifies: 1) button.UpdateTooltip exists and runs ItemRack.MenuTooltip(button) synchronously; 2) MODIFIER_STATE_CHANGED invokes UpdateTooltip on the active hovered breakout button; 3) TooltipType remains active for zero-cooldown items; 4) DRESSUP modifier updates inspect cursor and ClearTooltip resets cursor; 5) comparison tooltips cascade away from the breakout menu without mouse capture. In-game acceptance: open character sheet, hover weapon and armor breakouts, press and release Shift and Ctrl; verify tooltips remain visible, comparison tooltips cascade without occluding buttons, and cursor updates on Ctrl.
+
+October 21, 2026 user report (GitHub #33): [BUG] Trinket Queue behavior for two passive trinkets seems to have changed. Root cause: In ItemRackQueue.lua, canSwap in AutoQueueItemToEquip was restricted to not ready or list[i].priority. Because passive trinkets have no cooldown, ShouldHoldEquippedItem returned ready = true (since remaining cooldown is 0 <= 30s). When switching between sets with blank trinket slots and distinct passive queues (e.g. Set 1 Hand of Justice vs Set 2 Mark of the Champion), an equipped passive trinket not in the active set's queue (not matchedCurrent) was permanently held against the queue's preferred passive trinket because ready was true and candidate lacked priority. Fixed by recognizing passive equipped items (not isEquippedActive) and permitting queue candidate swaps when the equipped item is unqueued (not matchedCurrent) and not a manual hold (not manualHold). Named regression in .tools/test_queue_runtime_lua.js verifies: 1) unqueued passive Hand of Justice yields to Set 2's top passive queue item Mark of the Champion; 2) unqueued active ready items (e.g. Earthstrike) continue to hold against non-priority queue items; 3) explicit priority = true on queue items can swap out active ready items. Acceptance: create two sets with blank trinket slots, configure distinct passive trinket queues on slot 14, switch between the sets and verify the passive trinkets swap immediately.
+
+October 21, 2026 user report (GitHub #32): [BUG] Error when Edit Mode is engaged (AuraUtil.lua:25: attempt to call a nil value from ItemRackQueue.lua:655 in ProcessAutoQueue). Root cause: on modern/Retail WoW clients, calling AuraUtil.FindAuraByName during Edit Mode transitions causes an unhandled nil call error inside Blizzard's UnpackAuraData. Because PeriodicQueueCheck runs on OnUpdate, the error was spammed 100x/sec. Fixed by adding ItemRack.FindPlayerAura(buff) with safe pcall guards over modern C_UnitAuras.GetPlayerAuraBySpellName, AuraUtil.FindAuraByName, and UnitBuff fallback across all client versions. Named regression in .tools/test_queue_runtime_lua.js verifies that ItemRack.FindPlayerAura safely traps AuraUtil.FindAuraByName errors, returns nil without raising unhandled Lua exceptions, and returns the expected buff when present. Acceptance: on a Retail client, engage Edit Mode and open/interact with ItemRack buttons; confirm no Lua errors are thrown.
 
 October 13, 2026 Forever report from Venruki: ItemRack breakout item tooltips required the
 client comparison modifier because Forever does not enable automatic item
@@ -357,6 +420,7 @@ Shared-provider taint and actual client rendering remain client acceptance check
 | Forever / Camelot 1.60 report: `ProcessBuffEvent` secret number comparison error on `GetUnitSpeed` | `.tools/test_batch_and_dualspec_lua.js` tests `ItemRack.IsPlayerMoving` with simulated secret number objects; `.tools/check_regressions.js` verifies `ItemRack.IsPlayerMoving` guards and absence of unguarded `GetUnitSpeed` comparisons. |
 | TBC Anniversary: equipped set items do not update minimap icon | `.tools/test_identity_matching_lua.js` verifies normalization of empty vs zero colon-delimited item fields; `.tools/test_batch_and_dualspec_lua.js` verifies `ItemRack.UpdateCurrentSet` auto-scans and matches saved sets when `CurrentSet` is unequipped or nil; `.tools/check_regressions.js` ensures `NormalizeItemFields`, set auto-scanning, and slot-specific queue readiness gating. |
 | TBC Anniversary: character sheet swap menus appear despite being disabled | `.tools/test_batch_and_dualspec_lua.js` verifies `PaperDollItemSlotButton_OnEnter` hides open menus and suppresses new ones when `CharacterSheetMenus == "OFF"`; `.tools/check_regressions.js` guards early return in `PaperDollItemSlotButton_OnEnter`, `PaperDollFrame` exclusion from `MenuMouseover` keep-alive, and immediate dismissal in `OptListCheckButtonOnClick`. |
+| TBC Anniversary / modern WoW report: TooltipDataProcessor fails to show set info when hovering bag items (e.g. Baganator / modern tooltips) | `.tools/test_identity_matching_lua.js` verifies `OnTooltipItemData` resolves bag and inventory items via `data.getterName`/`data.getterArgs`, resolves `TooltipUtil.GetDisplayedItem`, `data.guid`, `data.hyperlink`, and `data.id`, and `GetIRString` parses raw `item:...` strings without `|h`; duplicate tooltip lines are prevented. |
 
 
 
