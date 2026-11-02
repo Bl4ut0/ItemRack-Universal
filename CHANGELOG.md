@@ -3,6 +3,10 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+
+
+## [4.57] - 2026-11-01
+### Bug Fixes & Improvements
 - **Scrollable Dropdown Lists for Set Pickers**:
   - Made all set chooser dropdowns fully scrollable to seamlessly accommodate players with large numbers of sets:
     1. **Sets Tab Dropdown (`ItemRackOptSubFrame5`)**: Added mouse-wheel scrolling support across all list buttons (`ItemRackOptSetList1`..`10`) and the scroll frame (`ItemRackOptSetListScrollFrame`), anchored the scroll frame from row 1 down to row 10, and enabled mouse-wheel dispatch on the container frame.
@@ -18,10 +22,6 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
   - Added hooks on `ItemRefTooltip` (`OnTooltipSetItem` and `SetHyperlink`) and `ShoppingTooltip1` / `ShoppingTooltip2` so item comparison tooltips and chat item links display `ItemRack Set: <name>` consistently.
   - Updated `ItemRack.OnTooltipItemData` to directly query `TooltipUtil.GetDisplayedItem(tooltip)` and `tooltip:GetItem()` first before checking `getterArgs`, preventing premature return on unpopulated container data.
   - Added safe `tooltip:Layout()` refresh when dynamic lines are appended to already-sized tooltips without invoking protected `Show()` methods.
-
-
-
-## [4.57-beta7] - 2026-10-31
 - **Master / Mirrored Set Queues (GitHub #35 / kaidobit)**:
   - Added the ability to mirror/sync a slot's cooldown queue from any other equipment set (e.g. sharing a master Trinket queue across multiple specs, stances, or farming sets without re-creating queues manually).
   - In the Options Queue tab for any slot (`ItemRackOptSubFrame7`), added a "Sync with set" checkbox and set dropdown picker to mirror another set's queue configuration.
@@ -37,8 +37,6 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
   - Updated `ItemRack.GetIRString` to parse raw item strings (`item:itemID:...`), bare item IDs (`itemID`), and hyperlinks (`item:...|h`) without dropping items missing `|h` formatting.
   - Added duplicate line prevention in `ItemRack.ListSetsHavingItem` to guarantee clean single-line set displays across both modern `TooltipDataProcessor` post-calls and legacy `GameTooltip` hooks.
   - Extended regression suite with `modern-tooltip-bag-and-hyperlink-data` in `.tools/test_identity_matching_lua.js`.
-
-## [4.57-beta6] - 2026-10-30
 - **Breakout Tooltip Comparison Shift / CVar Control**:
   - `ItemRack.ShowBreakoutComparison` now mirrors Retail WoW comparison behavior: comparisons appear when pressing Shift (`IsShiftKeyDown()` / `IsModifiedClick("COMPAREITEMS")`), or when automatic comparison is enabled by the player via WoW's console variable (`GetCVarBool("alwaysCompareItems")` or `/console alwaysCompareItems 1`), or via ItemRack's option (`ItemRackSettings.AlwaysCompareBreakoutItems == "ON"`).
   - Releasing Shift immediately hides the comparison tooltips (`ShoppingTooltip1`, `ShoppingTooltip2`, `ShoppingTooltip3`).
@@ -49,8 +47,6 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
   - Foreign / unqueued active trinkets (`currentMatchIndex == nil`) now yield immediately to the target set's queue candidates (e.g. `Mark of the Champion`), while active trinkets that ARE present in the active set's queue (`currentMatchIndex ~= nil`) continue to be protected until activated.
   - `ItemRack.IsSetEquipped` now inspects slots governed by per-set queues (`set.Queues` / `set.QueuesEnabled`) even when the slot is unselected in `set.equip`, correctly recognizing when an unqueued item is equipped and needs to be replaced.
   - Extended `.tools/test_queue_runtime_lua.js` with unqueued active eviction and queued active hold regressions.
-
-## [4.57-beta5] - 2026-10-30
 - **Breakout & Character Sheet Tooltip Compatibility (GitHub #34 / Spiritshroud08)**:
   - **Eliminated `ANCHOR_NONE` comparison tooltip wipe**: Removed `GameTooltip:SetAnchorType("ANCHOR_NONE")` from `ItemRack.ApplyTooltipAnchor`. Previously, when `GameTooltip_ShowCompareItem` slid wide or dual-comparison tooltips (`ShoppingTooltip1` + `ShoppingTooltip2` on Rings/Weapons or with `TipTac Reborn` / `RatingBuster Classic`) at the screen edge via `self:SetAnchorType(self:GetAnchorType(), offsetX, 0)`, the `ANCHOR_NONE` state caused WoW's C++ engine to wipe all `SetPoint` anchors on `GameTooltip`, making tooltips vanish completely.
   - **Native multi-column breakout anchoring**: Flyout menu buttons (`ItemRackMenu1..N`) now anchor natively to `ItemRackMenuFrame` via `GameTooltip:SetOwner(ItemRackMenuFrame, "ANCHOR_RIGHT" / "ANCHOR_LEFT")` using scale-aware `UIParent` screen space. This keeps tooltips outside all columns of large breakout menus without overriding native anchor types.
@@ -61,24 +57,16 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
   - **Runtime queue order evaluation**: Fixed switching between sets with different per-set queue page orders failing to swap passive trinkets when both trinkets were present in both queue lists (which `ItemRackOpt.PopulateSortList` populates automatically with `priority = false`). `ItemRack.AutoQueueItemToEquip` now allows higher-ranked queue candidates (`i < currentMatchIndex`) to replace a passive equipped item (`not isEquippedActive`) even when `matchedCurrent` is true, while stopping at `i == currentMatchIndex`. `ItemRack.EquipSet` also clears manual/burnt state for `set.Queues` / `set.QueuesEnabled` slots, and `ItemRack.EndSetSwap` triggers `ItemRack.PeriodicQueueCheck()` immediately.
   - **Options Queue UI live set switching**: Fixed the Options Queue UI (`ItemRackOptSubFrame7` / `ItemRackOptSetsName`) staying stuck on the previously loaded set's queue contents when switching sets with the Options window open. `ItemRack.EndSetSwap` previously skipped `ItemRackOpt.ChangeEditingSet()` whenever `ItemRackOptSetsSaveButton:IsEnabled()` was true (which `ValidateSetButtons` enables unconditionally for any loaded set). `EndSetSwap` now checks `ItemRackOpt.HasUnsavedSetChanges()` and `ItemRackOpt.ChangeEditingSet()` refreshes `ItemRackOptSubFrame7` via `ItemRackOpt.SetupQueue(ItemRackOpt.SelectedSlot)` so the displayed queue list and set footer switch immediately to the newly active set.
   - **Shared-gear set toggling**: Updated `ItemRack.ToggleSet`, `ItemRack.BeginSetBinding`, and `/itemrack toggle set1, set2` so switching to a different set (`setname ~= ItemRackUser.CurrentSet`) that shares the same `equip` items and differs only in per-set queues equips the target set rather than treating it as an already-active unequip no-op.
-
-## [4.57-beta4] - 2026-10-24
 - **Set swap performance & UI hitch reduction**: Resolved performance impacts and frame stutter experienced during gear swaps (especially with AutoQueue enabled or the Character Frame open):
   - **AutoQueue passive item settling**: `ItemRack.RecordEquipTime` previously scheduled 12 asynchronous retry timers (600ms) for any equipped item with zero initial cooldown, causing passive armor slots (helm, neck, shoulders, chest, waist, legs, gloves, boots, back) to repeatedly query cooldowns and slot states. Passive items without on-use effects now settle immediately on attempt 0 (`hasPenalty = false, used = true`) with zero retry timers, while genuine on-use items cap retries at 4 attempts (200ms). Added 23 production-Lua assertions in `.tools/test_queue_runtime_lua.js`.
   - **Single transition dispatch**: Guarded against immediate duplicate `RecordEquipTime` dispatches on the same inventory transition event.
   - **PaperDoll slot update optimization**: Optimized `ItemRack.RefreshCustomItemIcons(targetButton)` hooked into Blizzard's `PaperDollItemSlotButton_Update`. Previously, every paperdoll button update triggered an unthrottled 20-slot iteration across all character buttons and toolbar icons (380 scans per character frame update). It now updates only the targeted button, exits immediately when custom character icons are disabled, and defers full refreshes to explicit user settings changes. Added targeted slot update regressions in `.tools/test_set_icon_picker_lua.js`.
   - **Transaction-aware inventory reconciliation**: Deferred equipped snapshot reconciliation during active multi-slot equipment transactions (`ItemRack.ActiveEquipmentTransaction`), executing snapshot reconciliation and combat queue verification cleanly once upon transaction finalization rather than on every intermediate `UNIT_INVENTORY_CHANGED` event. Added transaction finalization regressions in `.tools/test_inventory_refresh_lua.js`.
   - **Empty slot popout tooltip**: Hovering the "Empty Slot" row in breakout menus now displays localized Blizzard "Empty" text (`EMPTY`) rather than failing on `item:0` hyperlink lookups.
-
-## [4.57-beta3] - 2026-10-24
 - **Breakout comparison tooltip stacking**: Fixed comparison tooltips (`ShoppingTooltip1` and `ShoppingTooltip2`) stacking and overlapping directly on top of `GameTooltip` when hovering items in quick-access popout menus near the screen edge. Removed custom anchor coordinate overrides that forced comparison tooltips to `TOPRIGHT`, allowing Blizzard's native `GameTooltip_ShowCompareItem` engine to calculate screen boundaries and position tooltips cleanly, while preserving mouse capture suppression (`EnableMouse(false)`) to prevent hover flicker loops.
-
-## [4.57-beta2] - 2026-10-24
 - **Breakout tooltip modifier key retention (GitHub #34 follow-up)**: Fixed breakout popout item tooltips dropping when pressing Shift (item comparison) or Ctrl (dressup/inspect) while mousing over breakout rows on the character sheet. Popout buttons (ItemRackMenu%d) and ItemRackMenuFrame now define .UpdateTooltip callbacks, GameTooltip owner is set directly to the hovered popout button for engine focus matching, tooltip data updates synchronously, and zero-cooldown items preserve TooltipType context so modifier state changes (MODIFIER_STATE_CHANGED) refresh the tooltip and inspect cursor in-place without hiding. Comparison tooltips cascade cleanly away from the menu and stack vertically on screen edges without intercepting mouse events. Added production-Lua regressions in .tools/test_identity_matching_lua.js.
 - **AuraUtil Edit Mode Crash Protection (GitHub #32)**: Fixed a spamming Lua error (`AuraUtil.lua:25: attempt to call a nil value` from `ItemRackQueue.lua`) when Edit Mode is engaged on modern/Retail clients. Implemented `ItemRack.FindPlayerAura(buff)` with `pcall` protection over `C_UnitAuras.GetPlayerAuraBySpellName`, `AuraUtil.FindAuraByName`, and `UnitBuff` fallback across all client flavors. Added named regression in `.tools/test_queue_runtime_lua.js`.
 - **Passive Trinket Queue Set Swapping (GitHub #33)**: Fixed auto-queue failing to swap passive trinkets when switching to an equipment set with a blank trinket slot and a dedicated passive queue (e.g. Set 1 Hand of Justice vs Set 2 Mark of the Champion). Because passive trinkets have no cooldown, the queue engine previously evaluated `ready = true` and blocked swaps to non-priority queue items. `AutoQueueItemToEquip` now distinguishes passive items from active on-use items waiting to be used, allowing unqueued passive items to cleanly yield to the active set's top queue item while continuing to protect ready on-use trinkets. Added named regression in `.tools/test_queue_runtime_lua.js`.
-
-## [4.57-beta1] - 2026-10-16
 - **Combat breakout diagnostics**: `/itemrack dump` now includes an always-on, bounded breakout recorder with per-slot out-of-combat, combat-entry and combat results. Reports distinguish empty bags, unresolved item links/metadata, equipment-type mismatches, tooltip wearability rejection (including sampled public text), hidden/soulbound filtering, snapshot replacement/restoration and incomplete rendering stages. Exact client build, API-provider selection, custom-icon switches and loaded addon names support comparisons between working and failing Forever clients. Secret/inaccessible values are redacted, sampled item IDs omit player GUIDs, and diagnostic collection failures do not abort the support dump. This adds evidence for the still-unresolved blank-combat-breakout report; it does not claim a new fix.
 
 ## [4.56.1] - 2026-10-16
