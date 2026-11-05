@@ -1108,15 +1108,15 @@ end
 
 function ItemRack.GetSwapOrder()
 	local order = {}
+	table.insert(order, 0)
 	for i = 1, 19 do
 		table.insert(order, i)
 	end
-	table.insert(order, 0)
 	local offset = ItemRack.eqBackOfTheBusOffset or 100
+	table.insert(order, 0 + offset)
 	for i = 1, 19 do
 		table.insert(order, i + offset)
 	end
-	table.insert(order, 0 + offset)
 	return order
 end
 
@@ -1150,8 +1150,8 @@ function ItemRack.IterateSwapList(setname, disableSound)
 		end
 	end
 	local swapOrder = (ItemRack.GetSwapOrder and ItemRack.GetSwapOrder()) or {
-		1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,0,
-		101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,100
+		0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,
+		100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119
 	}
 	local exactSources = {}
 	for _, k in ipairs(swapOrder) do

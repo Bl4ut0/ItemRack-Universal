@@ -1,4 +1,10 @@
 __ Development __
+- Ranged Weapon & Ammo Co-Dependency Transaction Ordering (GitHub Issue #37):
+  * Fixed "Set swap failed ... (destination_rejected)" when switching between sets with different ranged weapon and ammo families (e.g. Crossbow with Arrows vs Gun with Bullets) requiring a second click to complete.
+  * In WoW Classic, slot 18 (Ranged Weapon) and slot 0 (Ammo) are co-dependent equipment endpoints. While slot 0 accepts valid projectiles regardless of equipped weapon, slot 18 rejects equipping a weapon if equipped ammo is incompatible.
+  * Submitting both slot 18 and slot 0 in the same synchronous frame causes the engine to evaluate weapon compatibility against the in-flight unsettled state of slot 0, rejecting the weapon and causing transaction rollback.
+  * Removed an erroneous legacy rewrite in ItemRackTransaction.lua (NormalizeLocation) that redirected ammo moves (INVSLOT_AMMO = 0) to INVSLOT_RANGED (18).
+  * Ordered slot 0 (Ammo) before slot 18 (Ranged) in ItemRack.GetSwapOrder() and IterateSwapList, and added a co-dependency guard in ItemRackTransaction.lua (SubmitCurrentStep) ensuring moves touching slot 18 and slot 0 are never submitted synchronously within the same execution frame when either is in-flight; the dependent weapon move remains planned and automatically submits and settles cleanly in the subsequent transaction frame once slot 0 has confirmed.
 
 __ New in 4.59-beta1 - By Bl4ut0 __
 - Manual Toggle Handler & Queue Coordination:

@@ -325,4 +325,61 @@ assert(pickups==0 and cursor==nil,"invalid dependent plans must perform no picku
 assert(request.finished and failures==1 and ItemRack.ActiveEquipmentTransaction==nil,"preflight rejection must terminate once without transaction residue")
 `);
 
-console.log('[TRANSACTION ENGINE LUA] 33 production-Lua assertions passed.');
+runCase(
+  'ranged weapon and ammo engine co-dependency prevents destination_rejected across transaction frames (Issue 37 regression)',
+  `${common}
+local bags = { [0] = { [1] = 18042, [2] = 21459 } } -- bag 0 slot 1: Arrows (18042), slot 2: Crossbow (21459)
+local inventory = { [0] = 15997, [18] = 23557 } -- slot 0: Bullets (15997), slot 18: Gun (23557)
+cursor = nil
+local pickupCalls = {}
+
+function ItemRack.GetID(bag, slot)
+  if slot then return bags[bag] and bags[bag][slot] or 0 end
+  return inventory[bag] or 0
+end
+function CursorHasItem() return cursor ~= nil end
+function PickupContainerItem(bag, slot)
+  table.insert(pickupCalls, { kind = "bag", bag = bag, slot = slot, held = cursor })
+  local held = cursor
+  cursor = bags[bag][slot]
+  bags[bag][slot] = held
+end
+function PickupInventoryItem(slot)
+  table.insert(pickupCalls, { kind = "inv", slot = slot, held = cursor })
+  -- WoW engine rule: equipping Crossbow (21459) into slot 18 while Bullets (15997) are in slot 0 REJECTS!
+  if slot == 18 and cursor == 21459 and inventory[0] == 15997 then
+    return -- engine destination_rejected! Cursor retains Crossbow!
+  end
+  local held = cursor
+  cursor = inventory[slot]
+  inventory[slot] = held
+end
+`,
+  String.raw`
+local stepAmmo = ItemRack.NewEquipmentMove(0, 1, 0, nil)
+local stepRanged = ItemRack.NewEquipmentMove(0, 2, 18, nil)
+local completed, failed = 0, 0
+
+local status, request = ItemRack.StartEquipmentTransaction({
+  steps = { stepAmmo, stepRanged },
+  onComplete = function() completed = completed + 1 end,
+  onFailure = function() failed = failed + 1 end,
+})
+
+assert(status == "submitted", "transaction must be submitted")
+assert(request.steps[1].status == "submitted", "step 1 (Ammo) must be submitted in Frame 1")
+assert(request.steps[2].status == "planned", "step 2 (Ranged) MUST remain planned and not submitted in Frame 1 due to engine co-dependency")
+
+RunTimers()
+
+assert(request.status == "complete", "transaction must complete successfully across frames")
+assert(completed == 1 and failed == 0, "transaction must report completion exactly once without failure")
+assert(inventory[0] == 18042, "slot 0 (Ammo) must be equipped with Arrows")
+assert(inventory[18] == 21459, "slot 18 (Ranged) must be equipped with Crossbow")
+assert(bags[0][1] == 15997, "displaced Bullets must be returned to bag 0 slot 1")
+assert(bags[0][2] == 23557, "displaced Gun must be returned to bag 0 slot 2")
+assert(cursor == nil, "cursor must remain clear")
+`
+);
+
+console.log('[TRANSACTION ENGINE LUA] 34 production-Lua assertions passed.');

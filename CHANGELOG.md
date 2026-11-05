@@ -3,6 +3,13 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+### Bug Fixes & Improvements
+- **Ranged Weapon & Ammo Co-Dependency Transaction Ordering (GitHub Issue #37)**:
+  - Fixed `Set swap failed ... (destination_rejected)` when switching between sets with different ranged weapon and ammo families (e.g. Crossbow with Arrows vs Gun with Bullets) requiring a second click to complete.
+  - In WoW Classic, slot 18 (Ranged Weapon) and slot 0 (Ammo) are co-dependent equipment endpoints. While slot 0 (Ammo) accepts valid projectiles (arrows or bullets) regardless of the currently equipped weapon, slot 18 (Ranged Weapon) rejects equipping a weapon if the currently equipped ammo is incompatible (e.g. Crossbow with Bullets in slot 0, or Gun with Arrows in slot 0).
+  - Submitting both slot 18 and slot 0 in the same synchronous frame causes the engine to evaluate weapon compatibility against the in-flight unsettled state of slot 0, rejecting the weapon and causing transaction rollback.
+  - In addition, removed an erroneous legacy rewrite in `ItemRackTransaction.lua` (`NormalizeLocation`) that redirected ammo moves (`INVSLOT_AMMO` = 0) to `INVSLOT_RANGED` (18).
+  - Resolved by ordering slot 0 (Ammo) before slot 18 (Ranged) in `ItemRack.GetSwapOrder()` and `IterateSwapList`, and adding a co-dependency guard in `ItemRackTransaction.lua` (`SubmitCurrentStep`) ensuring moves touching slot 18 (Ranged) and slot 0 (Ammo) are never submitted synchronously within the same execution frame when either is in-flight; the dependent weapon move remains planned and automatically submits and settles cleanly in the subsequent transaction frame once slot 0 has confirmed.
 
 
 ## [4.59-beta1] - 2026-11-05

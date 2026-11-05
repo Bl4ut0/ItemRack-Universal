@@ -26,11 +26,6 @@ ItemRack.TransactionSettleDelay = 0.05
 ItemRack.TransactionTimeout = 5
 
 local function NormalizeLocation(bag, slot)
-	-- Classic reports the ammo equipment destination inconsistently.  ItemRack
-	-- has historically routed it through the ranged slot for pickup operations.
-	if not slot and bag == INVSLOT_AMMO then
-		bag = INVSLOT_RANGED
-	end
 	return { bag = bag, slot = slot }
 end
 
@@ -57,6 +52,10 @@ local function LocationLocked(location)
 		return select(3, GetContainerItemInfo(location.bag, location.slot)) and true or false
 	end
 	return IsInventoryItemLocked(location.bag) and true or false
+end
+
+local function LocationIsEquipmentSlot(location, slotId)
+	return location and location.bag == slotId and location.slot == nil
 end
 
 local function PickupLocation(location)
@@ -224,6 +223,9 @@ local function SubmitCurrentStep(request)
 		return
 	end
 
+	local touchedAmmo = LocationIsEquipmentSlot(step.from, 0) or LocationIsEquipmentSlot(step.to, 0)
+	local touchedRanged = LocationIsEquipmentSlot(step.from, 18) or LocationIsEquipmentSlot(step.to, 18)
+
 	request.status = "submitting"
 	local usedLocations = {}
 	SubmitStep(step)
@@ -245,6 +247,11 @@ local function SubmitCurrentStep(request)
 		if usedLocations[fromKey] or usedLocations[toKey] then
 			break -- dependency on an inflight unconfirmed step
 		end
+		local nextTouchesAmmo = LocationIsEquipmentSlot(nextStep.from, 0) or LocationIsEquipmentSlot(nextStep.to, 0)
+		local nextTouchesRanged = LocationIsEquipmentSlot(nextStep.from, 18) or LocationIsEquipmentSlot(nextStep.to, 18)
+		if (touchedAmmo and nextTouchesRanged) or (touchedRanged and nextTouchesAmmo) then
+			break -- slot 18 (Ranged) and slot 0 (Ammo) are co-dependent and must not be submitted in the same frame
+		end
 		if LocationLocked(nextStep.from) or LocationLocked(nextStep.to) then
 			break -- endpoint locked
 		end
@@ -258,6 +265,8 @@ local function SubmitCurrentStep(request)
 		SubmitStep(nextStep)
 		usedLocations[fromKey] = true
 		usedLocations[toKey] = true
+		if nextTouchesAmmo then touchedAmmo = true end
+		if nextTouchesRanged then touchedRanged = true end
 		idx = idx + 1
 	end
 
