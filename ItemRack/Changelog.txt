@@ -1,5 +1,24 @@
 __ Development __
 
+__ New in 4.58-beta2 - By Bl4ut0 __
+- Modern Tooltip Script Compatibility:
+  * Fixed bad argument #2 to '?' (Usage: local success = self:HookScript(scriptTypeName, script [, bindingType])) in HookTooltipSetItem during RegisterSetTooltipHooks.
+  * Added tip:HasScript("OnTooltipSetItem") verification and safe pcall guards so modern tooltip frames (SharedTooltipTemplates) rely seamlessly on TooltipDataProcessor while legacy clients retain native OnTooltipSetItem hooks.
+
+__ New in 4.58-beta1 - By Bl4ut0 __
+- Ammo Swap Order & Destination Rejection Prevention (Rummelboxer99 CurseForge Report):
+  * Fixed "Set swap failed ... (destination_rejected). Previous gear was restored when possible" when switching between sets with different ranged weapon families (Crossbow with Arrows vs Gun with Bullets).
+  * Implemented ItemRack.GetSwapOrder() to ensure slot 18 (Ranged) is processed before slot 0 (Ammo), equipping the compatible weapon before placing ammo into the ammo slot.
+- Set Toggle Restoration with Active AutoQueues (user_dhivdljvzbi65oe8 CurseForge Report):
+  * Fixed /itemrack toggle SetName failing to unequip and restore previous gear on second click when using sets with explicit items (such as Diamond Flask in slot 13) while a background AutoQueue is active on the slot.
+  * Corrected ItemRack.IsSetEquipped so explicit set items worn by the player remain matched rather than being invalidated by unequipped queue candidates.
+  * Added safety in ItemRack.ToggleSet to ensure sets with saved old gear restore previous equipment when toggled.
+- Options Initialization & SlotMarquee Timer Safety:
+  * Fixed Lua error ItemRackOptions.lua:3527: bad argument #1 to 'pairs' (table expected, got nil) in PopulateEventList when opening Options on fresh profiles or before SavedVariables initialized.
+  * Fixed cascading error ItemRack.lua:3822: attempt to index a nil value in StartTimer("SlotMarquee") when switching to the Queues tab.
+  * Audited SavedVariables startup order in ItemRack.OnPlayerLogin so core tables and sets are verified before subsystems initialize.
+  * Added nil guards and auto-registration in StartMarquee, StartTimer, StopTimer, and EventListScrollFrameUpdate.
+
 __ New in 4.57 - By Bl4ut0 __
 - Scrollable Dropdown Lists for Set Pickers:
   * Made all set chooser dropdowns fully scrollable to seamlessly accommodate players with large numbers of sets:

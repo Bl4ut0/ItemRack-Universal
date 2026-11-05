@@ -1013,6 +1013,9 @@ function ItemRack.OnPlayerLogin()
 	ItemRack.EquipTimers = ItemRackUser.EquipTimers
 	ItemRack.BurntQueueItems = ItemRackUser.BurntQueueItems
 
+	-- Audit SavedVariables on startup before subsystems initialize
+	ItemRack.AuditSavedVariables(false)
+
 	-- Normally some of these methods cannot be called in combat without causing errors, but since we run these IMMEDIATELY
 	-- on PLAYER_LOGIN event we get a grace period where it allows us to run secure code in combat.
 	ItemRack.InitBroker()
@@ -1021,9 +1024,6 @@ function ItemRack.OnPlayerLogin()
 	ItemRack.InitCore()
 	ItemRack.InitButtons()
 	ItemRack.InitEvents()
-	
-	-- Audit SavedVariables on startup
-	ItemRack.AuditSavedVariables(false)
 	
 	-- Check LibSoundIndex presence
 	C_Timer.After(3, function()
@@ -2577,7 +2577,8 @@ function ItemRack.RegisterSetTooltipHooks()
 	-- Runs before tooltip sizing/display so lines are seamlessly formatted without taint.
 	local function HookTooltipSetItem(tip)
 		if not tip or not tip.HookScript then return end
-		tip:HookScript("OnTooltipSetItem", function(self)
+		if tip.HasScript and not tip:HasScript("OnTooltipSetItem") then return end
+		pcall(tip.HookScript, tip, "OnTooltipSetItem", function(self)
 			if not self or (self.IsForbidden and self:IsForbidden()) then return end
 			if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then return end
 			if type(self.GetItem) == "function" then
@@ -2653,6 +2654,8 @@ do
 end
 
 function ItemRack.InitCore()
+	ItemRackUser = ItemRackUser or {}
+	ItemRackUser.Sets = ItemRackUser.Sets or {}
 	ItemRackUser.Sets["~Unequip"] = { equip={} }
 	ItemRackUser.Sets["~CombatQueue"] = { equip={} }
 
@@ -3819,6 +3822,9 @@ function ItemRack.IsTimerActive(name)
 end
 
 function ItemRack.StartTimer(name,delay)
+	if not name or not ItemRack.TimerPool or not ItemRack.TimerPool[name] then
+		return
+	end
 	ItemRack.TimerPool[name].elapsed = delay or ItemRack.TimerPool[name].delay
 	if not ItemRack.IsTimerActive(name) then
 		table.insert(ItemRack.Timers,name)
@@ -3827,6 +3833,9 @@ function ItemRack.StartTimer(name,delay)
 end
 
 function ItemRack.StopTimer(name)
+	if not name or not ItemRack.Timers then
+		return
+	end
 	local idx = ItemRack.IsTimerActive(name)
 	if idx then
 		table.remove(ItemRack.Timers,idx)

@@ -1089,3 +1089,119 @@ check(not syncPick:IsVisible(), "queue-sync-dropdown: toggling again must close 
 ItemRackOptSubFrame7:Hide()
 print(string.format("[QUEUE ITEM ICON LUA] %d scope, picker, persistence and presentation checks passed.",checks))
 `, 'queue-item-icons');
+
+// --- 3. Options initialization, Event List, and Timer safety regressions ---
+const coreFile = 'ItemRack/ItemRack.lua';
+const popEventList = extractFunction(options, 'ItemRackOpt.PopulateEventList');
+const startMarquee = extractFunction(options, 'ItemRackOpt.StartMarquee');
+const stopMarquee = extractFunction(options, 'ItemRackOpt.StopMarquee');
+const eventListScrollUpdate = extractFunction(options, 'ItemRackOpt.EventListScrollFrameUpdate');
+const startTimer = extractFunction(coreFile, 'ItemRack.StartTimer');
+const stopTimer = extractFunction(coreFile, 'ItemRack.StopTimer');
+const createTimer = extractFunction(coreFile, 'ItemRack.CreateTimer');
+const isTimerActive = extractFunction(coreFile, 'ItemRack.IsTimerActive');
+
+runLua(String.raw`
+local checks = 0
+local function check(value, message) assert(value, message); checks = checks + 1 end
+
+ItemRack = {
+  TimerPool = {},
+  Timers = {},
+}
+ItemRackFrame = { Show = function() end, Hide = function() end }
+
+${isTimerActive}
+${createTimer}
+${startTimer}
+${stopTimer}
+
+-- 1. StartTimer / StopTimer nil safety (Error 1 regression)
+ItemRack.StartTimer("SlotMarquee")
+check(true, "StartTimer on uninitialized TimerPool[name] must not crash")
+ItemRack.StopTimer("SlotMarquee")
+check(true, "StopTimer on unregistered timer must not crash")
+
+-- 2. StartMarquee auto-creation safety
+ItemRackOpt = {
+  Inv = {},
+  SaveInv = function() end,
+  UpdateInv = function() end,
+  SlotMarquee = function() end,
+  RestoreInv = function() end,
+  UnlockHighlight = function() end,
+  LockHighlight = function() end,
+  currentMarquee = 0,
+  slotOrder = { 0, 1, 2, 3, 4 },
+}
+for i=0,19 do
+  ItemRackOpt.Inv[i] = {}
+  _G["ItemRackOptInv"..i] = { UnlockHighlight = function() end, LockHighlight = function() end }
+end
+ItemRackOptToggleInvAll = { Hide = function() end, Show = function() end }
+ItemRackOptSubFrame7 = { IsVisible = function() return true end }
+
+${startMarquee}
+${stopMarquee}
+
+ItemRackOpt.StartMarquee()
+check(ItemRack.TimerPool["SlotMarquee"] ~= nil, "StartMarquee must auto-register SlotMarquee timer in TimerPool")
+check(ItemRack.IsTimerActive("SlotMarquee") ~= nil, "SlotMarquee timer must be active")
+
+ItemRackOpt.StopMarquee()
+check(ItemRack.IsTimerActive("SlotMarquee") == nil, "StopMarquee must stop SlotMarquee timer")
+
+-- 3. PopulateEventList with uninitialized SavedVariables (Error 2 regression)
+ItemRackEvents = nil
+ItemRackUser = {}
+ItemRackOpt.EventList = {}
+ItemRackOpt.EventListScrollFrameUpdate = function() end
+ItemRackOpt.ValidateEventListButtons = function() end
+ItemRack.RegisterEvents = function() end
+
+${popEventList}
+
+ItemRackOpt.PopulateEventList()
+check(type(ItemRackOpt.EventList) == "table", "PopulateEventList with nil ItemRackEvents must initialize safely without throwing pairs(nil)")
+
+-- 4. EventListScrollFrameUpdate safety with deleted/missing set
+local offset = 0
+function FauxScrollFrame_GetOffset() return offset end
+function FauxScrollFrame_Update() end
+
+local iconTextures = {}
+local checkedStates = {}
+for i=1,9 do
+  _G["ItemRackOptEventList"..i] = { Show = function() end, Hide = function() end }
+  _G["ItemRackOptEventList"..i.."Name"] = { SetText = function() end }
+  _G["ItemRackOptEventList"..i.."Icon"] = {
+    SetNormalTexture = function(_, tex) iconTextures[i] = tex end,
+    SetPushedTexture = function() end,
+  }
+  _G["ItemRackOptEventList"..i.."Enabled"] = {
+    SetChecked = function(_, state) checkedStates[i] = state end,
+  }
+end
+ItemRackOptEventListScrollFrame = {}
+
+ItemRackOpt.EventList = {
+  { "Mount", "Buff", true, "DeletedSet" },
+}
+ItemRackUser = {
+  Events = {
+    Set = { Mount = "DeletedSet" },
+    Enabled = { Mount = true },
+  },
+  Sets = {},
+}
+
+${eventListScrollUpdate}
+
+ItemRackOpt.EventListScrollFrameUpdate()
+check(iconTextures[1] == "Interface\\Icons\\INV_Misc_QuestionMark",
+  "EventListScrollFrameUpdate must use question mark fallback when assigned set was deleted")
+check(checkedStates[1] == true,
+  "EventListScrollFrameUpdate must preserve checked state")
+
+print(string.format("[OPTIONS INIT LUA] %d options initialization and timer safety checks passed.", checks))
+`, 'options-init');

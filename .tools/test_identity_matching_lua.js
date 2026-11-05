@@ -133,7 +133,13 @@ ${extractFunction(core,'ItemRack.RegisterSetTooltipHooks')}
 local callback
 Enum={TooltipDataType={Item=0}}
 TooltipDataProcessor={AddTooltipPostCall=function(_,fn) registrations=registrations+1; callback=fn end}
-GameTooltip={SetBagItem=function() end,SetInventoryItem=function() end,SetHyperlink=function() end}
+GameTooltip={SetBagItem=function() end,SetInventoryItem=function() end,SetHyperlink=function() end,
+  HasScript=function(self,name) return name ~= "OnTooltipSetItem" end,
+  HookScript=function(self,name,fn)
+    if not self:HasScript(name) then
+      error("bad argument #2 to '?' (Usage: local success = self:HookScript(scriptTypeName, script [, bindingType]))")
+    end
+  end}
 function hooksecurefunc() hooks=hooks+1 end
 ItemRack.RegisterSetTooltipHooks(); ItemRack.RegisterSetTooltipHooks()
 assert(registrations==1 and hooks==3,"modern and classic hooks must register together idempotently")
