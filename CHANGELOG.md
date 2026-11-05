@@ -5,14 +5,11 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 ## [Development]
 
 
-## [4.58-beta2] - 2026-11-04
+## [4.58] - 2026-11-04
 ### Bug Fixes & Improvements
 - **Modern Tooltip Script Compatibility**:
   - Fixed `bad argument #2 to '?' (Usage: local success = self:HookScript(scriptTypeName, script [, bindingType]))` in `HookTooltipSetItem` during `RegisterSetTooltipHooks`.
   - Modern tooltip templates (e.g. on client versions with `SharedTooltipTemplates`) do not support legacy `OnTooltipSetItem` scripts; added `tip:HasScript("OnTooltipSetItem")` checks and safe `pcall` guards so modern tooltips rely seamlessly on `TooltipDataProcessor` while legacy clients retain native script hooks.
-
-## [4.58-beta1] - 2026-11-04
-### Bug Fixes & Improvements
 - **Ammo Swap Order & Destination Rejection Prevention (Rummelboxer99 CurseForge Report)**:
   - Fixed `"Set swap failed ... (destination_rejected). Previous gear was restored when possible"` when switching between sets with different ranged weapon families (e.g. Crossbow with Arrows vs Gun with Bullets).
   - Swapping transactions previously processed slot 0 (Ammo) before slot 18 (Ranged), causing the game engine to reject bullets while the crossbow was still equipped.
