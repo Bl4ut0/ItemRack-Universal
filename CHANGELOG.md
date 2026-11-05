@@ -3,6 +3,9 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+
+
+## [4.59-beta1] - 2026-11-05
 ### Bug Fixes & Improvements
 - **Manual Toggle Handler & Queue Coordination**:
   - Replicated legacy ItemRack toggle priority alongside the modernized Universal swap and queue engine.
@@ -10,7 +13,6 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
   - **AutoQueue Eviction Protection**: Added `ItemRack.ManualToggledSet` and `ItemRack.IsSlotProtectedByManualToggle`. When a set is manually toggled on, explicitly configured set items (e.g. Diamond Flask, Rocket Boots, utility trinkets) are protected from AutoQueue eviction until the player toggles the set off or manually changes sets.
   - **Script Event Toggle Support**: Added `ItemRack.ScriptEventToggle` and provided `ToggleEventSet` and `ToggleSet` in `scriptEventPrelude`, allowing custom user event scripts to participate in the versioned `EventStack` without orphaning event frames or causing stack desyncs.
   - **Automatic Queue Purging**: Added `ItemRack.PurgeAutomaticSetsWaiting` and canceled automatic pending intent when a manual toggle occurs, ensuring manual user toggles execute with immediate priority over background automatic swaps.
-
 
 ## [4.58] - 2026-11-04
 ### Bug Fixes & Improvements

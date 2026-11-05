@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.59-beta1 - By Bl4ut0 __
 - Manual Toggle Handler & Queue Coordination:
   * Replicated legacy ItemRack toggle priority alongside the modernized Universal swap and queue engine.
   * In-Combat Set Toggling / Canceling: Re-implemented classic second-click combat cancel via ItemRack.IsSetPendingInCombatQueue and ItemRack.CancelCombatQueueSet. Toggling a set in combat queues it for combat exit; toggling the same set again cleanly removes it from CombatQueue and clears pending slot overlays. Toggling a different set cleanly replaces the previously queued set.
