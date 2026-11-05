@@ -3,6 +3,10 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+### Bug Fixes & Improvements
+- **Modern Tooltip Script Compatibility**:
+  - Fixed `bad argument #2 to '?' (Usage: local success = self:HookScript(scriptTypeName, script [, bindingType]))` in `HookTooltipSetItem` during `RegisterSetTooltipHooks`.
+  - Modern tooltip templates (e.g. on client versions with `SharedTooltipTemplates`) do not support legacy `OnTooltipSetItem` scripts; added `tip:HasScript("OnTooltipSetItem")` checks and safe `pcall` guards so modern tooltips rely seamlessly on `TooltipDataProcessor` while legacy clients retain native script hooks.
 
 
 ## [4.58-beta1] - 2026-11-04

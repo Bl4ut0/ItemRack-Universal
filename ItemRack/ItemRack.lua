@@ -2577,7 +2577,8 @@ function ItemRack.RegisterSetTooltipHooks()
 	-- Runs before tooltip sizing/display so lines are seamlessly formatted without taint.
 	local function HookTooltipSetItem(tip)
 		if not tip or not tip.HookScript then return end
-		tip:HookScript("OnTooltipSetItem", function(self)
+		if tip.HasScript and not tip:HasScript("OnTooltipSetItem") then return end
+		pcall(tip.HookScript, tip, "OnTooltipSetItem", function(self)
 			if not self or (self.IsForbidden and self:IsForbidden()) then return end
 			if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then return end
 			if type(self.GetItem) == "function" then
