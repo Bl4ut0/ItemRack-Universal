@@ -3,6 +3,9 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+
+
+## [4.58-beta1] - 2026-11-04
 ### Bug Fixes & Improvements
 - **Ammo Swap Order & Destination Rejection Prevention (Rummelboxer99 CurseForge Report)**:
   - Fixed `"Set swap failed ... (destination_rejected). Previous gear was restored when possible"` when switching between sets with different ranged weapon families (e.g. Crossbow with Arrows vs Gun with Bullets).
@@ -17,7 +20,6 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
   - Fixed cascading error `ItemRack.lua:3822: attempt to index a nil value` in `StartTimer("SlotMarquee")` when switching to the Queues tab.
   - Audited SavedVariables startup order in `ItemRack.OnPlayerLogin` so core tables and sets are verified before subsystems initialize.
   - Added nil guards and auto-registration in `StartMarquee`, `StartTimer`, `StopTimer`, and `EventListScrollFrameUpdate`.
-
 
 ## [4.57] - 2026-11-01
 ### Bug Fixes & Improvements

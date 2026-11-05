@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.58-beta1 - By Bl4ut0 __
 - Ammo Swap Order & Destination Rejection Prevention (Rummelboxer99 CurseForge Report):
   * Fixed "Set swap failed ... (destination_rejected). Previous gear was restored when possible" when switching between sets with different ranged weapon families (Crossbow with Arrows vs Gun with Bullets).
   * Implemented ItemRack.GetSwapOrder() to ensure slot 18 (Ranged) is processed before slot 0 (Ammo), equipping the compatible weapon before placing ammo into the ammo slot.
