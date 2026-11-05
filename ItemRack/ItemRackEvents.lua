@@ -388,6 +388,8 @@ end
 
 -- resetDefault to reload/update default events, resetAll to wipe all events and recreate them
 function ItemRack.LoadEvents(resetDefault,resetAll)
+	ItemRackSettings = ItemRackSettings or {}
+	ItemRackUser = ItemRackUser or {}
 
 	local _, playerClass = UnitClass("player")
 	local version = tonumber(ItemRackSettings.EventsVersion) or 0

@@ -447,5 +447,53 @@ check(ItemRackUser.EquipTimers[13].pending == nil, "attempt 4 must settle pendin
 check(ItemRackUser.EquipTimers[13].hasPenalty == false, "attempt 4 without cooldown must have hasPenalty = false")
 check(ItemRackUser.EquipTimers[13].used == true, "attempt 4 without cooldown must have used = true")
 
+-- D. User-reported regression (user_dhivdljvzbi65oe8 CurseForge):
+-- ToggleSet with explicit unqueued item (e.g. Diamond Flask 19993 in slot 13) must remain matched
+-- and unequip on second click even when an auto-queue on slot 13 has a ready candidate!
+${isSetEquipped}
+${toggleSet}
+
+ItemRackUser.CurrentSet = "Flask"
+ItemRackUser.EnableQueues = "ON"
+ItemRackUser.EnablePerSetQueues = "OFF"
+ItemRackUser.Sets.Flask = {
+  equip = { [13] = "19993" },
+  old = { [13] = "11815" },
+}
+ItemRack.QueueStateReady = true
+ItemRack.IsEquippedSlotStateReady = function() return true end
+ItemRack.MatchesStoredItemID = function(a, b) return tostring(a) == tostring(b) end
+ItemRack.GetQueueContext = function(slot, setname)
+  return { list = { { id = "23206" } }, enabled = true }
+end
+ItemRack.GetID = function(slot)
+  if slot == 13 then return "19993" end
+  return 0
+end
+ItemRack.GetIRString = function(id, bare) return tostring(id) end
+ItemRack.FindQueueEntryIndex = function(list, id)
+  for idx, entry in ipairs(list) do
+    if tostring(entry.id) == tostring(id) then return idx end
+  end
+  return nil
+end
+ItemRack.AutoQueueItemToEquip = function(slot, baseID, enable, ready, setname, queueContext)
+  return 23206, "23206"
+end
+ItemRack.ShouldHoldEquippedItem = function() return false end
+ItemRack.ItemNearReady = function() return false end
+
+local flaskMatched = ItemRack.IsSetEquipped("Flask")
+check(flaskMatched == true,
+  "IsSetEquipped must remain true for explicit set item (Diamond Flask) even if queue has candidates ready")
+
+local toggledUnequipTarget = nil
+ItemRack.UnequipSet = function(name) toggledUnequipTarget = name end
+ItemRack.EquipSet = function(name) error("ToggleSet must not re-equip already equipped set") end
+
+ItemRack.ToggleSet("Flask")
+check(toggledUnequipTarget == "Flask",
+  "ToggleSet must call UnequipSet on second click when Flask set is equipped and old gear exists")
+
 print(string.format("[QUEUE RUNTIME LUA] %d purity and provenance checks passed.",checks))
 `, 'queue-runtime');

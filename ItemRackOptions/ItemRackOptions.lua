@@ -1886,6 +1886,9 @@ function ItemRackOpt.StartMarquee()
 	end
 	ItemRackOptToggleInvAll:Hide()
 	ItemRackOpt.UpdateInv()
+	if not ItemRack.TimerPool or not ItemRack.TimerPool["SlotMarquee"] then
+		ItemRack.CreateTimer("SlotMarquee",ItemRackOpt.SlotMarquee,.1,1)
+	end
 	ItemRack.StartTimer("SlotMarquee")
 end
 
@@ -3513,11 +3516,18 @@ ItemRackOpt.EventList = {}
 
 function ItemRackOpt.PopulateEventList()
 	local list = ItemRackOpt.EventList
-	local events = ItemRackEvents
-	local user = ItemRackUser.Events
+	if not ItemRackEvents or not ItemRackUser or not ItemRackUser.Events then
+		if ItemRack and ItemRack.LoadEvents then
+			ItemRack.LoadEvents()
+		end
+	end
+	local events = ItemRackEvents or {}
+	local user = ItemRackUser and ItemRackUser.Events or { Enabled = {}, Set = {} }
+	user.Enabled = user.Enabled or {}
+	user.Set = user.Set or {}
 
 	-- if an event is selected, save it as oldevent
-	local oldevent = ItemRackOpt.EventSelected and list[ItemRackOpt.EventSelected][1] or nil
+	local oldevent = ItemRackOpt.EventSelected and list[ItemRackOpt.EventSelected] and list[ItemRackOpt.EventSelected][1] or nil
 	ItemRackOpt.EventSelected = nil
 
 	for i in pairs(list) do
@@ -3527,12 +3537,12 @@ function ItemRackOpt.PopulateEventList()
 	for i in pairs(events) do
 		if user.Set[i] then
 			setname = user.Set[i]
-		elseif events[i].Type=="Script" and user.Enabled[i] then
+		elseif events[i] and events[i].Type=="Script" and user.Enabled[i] then
 			setname = "zzz" -- give it a fake set name for sorting purposes
 		else
 			setname = nil
 		end
-		table.insert(list,{i,events[i].Type,user.Enabled[i],setname})
+		table.insert(list,{i,events[i] and events[i].Type,user.Enabled[i],setname})
 	end
 
 	local function sortbyset(e1,e2)
@@ -3588,16 +3598,19 @@ function ItemRackOpt.EventListScrollFrameUpdate()
 			end
 			_G["ItemRackOptEventList"..i.."Name"]:SetText(displayText)
 			icon = _G["ItemRackOptEventList"..i.."Icon"]
-			if list[idx][2]=="Script" then
+			local userEvents = ItemRackUser and ItemRackUser.Events
+			local assignedSet = userEvents and userEvents.Set and userEvents.Set[eventName]
+			if eventType=="Script" then
 				texture = "Interface\\AddOns\\ItemRackOptions\\ItemRackScriptIcon"
-			elseif ItemRackUser.Events.Set[list[idx][1]] then
-				texture = ItemRackUser.Sets[ItemRackUser.Events.Set[list[idx][1]]].icon
+			elseif assignedSet and ItemRackUser.Sets and ItemRackUser.Sets[assignedSet] and ItemRackUser.Sets[assignedSet].icon then
+				texture = ItemRackUser.Sets[assignedSet].icon
 			else
 				texture = "Interface\\Icons\\INV_Misc_QuestionMark"
 			end
 			icon:SetNormalTexture(texture)
 			icon:SetPushedTexture(texture)
-			_G["ItemRackOptEventList"..i.."Enabled"]:SetChecked(ItemRackUser.Events.Enabled[list[idx][1]])
+			local isEnabled = userEvents and userEvents.Enabled and userEvents.Enabled[eventName]
+			_G["ItemRackOptEventList"..i.."Enabled"]:SetChecked(isEnabled)
 			if idx==ItemRackOpt.EventSelected then
 				ItemRackOpt.LockHighlight(item)
 			else

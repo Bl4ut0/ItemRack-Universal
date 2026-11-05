@@ -3,6 +3,7 @@ const { extractFunction, runLua } = require('./lib/lua_harness');
 
 const equipFile = 'ItemRack/ItemRackEquip.lua';
 const coreFile = 'ItemRack/ItemRack.lua';
+const getSwapOrder = extractFunction(equipFile, 'ItemRack.GetSwapOrder');
 const iterateSwapList = extractFunction(equipFile, 'ItemRack.IterateSwapList');
 const moveItem = extractFunction(equipFile, 'ItemRack.MoveItem');
 const equipItemByID = extractFunction(coreFile, 'ItemRack.EquipItemByID');
@@ -261,4 +262,59 @@ assert(ItemRack.updateCount == 1, "queue overlay must refresh exactly once")
 `
 );
 
-console.log('[LUA TRANSACTION] 25 production-Lua transaction assertions passed.');
+runCase(
+  'ammo-after-ranged swap order (Rummelboxer99 CurseForge regression)',
+  `
+ItemRack = {
+  SwapList = { [0] = 2000, [18] = 1000 },
+  eqBackOfTheBusOffset = 100,
+  Debug = function() end,
+  LockList = { [-2] = {} },
+  MatchesStoredItemID = function(a,b) return a == b end,
+  GetID = function(slot)
+    if slot == 0 then return 2001 end
+    if slot == 18 then return 1001 end
+    return 0
+  end,
+  FindItem = function(id)
+    if id == 1000 then return nil, 0, 1 end
+    if id == 2000 then return nil, 0, 2 end
+    return nil
+  end,
+  GetInfoByID = function(id)
+    if id == 1000 or id == 1001 then return "Gun", nil, "INVTYPE_RANGED" end
+    return "Bullets", nil, "INVTYPE_AMMO"
+  end,
+  NewEquipmentMove = function(fromBag, fromSlot, toBag, toSlot)
+    return { from = { bag = fromBag, slot = fromSlot }, to = { bag = toBag, slot = toSlot } }
+  end,
+  SubmitSetMoves = function(setname, disableSound, batchSteps)
+    ItemRack.submittedBatch = batchSteps
+    return "submitted"
+  end,
+  ClearLockList = function() end,
+}
+ItemRackUser = { Sets = { HunterGun = { equip = { [0] = 2000, [18] = 1000 }, old = {} } } }
+ItemRackSettings = {}
+function InCombatLockdown() return false end
+`,
+  [getSwapOrder, iterateSwapList],
+  `
+local order = ItemRack.GetSwapOrder()
+local rangedIdx, ammoIdx
+for idx, slot in ipairs(order) do
+  if slot == 18 then rangedIdx = idx end
+  if slot == 0 then ammoIdx = idx end
+end
+assert(rangedIdx and ammoIdx and rangedIdx < ammoIdx,
+  "slot 18 (Ranged) must precede slot 0 (Ammo) in swap order to prevent destination_rejected ammo errors")
+
+local result = ItemRack.IterateSwapList("HunterGun", false)
+assert(result == "submitted", "IterateSwapList must submit batch moves")
+assert(ItemRack.submittedBatch and #ItemRack.submittedBatch == 2, "must generate exactly 2 moves")
+assert(ItemRack.submittedBatch[1].to.bag == 18, "First move MUST be Ranged slot (18)")
+assert(ItemRack.submittedBatch[2].to.bag == 0, "Second move MUST be Ammo slot (0)")
+`
+);
+
+console.log('[LUA TRANSACTION] 30 production-Lua transaction assertions passed.');

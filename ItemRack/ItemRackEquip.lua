@@ -1101,6 +1101,20 @@ function ItemRack.SubmitSetMoves(setname, disableSound, steps)
 	return result, request, reason
 end
 
+function ItemRack.GetSwapOrder()
+	local order = {}
+	for i = 1, 19 do
+		table.insert(order, i)
+	end
+	table.insert(order, 0)
+	local offset = ItemRack.eqBackOfTheBusOffset or 100
+	for i = 1, 19 do
+		table.insert(order, i + offset)
+	end
+	table.insert(order, 0 + offset)
+	return order
+end
+
 function ItemRack.IterateSwapList(setname, disableSound)
 	ItemRack.Debug("Equip", "IterateSwapList running for set:", setname)
 	local set = ItemRackUser.Sets[setname]
@@ -1130,8 +1144,12 @@ function ItemRack.IterateSwapList(setname, disableSound)
 			ItemRack.LockList[-2][i] = 1
 		end
 	end
+	local swapOrder = (ItemRack.GetSwapOrder and ItemRack.GetSwapOrder()) or {
+		1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,0,
+		101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,100
+	}
 	local exactSources = {}
-	for k=0,19+ItemRack.eqBackOfTheBusOffset do
+	for _, k in ipairs(swapOrder) do
 		local i = k >= ItemRack.eqBackOfTheBusOffset and k-ItemRack.eqBackOfTheBusOffset or k
 		local target = swap[k]
 		if target and target ~= 0
@@ -1146,7 +1164,7 @@ function ItemRack.IterateSwapList(setname, disableSound)
 	local batchSteps = {}
 	local swappedSlots = {}
 
-	for k=0,19+ItemRack.eqBackOfTheBusOffset do
+	for _, k in ipairs(swapOrder) do
 		local i = k
 		if k >= ItemRack.eqBackOfTheBusOffset then
 			i = k-ItemRack.eqBackOfTheBusOffset
@@ -1526,9 +1544,9 @@ function ItemRack.IsSetEquipped(setname,exact)
 					if currentInQueue then
 						match = not active or matchesStored(active, id)
 					elseif set[i] then
-						if match and active and not matchesStored(active, id) then
-							match = false
-						end
+						-- The slot specifies an explicit set item (e.g. Diamond Flask).
+						-- If that explicit item is currently equipped, match is already true.
+						-- Do not invalidate it just because a background queue has candidates.
 					else
 						match = not active or matchesStored(active, id)
 					end
@@ -1697,7 +1715,9 @@ function ItemRack.ToggleSet(setname,exact,disableSound,isSecureKeybind)
 			end
 		end
 	end
-	if not otherSetActive and ItemRack.IsSetEquipped(setname,exact) then
+	local set = ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[setname]
+	local isEquipped = ItemRack.IsSetEquipped(setname,exact)
+	if not otherSetActive and (isEquipped or (currentSet == setname and set and set.old)) then
 --		print("remove "..setname)
 		ItemRack.UnequipSet(setname,disableSound)
 	else
