@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.58-beta2 - By Bl4ut0 __
 - Modern Tooltip Script Compatibility:
   * Fixed bad argument #2 to '?' (Usage: local success = self:HookScript(scriptTypeName, script [, bindingType])) in HookTooltipSetItem during RegisterSetTooltipHooks.
   * Added tip:HasScript("OnTooltipSetItem") verification and safe pcall guards so modern tooltip frames (SharedTooltipTemplates) rely seamlessly on TooltipDataProcessor while legacy clients retain native OnTooltipSetItem hooks.
