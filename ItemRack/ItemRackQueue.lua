@@ -146,6 +146,26 @@ function ItemRack.SetManualQueueChoice(slot, id, setname)
 	ItemRack.ClearManualQueueChoice(slot)
 end
 
+function ItemRack.IsSlotProtectedByManualToggle(slot)
+	if not slot or not ItemRack.ManualToggledSet or not ItemRackUser or not ItemRackUser.Sets then
+		return false
+	end
+	local set = ItemRackUser.Sets[ItemRack.ManualToggledSet]
+	if not set or not set.equip or not set.equip[slot] or set.equip[slot] == 0 then
+		return false
+	end
+	local exactID = ItemRack.GetID(slot)
+	if not ItemRack.MatchesStoredItemID(set.equip[slot], exactID) then
+		return false
+	end
+	-- If the toggled set defines a per-set queue for this slot and has queues enabled,
+	-- allow AutoQueue to follow the set's own queue rules.
+	if ItemRackUser.EnablePerSetQueues == "ON" and set.QueuesEnabled and set.QueuesEnabled[slot] and set.Queues and set.Queues[slot] then
+		return false
+	end
+	return true
+end
+
 function ItemRack.GetQueueBurnKey(id, baseID)
 	if id and id ~= 0 then
 		local idText = tostring(id)
@@ -773,6 +793,18 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 	end
 	if currentBurnt then
 		ready = nil
+	end
+
+	if ItemRack.IsSlotProtectedByManualToggle and ItemRack.IsSlotProtectedByManualToggle(slot) then
+		if ItemRack.QueueDiagnostic then
+			ItemRack.QueueDiagnostic("autoqueue_candidate_skipped", {
+				item = exactID,
+				reason = "manual_toggled_set_hold",
+				slot = slot,
+				toggledSet = ItemRack.ManualToggledSet,
+			})
+		end
+		return nil
 	end
 
 	-- reuse the loop structure but optimized for auto-queue logic (priority checks etc)

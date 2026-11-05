@@ -27,7 +27,7 @@ end
 -- private to this file and compare the exact event name, trigger, and source at
 -- every registration/dispatch boundary. This is a consent and persistence
 -- guard, not an addon sandbox: all WoW addons still share one Lua environment.
-local scriptEventPrelude = "local event,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9,arg10 = ...;local EquipEventSet = function(setname, disableSound) return ItemRack.ScriptEventEquip(event, setname, disableSound) end;local UnequipEventSet = function(disableSound) return ItemRack.ScriptEventUnequip(event, disableSound) end;local EquipSet = function(setname, disableSound) return EquipEventSet(setname, disableSound) end;local UnequipSet = function(setname, disableSound) local activeSet = ItemRack.GetEventSet(event) if setname and (not activeSet or setname ~= activeSet) then return ItemRack.UnequipSet(setname, disableSound) end return UnequipEventSet(disableSound) end;"
+local scriptEventPrelude = "local event,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9,arg10 = ...;local EquipEventSet = function(setname, disableSound) return ItemRack.ScriptEventEquip(event, setname, disableSound) end;local UnequipEventSet = function(disableSound) return ItemRack.ScriptEventUnequip(event, disableSound) end;local ToggleEventSet = function(setname, disableSound) return ItemRack.ScriptEventToggle(event, setname, disableSound) end;local EquipSet = function(setname, disableSound) return EquipEventSet(setname, disableSound) end;local UnequipSet = function(setname, disableSound) local activeSet = ItemRack.GetEventSet(event) if setname and (not activeSet or setname ~= activeSet) then return ItemRack.UnequipSet(setname, disableSound) end return UnequipEventSet(disableSound) end;local ToggleSet = function(setname, disableSound) return ToggleEventSet(setname, disableSound) end;"
 local maxScriptEventLength = 4096
 local maxScriptTriggerLength = 128
 local approvedScriptEvents = {}
@@ -1301,6 +1301,31 @@ function ItemRack.ScriptEventUnequip(eventName, disableSound, expectedGeneration
 		ItemRack.ScriptEventDisableSound[eventName] = disableSound
 	end
 	return ItemRack.PopEvent(eventName,expectedGeneration)
+end
+
+function ItemRack.ScriptEventToggle(eventName, setname, disableSound)
+	if not eventName or not setname then
+		return
+	end
+	local isActive = false
+	local state = ItemRackUser and ItemRackUser.EventState
+	local frameId = state and state.byEvent and state.byEvent[eventName]
+	local frame = frameId and state.frames and state.frames[frameId]
+	if frame and frame.setName == setname then
+		isActive = true
+	elseif not frame and ItemRackUser and ItemRackUser.EventStack then
+		for _, activeEvent in ipairs(ItemRackUser.EventStack) do
+			if activeEvent == eventName then
+				isActive = true
+				break
+			end
+		end
+	end
+	if isActive then
+		return ItemRack.ScriptEventUnequip(eventName, disableSound)
+	else
+		return ItemRack.ScriptEventEquip(eventName, setname, disableSound)
+	end
 end
 
 function ItemRack.PushEvent(eventName, belowEventName)

@@ -15,6 +15,10 @@ const findPlayerAura = extractFunction(itemRackFile, 'ItemRack.FindPlayerAura');
 const recordEquipTime = extractFunction(queueFile, 'ItemRack.RecordEquipTime');
 const isRecentEquip = extractFunction(queueFile, 'ItemRack.IsRecentEquip');
 const toggleSet = extractFunction(equipFile, 'ItemRack.ToggleSet');
+const isProtectedByManualToggle = extractFunction(queueFile, 'ItemRack.IsSlotProtectedByManualToggle');
+const isSetPendingInCombatQueue = extractFunction(equipFile, 'ItemRack.IsSetPendingInCombatQueue');
+const cancelCombatQueueSet = extractFunction(equipFile, 'ItemRack.CancelCombatQueueSet');
+const purgeAutomaticSetsWaiting = extractFunction(equipFile, 'ItemRack.PurgeAutomaticSetsWaiting');
 const endSetSwap = extractFunction(equipFile, 'ItemRack.EndSetSwap');
 const optionsFile = 'ItemRackOptions/ItemRackOptions.lua';
 const hasUnsavedSetChanges = extractFunction(optionsFile, 'ItemRackOpt.HasUnsavedSetChanges');
@@ -494,6 +498,70 @@ ItemRack.EquipSet = function(name) error("ToggleSet must not re-equip already eq
 ItemRack.ToggleSet("Flask")
 check(toggledUnequipTarget == "Flask",
   "ToggleSet must call UnequipSet on second click when Flask set is equipped and old gear exists")
+
+-- E. Manual Toggle Handler:
+${isProtectedByManualToggle}
+${isSetPendingInCombatQueue}
+${cancelCombatQueueSet}
+${purgeAutomaticSetsWaiting}
+
+-- 1. Manual toggle hold protects explicitly equipped items from AutoQueue eviction
+ItemRack.ManualToggledSet = "Flask"
+check(ItemRack.IsSlotProtectedByManualToggle(13) == true,
+  "IsSlotProtectedByManualToggle must be true for slot 13 when Flask set is manually toggled and worn")
+check(ItemRack.IsSlotProtectedByManualToggle(14) == false,
+  "IsSlotProtectedByManualToggle must be false for slot not defined in toggled set")
+
+-- Calling AutoQueueItemToEquip on a slot protected by manual toggle must return nil (hold)
+${autoQueue}
+local autoCandidate = ItemRack.AutoQueueItemToEquip(13, "19993", 1, false, "Flask", { list = { { id = "23206" } } })
+check(autoCandidate == nil,
+  "AutoQueueItemToEquip must hold explicitly toggled set item even when queue has ready candidate")
+
+-- Calling ToggleSet again when already equipped calls UnequipSet and clears ManualToggledSet
+toggledUnequipTarget = nil
+ItemRack.ToggleSet("Flask")
+check(toggledUnequipTarget == "Flask" and ItemRack.ManualToggledSet == nil,
+  "ToggleSet unequip must clear ManualToggledSet")
+check(ItemRack.IsSlotProtectedByManualToggle(13) == false,
+  "IsSlotProtectedByManualToggle must be false after toggling off")
+
+-- 2. In-Combat Toggle Handler (CombatQueue Toggling / Canceling)
+InCombatLockdown = function() return true end
+ItemRack.CombatQueue = { [13] = "19993" }
+ItemRack.CombatSet = "Flask"
+ItemRack.RemoveFromCombatQueue = function(slot) ItemRack.CombatQueue[slot] = nil end
+ItemRack.UpdateCombatQueue = function() end
+
+check(ItemRack.IsSetPendingInCombatQueue("Flask") == true,
+  "IsSetPendingInCombatQueue must be true when set items are pending in CombatQueue")
+
+local cancelTriggered = false
+local origCancel = ItemRack.CancelCombatQueueSet
+ItemRack.CancelCombatQueueSet = function(name)
+  cancelTriggered = true
+  origCancel(name)
+end
+
+-- Second toggle click in combat must cancel the pending combat queue
+ItemRack.ToggleSet("Flask")
+check(cancelTriggered == true, "ToggleSet in combat must trigger CancelCombatQueueSet")
+check(ItemRack.CombatQueue[13] == nil and ItemRack.CombatSet == nil,
+  "CancelCombatQueueSet must clear pending combat queue slots and CombatSet")
+check(ItemRack.IsSetPendingInCombatQueue("Flask") == false,
+  "IsSetPendingInCombatQueue must be false after combat queue is cancelled")
+
+-- 3. Purge automatic sets waiting
+ItemRack.SetsWaiting = {
+  { "AutoSet", function() end, nil, nil, true, nil },
+  { "ManualSet", function() end, nil, nil, false, false },
+  { "DeferredAuto", function() end, nil, nil, nil, true },
+}
+ItemRack.PurgeAutomaticSetsWaiting()
+check(#ItemRack.SetsWaiting == 1 and ItemRack.SetsWaiting[1][1] == "ManualSet",
+  "PurgeAutomaticSetsWaiting must remove automatic waiting sets and retain manual sets")
+
+InCombatLockdown = function() return false end
 
 print(string.format("[QUEUE RUNTIME LUA] %d purity and provenance checks passed.",checks))
 `, 'queue-runtime');

@@ -177,5 +177,36 @@ check(ItemRackUser.UnknownLegacyEventStateBackup == "damaged earlier backup" and
   recovered.frames[recovered.byEvent.Mounted].slots[13].prior == "RecoveredBase",
   "a malformed legacy backup must be preserved without blocking a fresh migration snapshot")
 
+-- ScriptEventToggle test:
+local togglePopCalled = false
+local togglePushCalled = false
+local origPop = ItemRack.ScriptEventUnequip
+local origPush = ItemRack.ScriptEventEquip
+ItemRack.ScriptEventUnequip = function(eventName, disableSound)
+  togglePopCalled = true
+  return origPop(eventName, disableSound)
+end
+ItemRack.ScriptEventEquip = function(eventName, setname, disableSound)
+  togglePushCalled = true
+  return origPush(eventName, setname, disableSound)
+end
+
+-- 1. When event has set active, ScriptEventToggle calls ScriptEventUnequip
+togglePopCalled = false
+togglePushCalled = false
+ItemRack.ScriptEventToggle("Mounted", "Zoom")
+check(togglePopCalled == true and togglePushCalled == false,
+  "ScriptEventToggle on already active event set must pop/unequip the event")
+
+-- 2. When event does NOT have set active, ScriptEventToggle calls ScriptEventEquip
+togglePopCalled = false
+togglePushCalled = false
+ItemRack.ScriptEventToggle("Mounted", "Zoom")
+check(togglePushCalled == true and togglePopCalled == false,
+  "ScriptEventToggle on inactive event set must push/equip the event")
+
+ItemRack.ScriptEventUnequip = origPop
+ItemRack.ScriptEventEquip = origPush
+
 print(string.format("[EVENT INTEGRATION LUA] %d production Push/Pop checks passed.",checks))
 `, 'event-integration');
