@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.59-beta2 - By Bl4ut0 __
 - Anti-Taint & Secret Value Sanitization (Modern WoW 11.0+ / 12.0 Midnight & Leveling Guide Addons):
   * Fixed 745x Blizzard_BuffFrame/BuffFrame.lua:70: attempt to compare local 'duration' (a secret number value, while execution tainted by 'ItemRack') and BuffFrame.lua:1394: attempt to compare field 'count' (a secret number value).
   * Fixed 1x Blizzard_UnitFrame/Shared/PartyMemberFrame.lua:128: attempted to index a table that cannot be accessed while tainted (execution tainted by 'ItemRack') in ParseAllAuras during EnterEditMode.

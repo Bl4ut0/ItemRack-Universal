@@ -3,6 +3,9 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+
+
+## [4.59-beta2] - 2026-11-06
 ### Bug Fixes & Improvements
 - **Anti-Taint & Secret Value Sanitization (Modern WoW 11.0+ / 12.0 Midnight & Leveling Guide Addons)**:
   - Fixed `745x Blizzard_BuffFrame/BuffFrame.lua:70: attempt to compare local 'duration' (a secret number value, while execution tainted by 'ItemRack')` and `BuffFrame.lua:1394: attempt to compare field 'count' (a secret number value)`.
@@ -17,7 +20,6 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
   - Submitting both slot 18 and slot 0 in the same synchronous frame causes the engine to evaluate weapon compatibility against the in-flight unsettled state of slot 0, rejecting the weapon and causing transaction rollback.
   - In addition, removed an erroneous legacy rewrite in `ItemRackTransaction.lua` (`NormalizeLocation`) that redirected ammo moves (`INVSLOT_AMMO` = 0) to `INVSLOT_RANGED` (18).
   - Resolved by ordering slot 0 (Ammo) before slot 18 (Ranged) in `ItemRack.GetSwapOrder()` and `IterateSwapList`, and adding a co-dependency guard in `ItemRackTransaction.lua` (`SubmitCurrentStep`) ensuring moves touching slot 18 (Ranged) and slot 0 (Ammo) are never submitted synchronously within the same execution frame when either is in-flight; the dependent weapon move remains planned and automatically submits and settles cleanly in the subsequent transaction frame once slot 0 has confirmed.
-
 
 ## [4.59-beta1] - 2026-11-05
 ### Bug Fixes & Improvements
