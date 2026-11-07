@@ -12,6 +12,7 @@ const shouldHold = extractFunction(queueFile, 'ItemRack.ShouldHoldEquippedItem')
 const isSetEquipped = extractFunction(equipFile, 'ItemRack.IsSetEquipped');
 const itemRackFile = 'ItemRack/ItemRack.lua';
 const findPlayerAura = extractFunction(itemRackFile, 'ItemRack.FindPlayerAura');
+const findAuraByName = extractFunction(itemRackFile, 'ItemRack.FindAuraByName');
 const recordEquipTime = extractFunction(queueFile, 'ItemRack.RecordEquipTime');
 const isRecentEquip = extractFunction(queueFile, 'ItemRack.IsRecentEquip');
 const toggleSet = extractFunction(equipFile, 'ItemRack.ToggleSet');
@@ -77,6 +78,7 @@ ${resolveProxy}
 ${shouldHold}
 ${isSetEquipped}
 ${findPlayerAura}
+${findAuraByName}
 ${recordEquipTime}
 ${isRecentEquip}
 
@@ -158,6 +160,40 @@ check(safeAuraResult == nil, "FindPlayerAura must return nil safely when aura lo
 -- Restore safe mock for AuraUtil
 AuraUtil.FindAuraByName = function(name) if name == "ActiveBuff" then return "ActiveBuff" end return nil end
 check(ItemRack.FindPlayerAura("ActiveBuff") == "ActiveBuff", "FindPlayerAura must return active buff when present")
+
+-- Anti-taint and secret value regressions (modern clients Patch 11.0+ / 12.0)
+local secretVal = { __secret = true }
+issecretvalue = function(v) return v == secretVal end
+C_UnitAuras = {
+  GetPlayerAuraBySpellName = function(buff)
+    if buff == "SecretBuff" then return secretVal end
+    if buff == "SecretTable" then return { name = secretVal } end
+    return nil
+  end
+}
+check(ItemRack.FindPlayerAura("SecretBuff") == "SecretBuff", "FindPlayerAura must safely return buff name when C_UnitAuras returns an opaque secret value")
+check(ItemRack.FindPlayerAura("SecretTable") == "SecretTable", "FindPlayerAura must safely return buff name when aura.name is a secret value")
+
+-- Safe self-contained aura search across units
+check(ItemRack.FindAuraByName("ActiveBuff", "player") == "ActiveBuff", "FindAuraByName must return player buff when unit is player")
+UnitBuff = function(unit, idx)
+  if unit == "target" and idx == 1 then return "TargetBuff" end
+  return nil
+end
+check(ItemRack.FindAuraByName("TargetBuff", "target") == "TargetBuff", "FindAuraByName must locate aura on non-player unit safely")
+
+-- Verify that existing global AuraUtil table is preserved and untainted
+local existingBlizzardAuraUtil = { ForEachAura = function() return true end }
+_G.AuraUtil = existingBlizzardAuraUtil
+if not _G.AuraUtil then _G.AuraUtil = { FindAuraByName = ItemRack.FindAuraByName } end
+check(_G.AuraUtil.FindAuraByName == nil, "Existing AuraUtil must never be mutated or assigned FindAuraByName")
+check(_G.AuraUtil == existingBlizzardAuraUtil, "Existing AuraUtil reference must remain unmodified")
+
+-- Clean up test mocks
+issecretvalue = nil
+C_UnitAuras = nil
+UnitBuff = nil
+_G.AuraUtil = AuraUtil
 
 -- Issue #33 regression: Trinket Queue behavior for passive trinkets when switching sets
 -- Set 1 had Hand of Justice (11815, passive) equipped in slot 14.

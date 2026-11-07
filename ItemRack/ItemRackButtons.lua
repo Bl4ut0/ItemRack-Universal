@@ -76,13 +76,25 @@ function ItemRack.InitButtons()
 	ItemRack.oldPaperDollItemSlotButton_OnModifiedClick = PaperDollItemSlotButton_OnModifiedClick
 	PaperDollItemSlotButton_OnModifiedClick = ItemRack.newPaperDollItemSlotButton_OnModifiedClick
 
-	if CharacterAmmoSlot then
+	if CharacterAmmoSlot and CharacterAmmoSlot.HookScript then
+		CharacterAmmoSlot:HookScript("OnClick", function(self, button)
+			if IsAltKeyDown() then
+				ItemRack.newPaperDollItemSlotButton_OnModifiedClick(self, button)
+			end
+		end)
+	elseif CharacterAmmoSlot then
 		ItemRack.oldCharacterAmmoSlot_OnClick = CharacterAmmoSlot:GetScript("OnClick")
 		CharacterAmmoSlot:SetScript("OnClick",ItemRack.newCharacterAmmoSlot_OnClick)
 	end
 
 	local characterModel = CharacterModelFrame or CharacterModelScene
-	if characterModel then
+	if characterModel and characterModel.HookScript then
+		characterModel:HookScript("OnMouseUp", function(self, button)
+			if IsAltKeyDown() then
+				ItemRack.ToggleButton(20)
+			end
+		end)
+	elseif characterModel then
 		ItemRack.oldCharacterModelFrame_OnMouseUp = characterModel:GetScript("OnMouseUp")
 		characterModel:SetScript("OnMouseUp",ItemRack.newCharacterModelFrame_OnMouseUp)
 	end

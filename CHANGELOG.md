@@ -4,6 +4,13 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 ### Bug Fixes & Improvements
+- **Anti-Taint & Secret Value Sanitization (Modern WoW 11.0+ / 12.0 Midnight & Leveling Guide Addons)**:
+  - Fixed `745x Blizzard_BuffFrame/BuffFrame.lua:70: attempt to compare local 'duration' (a secret number value, while execution tainted by 'ItemRack')` and `BuffFrame.lua:1394: attempt to compare field 'count' (a secret number value)`.
+  - Fixed `1x Blizzard_UnitFrame/Shared/PartyMemberFrame.lua:128: attempted to index a table that cannot be accessed while tainted (execution tainted by 'ItemRack')` in `ParseAllAuras` during `EnterEditMode`.
+  - In modern World of Warcraft (Patch 11.0+ / The War Within and 12.0 Midnight), Blizzard converts unit aura attributes (`duration`, `count`, `expirationTime`) and unit tables into protected "secret values" whenever the execution environment is tainted. If an addon taints the shared UI path, Blizzard's own UI crashes when attempting numeric comparisons or math on those secret values.
+  - Resolved by removing legacy monkey-patching of Blizzard's global `_G.AuraUtil` table; ItemRack now provides its own isolated `ItemRack.FindAuraByName` without ever mutating `_G.AuraUtil` in clients where Blizzard provides it.
+  - Added secret value guards in `ItemRack.FindPlayerAura` and `ItemRack.FindAuraByName` to safely handle opaque `issecretvalue` objects without throwing arithmetic or comparison errors.
+  - Replaced destructive `SetScript` replacements on `CharacterAmmoSlot` and `CharacterModelScene` with safe `HookScript` wrappers, ensuring native character sheet frames and Edit Mode stay secure and untainted.
 - **Ranged Weapon & Ammo Co-Dependency Transaction Ordering (GitHub Issue #37)**:
   - Fixed `Set swap failed ... (destination_rejected)` when switching between sets with different ranged weapon and ammo families (e.g. Crossbow with Arrows vs Gun with Bullets) requiring a second click to complete.
   - In WoW Classic, slot 18 (Ranged Weapon) and slot 0 (Ammo) are co-dependent equipment endpoints. While slot 0 (Ammo) accepts valid projectiles (arrows or bullets) regardless of the currently equipped weapon, slot 18 (Ranged Weapon) rejects equipping a weapon if the currently equipped ammo is incompatible (e.g. Crossbow with Bullets in slot 0, or Gun with Arrows in slot 0).

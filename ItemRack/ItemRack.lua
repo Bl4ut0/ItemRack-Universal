@@ -144,18 +144,32 @@ if not GetNumTalentTabs and C_SpecializationInfo and C_SpecializationInfo.GetNum
 end
 
 -- Safe aura lookup for player across all client versions (Retail/Classic/TBC/Wrath/Cata).
--- Protected against nil-unpack errors in Blizzard's AuraUtil during Edit Mode or UI transitions.
+-- Protected against nil-unpack errors in Blizzard's AuraUtil during Edit Mode or UI transitions,
+-- and shielded against modern client secret number values during tainted execution.
 function ItemRack.FindPlayerAura(buff)
 	if not buff then return nil end
 	if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellName then
 		local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellName, buff)
 		if ok and aura then
-			return aura.name or buff
+			if issecretvalue and issecretvalue(aura) then
+				return buff
+			end
+			local auraName = type(aura) == "table" and aura.name or nil
+			if auraName then
+				if issecretvalue and issecretvalue(auraName) then
+					return buff
+				end
+				return auraName
+			end
+			return buff
 		end
 	end
 	if AuraUtil and AuraUtil.FindAuraByName then
 		local ok, result = pcall(AuraUtil.FindAuraByName, buff, "player")
 		if ok and result then
+			if issecretvalue and issecretvalue(result) then
+				return buff
+			end
 			return result
 		end
 	end
@@ -164,7 +178,11 @@ function ItemRack.FindPlayerAura(buff)
 			for i = 1, 40 do
 				local name = UnitBuff("player", i)
 				if not name then break end
-				if name == buff then return name end
+				if issecretvalue and issecretvalue(name) then
+					-- Cannot compare secret values directly
+				elseif name == buff then
+					return name
+				end
 			end
 			return nil
 		end)
@@ -175,25 +193,57 @@ function ItemRack.FindPlayerAura(buff)
 	return nil
 end
 
--- Compatibility shim for AuraUtil.FindAuraByName (may not exist in TBC 2.5.5)
-if not AuraUtil or not AuraUtil.FindAuraByName then
-	AuraUtil = AuraUtil or {}
-	AuraUtil.FindAuraByName = function(name, unit, filter)
-		if unit == "player" then
-			return ItemRack.FindPlayerAura(name)
-		end
-		for i = 1, 40 do
-			local buffName = UnitBuff and UnitBuff(unit, i, filter)
-			if not buffName then break end
-			if buffName == name then return buffName end
-		end
-		for i = 1, 40 do
-			local debuffName = UnitDebuff and UnitDebuff(unit, i, filter)
-			if not debuffName then break end
-			if debuffName == name then return debuffName end
-		end
-		return nil
+-- Safe internal aura search by name and unit across all client versions.
+-- Completely self-contained within ItemRack to prevent tainting Blizzard's secure AuraUtil table.
+function ItemRack.FindAuraByName(name, unit, filter)
+	if not name then return nil end
+	unit = unit or "player"
+	if unit == "player" then
+		return ItemRack.FindPlayerAura(name)
 	end
+	if UnitBuff then
+		local ok, result = pcall(function()
+			for i = 1, 40 do
+				local buffName = UnitBuff(unit, i, filter)
+				if not buffName then break end
+				if issecretvalue and issecretvalue(buffName) then
+					-- Cannot compare secret values directly
+				elseif buffName == name then
+					return buffName
+				end
+			end
+			return nil
+		end)
+		if ok and result then
+			return result
+		end
+	end
+	if UnitDebuff then
+		local ok, result = pcall(function()
+			for i = 1, 40 do
+				local debuffName = UnitDebuff(unit, i, filter)
+				if not debuffName then break end
+				if issecretvalue and issecretvalue(debuffName) then
+					-- Cannot compare secret values directly
+				elseif debuffName == name then
+					return debuffName
+				end
+			end
+			return nil
+		end)
+		if ok and result then
+			return result
+		end
+	end
+	return nil
+end
+
+-- Backward compatibility for legacy custom event scripts only in clients where Blizzard does NOT provide AuraUtil (e.g. TBC 2.5.5).
+-- NEVER touch, add fields to, or modify _G.AuraUtil if it already exists, as doing so taints Blizzard's aura library in modern clients.
+if not _G.AuraUtil then
+	_G.AuraUtil = {
+		FindAuraByName = ItemRack.FindAuraByName
+	}
 end
 
 -- Compatibility shims for Item APIs (may not have globals if deprecation fallbacks disabled)
