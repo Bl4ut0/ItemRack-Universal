@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.59-beta4 - By Bl4ut0 __
 - Minimap Icon Circular Border Geometry (GitHub Issue #33 Follow-up):
   * Fixed an issue introduced in 4.59-beta3 where the minimap button icon appeared square and spilled outside the circular tracking border.
   * Restored LibDBIcon-1.0 native coordinate clipping and 17x17 inset geometry (LibDBIcon10_ItemRack:SetSize(17, 17) at TOPLEFT 7, -6), allowing LibDBIcon to manage circular masking via ItemRack.Broker.icon.

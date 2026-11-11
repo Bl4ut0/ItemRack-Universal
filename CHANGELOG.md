@@ -3,6 +3,9 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+
+
+## [4.59-beta4] - 2026-11-11
 ### Bug Fixes & Improvements
 - **Minimap Icon Circular Border Geometry (GitHub Issue #33 Follow-up)**:
   - Fixed an issue introduced in `4.59-beta3` where the minimap button icon appeared square and spilled outside the circular tracking border.
@@ -28,7 +31,6 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
   - AutoQueue preserves the manually equipped item while it is ready (or during its 30-second equip cooldown) instead of immediately overwriting it with queue items.
   - Once the player uses the item in combat (burn-on-use), AutoQueue automatically resumes its normal queue rotation.
   - Added slash commands `/itemrack hold <slot 0-19> [itemID]` and `/itemrack unhold <slot 0-19>`, and APIs `ItemRack.HoldSlot` / `ItemRack.ClearHoldSlot` for explicit hold control.
-
 
 ## [4.59-beta3] - 2026-11-10
 ### Bug Fixes & Improvements
