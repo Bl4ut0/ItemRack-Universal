@@ -1739,6 +1739,15 @@ function ItemRack.ReconcileEquippedSnapshot(fromInventoryEvent)
 					end
 					stateChanged = true
 					isNewTransition = true
+					if currentID and currentID ~= 0 and not ItemRack.ActiveEquipmentTransaction and not ItemRack.SetSwapping then
+						if ItemRack.GetQueuesEnabled and ItemRack.GetQueuesEnabled()[i] and ItemRack.SetManualQueueChoice then
+							ItemRack.SetManualQueueChoice(i, currentID)
+						end
+					elseif currentID == 0 and not ItemRack.ActiveEquipmentTransaction and not ItemRack.SetSwapping then
+						if ItemRack.ClearManualQueueChoice then
+							ItemRack.ClearManualQueueChoice(i)
+						end
+					end
 				end
 				ItemRack.EquippedSnapshot[i] = currentID
 				local record = ItemRack.EquipTimers and ItemRack.EquipTimers[i]
@@ -2940,6 +2949,7 @@ function ItemRack.SetButton20Visual(currentSetName, hybridSetName)
 			if divider.SetWidth then divider:SetWidth(2) end
 			if divider.SetTexture then divider:SetTexture("Interface\\Buttons\\WHITE8X8") end
 			if divider.SetVertexColor then divider:SetVertexColor(1, 0.82, 0, 0.9) end
+			if divider.SetDrawLayer then divider:SetDrawLayer("OVERLAY", 1) end
 			if divider.Show then divider:Show() end
 		end
 	else
@@ -2962,6 +2972,17 @@ function ItemRack.SetButton20Visual(currentSetName, hybridSetName)
 		end
 		if divider and divider.Hide then
 			divider:Hide()
+		end
+	end
+
+	local nameText = _G["ItemRackButton20Name"]
+	if nameText then
+		nameText:ClearAllPoints()
+		nameText:SetPoint("BOTTOM", button, "BOTTOM", 0, 2)
+		nameText:SetWidth(button:GetWidth() or 36)
+		nameText:SetJustifyH("CENTER")
+		if nameText.SetDrawLayer then
+			nameText:SetDrawLayer("OVERLAY", 7)
 		end
 	end
 end
@@ -3019,7 +3040,7 @@ function ItemRack.UpdateCurrentSet()
 			if previousSet and previousSet ~= _G.CUSTOM and bestSet ~= previousSet then
 				-- Hybrid state: player had an active set (preserving queue rules), but worn gear matches bestSet
 				ItemRack.HybridSet = bestSet
-				setname = previousSet .. "*"
+				setname = previousSet
 				texture = (ItemRackUser.Sets[previousSet] and ItemRackUser.Sets[previousSet].icon) or texture
 			else
 				-- Startup recovery or matched previous set
@@ -4801,33 +4822,7 @@ function ItemRack.MenuOnClick(self,button)
 	local item = ItemRack.Menu[self:GetID()]
 	ItemRack.Debug("UI", "MenuOnClick:", self:GetName(), "button:", button, "item:", item, "InCombat:", InCombatLockdown(), "menuOpen:", ItemRack.menuOpen)
 	ItemRack.ClearLockList()
-	if IsAltKeyDown() and button == "LeftButton" and ItemRackSettings.DisableAltClick == "OFF" and item ~= "MENU" and ItemRack.menuOpen and ItemRack.menuOpen < 20 then
-		-- In the Quick Access Menu, Alt+Left-Click toggles the queue for the slot this menu belongs to
-		local slot = ItemRack.menuOpen
-		if not ItemRack.GetQueues()[slot] then
-			LoadAddOn("ItemRackOptions")
-			if ItemRackOpt and ItemRackOpt.TabOnClick and ItemRackOpt.SetupQueue then
-				ItemRackOptFrame:Show()
-				ItemRackOpt.TabOnClick(self, 4)
-				ItemRackOpt.SetupQueue(slot)
-			end
-		end
-		-- Ensure per-set table exists before writing
-		if ItemRackUser.EnablePerSetQueues == "ON" then
-			local currentSet = ItemRackUser.CurrentSet and ItemRackUser.Sets[ItemRackUser.CurrentSet]
-			if currentSet and not currentSet.QueuesEnabled then
-				currentSet.QueuesEnabled = {}
-			end
-		end
-		ItemRack.GetQueuesEnabled()[slot] = not ItemRack.GetQueuesEnabled()[slot]
-		if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot == slot then
-			ItemRackOpt.UpdateQueueEnable()
-		end
-		ItemRack.UpdateCombatQueue()
-		-- Re-build the menu to reflect the new state
-		ItemRack.BuildMenu()
-		return
-	elseif IsAltKeyDown() and (button == "RightButton" or ItemRackSettings.DisableAltClick == "ON") and ItemRackSettings.AllowHidden == "ON" and item ~= "MENU" then
+	if IsAltKeyDown() and ItemRackSettings.AllowHidden == "ON" and item ~= "MENU" then
 		ItemRack.ToggleHidden(item)
 		ItemRack.BuildMenu()
 		return
@@ -4897,15 +4892,10 @@ function ItemRack.MenuOnClick(self,button)
 				ItemRackOpt.UpdateInv()
 			end
 			local targetSlot = ItemRack.menuOpen
-			local requestHold = false
 			if targetSlot>=13 and targetSlot<=14 and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then
 				targetSlot = (button=="RightButton") and 14 or 13
-				requestHold = ((IsAltKeyDown and IsAltKeyDown()) or (IsControlKeyDown and IsControlKeyDown())) and true or false
-			else
-				requestHold = (button=="RightButton")
 			end
-			local origin = requestHold and "manual_hold" or "manual_swap"
-			ItemRack.EquipItemByID(item,targetSlot,false,nil,nil,origin)
+			ItemRack.EquipItemByID(item,targetSlot,false,nil,nil,"manual_popup")
 			ItemRackMenuFrame:Hide()
 		end
 	elseif ItemRack.menuOpen==20 then
@@ -4990,18 +4980,9 @@ function ItemRack.EquipItemByID(id,slot,isAutoQueue,sourceBag,sourceSlot,origin)
 		if ItemRack.ClearManualQueueChoice then
 			ItemRack.ClearManualQueueChoice(slot)
 		end
-	elseif origin == "manual_hold" or origin == "manual_queue" then
+	elseif isManual then
 		if ItemRack.SetManualQueueChoice then
 			ItemRack.SetManualQueueChoice(slot, id)
-		end
-		if ItemRack.ManualToggledSet then
-			ItemRack.ManualToggledSet = nil
-		end
-	elseif isManual then
-		-- Normal manual swap (Left-Click or unflagged manual equip) clears any active manual hold
-		-- and clears manual toggle protection for this slot, allowing AutoQueue to resume.
-		if ItemRack.ClearManualQueueChoice then
-			ItemRack.ClearManualQueueChoice(slot)
 		end
 		if ItemRack.ManualToggledSet then
 			ItemRack.ManualToggledSet = nil

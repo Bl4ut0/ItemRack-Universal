@@ -14,14 +14,19 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
   - Prevented redundant menu re-docking and rebuilding in `OnEnterButton` when the menu is already open and docked to the hovered button.
   - Expanded `MenuMouseover` hit-testing with a 16px border margin around `ItemRackMenuFrame` to smoothly bridge the 8px docking gap, preventing the menu from closing prematurely during mouse transit.
   - Dynamic Shift activation: When "Require Shift for breakouts" is enabled, pressing Shift while already hovering over an item button or character sheet slot now immediately pops out the breakout menu without requiring mouse re-entry.
-- **Breakout Menu Alt-Click Queue Toggling & Item Hiding (GitHub Issue #33 Follow-up)**:
-  - Fixed an input conflict where having "Allow hidden items" enabled intercepted Alt-Clicks and attempted to hide items rather than toggling AutoQueue for that slot.
-  - Alt + Left-Click in breakout menus now reliably toggles AutoQueue for that slot on the first click (when "Disable Alt+Click" is OFF).
-  - Alt + Right-Click (or Alt + Left-Click when "Disable Alt+Click" is ON) toggles the item's hidden state when "Allow hidden items" is enabled.
-- **Manual Queue Hold Helper & Macro Commands (GitHub Issue #33 Personal Request)**:
-  - Added `ItemRack.HoldSlot(slot, [itemID])` and `ItemRack.ClearHoldSlot(slot)` API functions.
-  - Added slash commands `/itemrack hold <slot 0-19> [itemID]` and `/itemrack unhold <slot 0-19>`.
-  - Enables macros (e.g. `/equipslot 13 20130` followed by `/run ItemRack.HoldSlot(13, 20130)` or `/itemrack hold 13`) and external addons (such as TrinketMenu) to register manual holds directly, preventing AutoQueue from evicting foreign or manually swapped items until explicitly cleared or replaced via Left-Click.
+- **Control Schema Fidelity & Original Button Behavior Preservation (GitHub Issue #33 Follow-up)**:
+  - Preserved ItemRack's historic control framework so button purposes remain faithful to user muscle memory and documentation.
+  - In breakout flyout menus: Alt-Click strictly preserves `AllowHidden` (hides/unhides items from the menu when "Allow hidden items" is enabled). Queue toggling by Alt-Click is kept strictly on docked action bar buttons (`ItemRackButton%d`), matching `DisableAltClick` options and tooltips.
+  - In breakout flyout menus: Both Left-Click and Right-Click equip the clicked item without acting as an unexpected "hold" trap. In TrinketMenu mode (`TrinketMenuMode == "ON"`), Left-Click equips to Slot 13 (top trinket) and Right-Click equips to Slot 14 (bottom trinket) as originally designed.
+- **Button 20 Set Name Visual Alignment (GitHub Issue #33 Follow-up)**:
+  - Fixed an issue where entering the Hybrid Set State caused the set name text on quick-access Button 20 to shift outside the button boundary.
+  - Explicitly anchored `ItemRackButton20Name` to `BOTTOM, 0, 2`, centered (`justifyH="CENTER"`), width constrained to 36px, with drawlayer `OVERLAY, 7` above the divider line (`OVERLAY, 1`).
+  - Removed trailing asterisk from `setname` display to prevent font string overflow; the half-and-half split icon, tooltip, and broker text provide clear hybrid status.
+- **TrinketMenu, Macro & Manual Swap Integration (GitHub Issue #33 Personal Request)**:
+  - External manual swaps (such as TrinketMenu clicks, `/equipslot 13 ...` macros, or dragging items from bags) on AutoQueue-enabled slots are now automatically recognized as manual choices (`ManualQueueChoice`).
+  - AutoQueue preserves the manually equipped item while it is ready (or during its 30-second equip cooldown) instead of immediately overwriting it with queue items.
+  - Once the player uses the item in combat (burn-on-use), AutoQueue automatically resumes its normal queue rotation.
+  - Added slash commands `/itemrack hold <slot 0-19> [itemID]` and `/itemrack unhold <slot 0-19>`, and APIs `ItemRack.HoldSlot` / `ItemRack.ClearHoldSlot` for explicit hold control.
 
 
 ## [4.59-beta3] - 2026-11-10

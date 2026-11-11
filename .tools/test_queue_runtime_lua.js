@@ -698,5 +698,39 @@ check(ItemRack.ManualQueueChoice[13] == nil,
 check(ItemRack.ManualQueueChoice[14] == 23047,
   "ClearHoldSlot for slot 13 must preserve slot 14 hold")
 
+-- 6. SetButton20Visual text alignment and external manual equip hold
+local mockTexture = {
+  ClearAllPoints = function() end,
+  SetPoint = function() end,
+  SetWidth = function() end,
+  SetTexture = function() end,
+  SetVertexColor = function() end,
+  SetTexCoord = function() end,
+  SetDrawLayer = function() end,
+  Show = function() end,
+  Hide = function() end,
+}
+ItemRackButton20 = {
+  GetWidth = function() return 36 end,
+  CreateTexture = function() return mockTexture end,
+}
+ItemRackButton20ItemRackIcon = mockTexture
+local button20Name = {
+  points = {},
+  ClearAllPoints = function(self) self.points = {} end,
+  SetPoint = function(self, point, rel, relPoint, x, y) table.insert(self.points, {point=point, rel=rel, relPoint=relPoint, x=x, y=y}) end,
+  SetWidth = function(self, w) self.width = w end,
+  SetJustifyH = function(self, j) self.justify = j end,
+  SetDrawLayer = function(self, l, sub) self.layer = l; self.sublayer = sub end,
+}
+_G["ItemRackButton20Name"] = button20Name
+ItemRack.SetButton20Visual("Trash Other", "Trash Undead")
+check(button20Name.points[1] and button20Name.points[1].point == "BOTTOM" and button20Name.points[1].y == 2,
+  "SetButton20Visual must anchor ItemRackButton20Name to BOTTOM, 0, 2")
+check(button20Name.justify == "CENTER",
+  "SetButton20Visual must keep ItemRackButton20Name center-justified")
+check(button20Name.width == 36,
+  "SetButton20Visual must constrain ItemRackButton20Name width to button")
+
 print(string.format("[QUEUE RUNTIME LUA] %d purity and provenance checks passed.",checks))
 `, 'queue-runtime');

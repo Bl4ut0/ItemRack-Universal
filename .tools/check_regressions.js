@@ -548,9 +548,16 @@ check(
 );
 
 check(
-  core.includes('IsAltKeyDown() and button == "LeftButton" and ItemRackSettings.DisableAltClick == "OFF"') &&
-    core.includes('IsAltKeyDown() and (button == "RightButton" or ItemRackSettings.DisableAltClick == "ON") and ItemRackSettings.AllowHidden == "ON"'),
-  'MenuOnClick must disambiguate Alt+Left-Click queue toggling from Alt+Right-Click item hiding.'
+  core.includes('IsAltKeyDown() and ItemRackSettings.AllowHidden == "ON" and item ~= "MENU"') &&
+    buttons.includes('if id<20 and ItemRackSettings.DisableAltClick=="OFF" then'),
+  'MenuOnClick must preserve AllowHidden for Alt-Click on menu items, while ButtonPreClick preserves DisableAltClick queue toggling on slot buttons.'
+);
+
+check(
+  core.includes('local nameText = _G["ItemRackButton20Name"]') &&
+    core.includes('nameText:SetPoint("BOTTOM", button, "BOTTOM", 0, 2)') &&
+    core.includes('nameText:SetJustifyH("CENTER")'),
+  'SetButton20Visual must keep ItemRackButton20Name anchored and centered within button boundaries.'
 );
 
 check(
