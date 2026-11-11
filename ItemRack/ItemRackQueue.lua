@@ -117,9 +117,11 @@ function ItemRack.IsManualQueueChoice(slot, exactID, baseID, setname, list, owne
 	end
 	local recordedOwner = ItemRack.ManualQueueChoiceOwner and ItemRack.ManualQueueChoiceOwner[slot]
 	if recordedOwner ~= nil and recordedOwner ~= owner then return false end
-	local choiceIndex = ItemRack.FindQueueEntryIndex(list,choice)
-	if not choiceIndex or not ItemRack.IsQueueEntryUnambiguous(list,choiceIndex) then
-		return false
+	if list then
+		local choiceIndex = ItemRack.FindQueueEntryIndex(list,choice)
+		if choiceIndex and not ItemRack.IsQueueEntryUnambiguous(list,choiceIndex) then
+			return false
+		end
 	end
 	return ItemRack.MatchesStoredItemID(choice, exactID)
 end
@@ -130,20 +132,18 @@ function ItemRack.SetManualQueueChoice(slot, id, setname)
 		return
 	end
 	local context = ItemRack.GetQueueContext(slot,setname)
-	local list = context.list
-	if not list then
-		ItemRack.ClearManualQueueChoice(slot)
-		return
+	local list = context and context.list
+	local choiceID = id
+	if list then
+		local matchIndex = ItemRack.FindQueueEntryIndex(list,id)
+		if matchIndex then
+			choiceID = list[matchIndex].id
+		end
 	end
-	local matchIndex = ItemRack.FindQueueEntryIndex(list,id)
-	if matchIndex then
-		ItemRack.ManualQueueChoice = ItemRack.ManualQueueChoice or {}
-		ItemRack.ManualQueueChoiceOwner = ItemRack.ManualQueueChoiceOwner or {}
-		ItemRack.ManualQueueChoice[slot] = list[matchIndex].id
-		ItemRack.ManualQueueChoiceOwner[slot] = context.owner
-		return
-	end
-	ItemRack.ClearManualQueueChoice(slot)
+	ItemRack.ManualQueueChoice = ItemRack.ManualQueueChoice or {}
+	ItemRack.ManualQueueChoiceOwner = ItemRack.ManualQueueChoiceOwner or {}
+	ItemRack.ManualQueueChoice[slot] = choiceID
+	ItemRack.ManualQueueChoiceOwner[slot] = context and context.owner
 end
 
 function ItemRack.IsSlotProtectedByManualToggle(slot)
@@ -726,9 +726,8 @@ function ItemRack.ProcessAutoQueue(slot)
 	-- Burn-on-use is 100% event-driven via ReflectItemUse() upon actual player activation.
 
 	if ItemRack.ManualQueueChoice and ItemRack.ManualQueueChoice[slot]
-	and not ItemRack.FindQueueEntryIndex(list,exactID) then
-		-- Runtime processing may retire a hold that no longer belongs to the
-		-- active queue. Read-only predicates never perform this cleanup.
+	and not ItemRack.MatchesStoredItemID(ItemRack.ManualQueueChoice[slot], exactID) then
+		-- Runtime processing may retire a hold that is no longer equipped.
 		ItemRack.ClearManualQueueChoice(slot)
 	end
 	local nextItem, nextItemID = ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, nil, queueContext)

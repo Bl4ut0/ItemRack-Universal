@@ -1,4 +1,12 @@
 __ Development __
+- Hybrid Set State & Split-Icon Visual Presentation (GitHub Issue #33 Follow-up):
+  * Preserved ItemRackUser.CurrentSet as the active queue authority during live gameplay swaps to prevent unintended queue context hijacking when using sets that share identical armor or per-set queues.
+  * Added ItemRack.HybridSet to track when worn gear matches another saved set without silently overwriting CurrentSet or changing AutoQueue rules.
+  * Introduced split-icon rendering on quick-access Button 20 and the Minimap button (left half displaying the active queue set, right half displaying the detected gear set, separated by a dividing line). Left-clicking Button 20 while in a hybrid state officially equips and transitions the queue to the detected set.
+- Manual Queue Hold & Left-Click Swap Refinements (GitHub Issue #33):
+  * Normal Left-Click manual equips in flyout menus now clear previous manual holds (ManualQueueChoice) and manual toggle protection (ManualToggledSet), allowing AutoQueue to resume automatically.
+  * Right-Click manual equips in flyout menus set an explicit manual hold that AutoQueue respects, including full support for "foreign" items not present in the active queue list.
+  * In Trinket Menu Mode, Left-Click equips Slot 13 and Right-Click equips Slot 14 as normal swaps, while Alt-Click or Ctrl-Click sets explicit manual holds.
 
 __ New in 4.59-beta2 - By Bl4ut0 __
 - Anti-Taint & Secret Value Sanitization (Modern WoW 11.0+ / 12.0 Midnight & Leveling Guide Addons):

@@ -839,11 +839,17 @@ function ItemRack.ButtonPostClick(self,button)
 	elseif id<20 then
 		ItemRack.ReflectItemUse(id)
 	elseif id==20 then
-		if button=="LeftButton" and ItemRackUser.CurrentSet then
-			if ItemRackSettings.EquipToggle=="ON" then
-				ItemRack.ToggleSet(ItemRackUser.CurrentSet)
+		if button=="LeftButton" then
+			if ItemRack.HybridSet then
+				ItemRack.EquipSet(ItemRack.HybridSet)
+			elseif ItemRackUser.CurrentSet then
+				if ItemRackSettings.EquipToggle=="ON" then
+					ItemRack.ToggleSet(ItemRackUser.CurrentSet)
+				else
+					ItemRack.EquipSet(ItemRackUser.CurrentSet)
+				end
 			else
-				ItemRack.EquipSet(ItemRackUser.CurrentSet)
+				ItemRack.ToggleOptions(self,2) -- summon set options
 			end
 		else
 			ItemRack.ToggleOptions(self,2) -- summon set options

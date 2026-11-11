@@ -3,6 +3,16 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+### Bug Fixes & Improvements
+- **Hybrid Set State & Split-Icon Visual Presentation (GitHub Issue #33 Follow-up)**:
+  - Fixed unintended set and queue context hijacking when manually swapping items or trinkets while using sets with identical armor or per-set queues (`EnablePerSetQueues`).
+  - Previously, `UpdateCurrentSet` scanned all saved sets whenever the active set became modified or unequipped. If an equipped item matched another set's queue or gear (e.g. manually equipping Mark of the Champion while running a Hand of Justice set), `CurrentSet` was automatically reassigned to that other set, silently rewriting active AutoQueue priorities and delays behind the player's back.
+  - Resolved by preserving `ItemRackUser.CurrentSet` as the active queue authority during live gameplay swaps. If worn gear matches another saved set, ItemRack now tracks it as a **Hybrid Set State** (`ItemRack.HybridSet`), keeping the player's chosen queue rules intact.
+  - Added **Split-Icon Visual Indicator**: When in a hybrid state, quick-access Button 20 and the Minimap button render a dual-sliced texture (left half: active queue set, right half: detected gear set, separated by a center divider line). Button and minimap tooltips display the active queue set versus equipped gear set and prompt the player that Left-Clicking will officially switch the queue over to the detected set.
+- **Manual Queue Hold & Left-Click Swap Refinements (GitHub Issue #33)**:
+  - Normal Left-Click manual equips in flyout menus now cleanly clear previous manual queue holds (`ManualQueueChoice`) and manual toggle protection (`ManualToggledSet`), allowing AutoQueue to resume naturally.
+  - Right-Click manual equips in flyout menus set an explicit manual hold that AutoQueue respects, including full support for "foreign" items not present in the active queue list.
+  - In Trinket Menu Mode (`TrinketMenuMode == "ON"`), Left-Click equips Slot 13 and Right-Click equips Slot 14 as normal swaps, while Alt-Click or Ctrl-Click sets explicit manual holds for either slot.
 
 
 ## [4.59-beta2] - 2026-11-06

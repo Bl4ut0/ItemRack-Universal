@@ -21,6 +21,8 @@ const isSetPendingInCombatQueue = extractFunction(equipFile, 'ItemRack.IsSetPend
 const cancelCombatQueueSet = extractFunction(equipFile, 'ItemRack.CancelCombatQueueSet');
 const purgeAutomaticSetsWaiting = extractFunction(equipFile, 'ItemRack.PurgeAutomaticSetsWaiting');
 const endSetSwap = extractFunction(equipFile, 'ItemRack.EndSetSwap');
+const updateCurrentSet = extractFunction(itemRackFile, 'ItemRack.UpdateCurrentSet');
+const setButton20Visual = extractFunction(itemRackFile, 'ItemRack.SetButton20Visual');
 const optionsFile = 'ItemRackOptions/ItemRackOptions.lua';
 const hasUnsavedSetChanges = extractFunction(optionsFile, 'ItemRackOpt.HasUnsavedSetChanges');
 const changeEditingSet = extractFunction(optionsFile, 'ItemRackOpt.ChangeEditingSet');
@@ -109,6 +111,32 @@ check(ItemRack.ManualQueueChoice[13] == "100" and ItemRack.ManualQueueChoiceOwne
 ItemRack.ClearManualQueueChoice(13)
 check(ItemRack.ManualQueueChoice[13] == nil and ItemRack.ManualQueueChoiceOwner[13] == nil,
   "manual choice cleanup must clear identity and provenance together")
+
+-- Issue #33 follow-up: Foreign item manual hold and clearance
+-- When a player Right-Clicks an item not in the queue, SetManualQueueChoice must still hold it.
+ItemRack.SetManualQueueChoice(13,"888")
+check(ItemRack.ManualQueueChoice[13] == "888" and ItemRack.ManualQueueChoiceOwner[13] == "Active",
+  "manual hold on foreign item must store requested ID and owner")
+check(ItemRack.IsManualQueueChoice(13,"888","888",nil,activeList,"Active"),
+  "manual hold on foreign item must validate as held when equipped")
+
+-- AutoQueueItemToEquip must honor the manual hold on the foreign item
+ItemRack.GetID = function(s) return s == 13 and "888" or "0" end
+ItemRack.FindItemInBags = function(id) return 0, 1 end
+ItemRack.IsCandidateReady = function() return true end
+ItemRack.GetObservedItemCooldown = function() return nil end
+local foreignHoldCandidate = ItemRack.AutoQueueItemToEquip(13,"888",1,true,nil,contexts.Active)
+check(foreignHoldCandidate == nil,
+  "AutoQueueItemToEquip must not evict foreign item while manual hold is active")
+
+-- When cleared (e.g. Left-Click normal swap), AutoQueue resumes
+ItemRack.ClearManualQueueChoice(13)
+check(ItemRack.IsManualQueueChoice(13,"888","888",nil,activeList,"Active") == false,
+  "IsManualQueueChoice must return false once manual hold is cleared")
+local resumedCandidate = ItemRack.AutoQueueItemToEquip(13,"888",1,true,nil,contexts.Active)
+check(resumedCandidate == "100",
+  "AutoQueueItemToEquip must resume selecting preferred candidate once manual hold is cleared")
+ItemRack.GetID = function() return "999" end
 
 local cooldownList = { { id="200" }, { id="999" } }
 local cooldownContext = { owner="Cooldown", list=cooldownList, enabled=true }
@@ -598,6 +626,56 @@ check(#ItemRack.SetsWaiting == 1 and ItemRack.SetsWaiting[1][1] == "ManualSet",
   "PurgeAutomaticSetsWaiting must remove automatic waiting sets and retain manual sets")
 
 InCombatLockdown = function() return false end
+
+-- 4. Hybrid Set Detection and Split Visual
+ItemRack.GetTextureBySlot = function(slot) return "MockTexture" end
+${setButton20Visual}
+${updateCurrentSet}
+
+local visualCalls = {}
+local origVisual = ItemRack.SetButton20Visual
+ItemRack.SetButton20Visual = function(activeOwner, hybridSet)
+  checks = checks + 1
+  table.insert(visualCalls, { activeOwner = activeOwner, hybridSet = hybridSet })
+  origVisual(activeOwner, hybridSet)
+end
+
+ItemRackUser.Sets = {
+  ["Trash Other"] = { icon = "Icon1", equip = { [1] = "1001", [13] = "HOJ" } },
+  ["Trash Undead"] = { icon = "Icon2", equip = { [1] = "1001", [13] = "MOTC" } },
+}
+
+-- Scenario A: Player is wearing Trash Other
+ItemRackUser.CurrentSet = "Trash Other"
+ItemRack.IsSetEquipped = function(name) return name == "Trash Other" end
+ItemRack.UpdateCurrentSet()
+
+check(ItemRackUser.CurrentSet == "Trash Other", "Active set must remain Trash Other when equipped")
+check(ItemRack.HybridSet == nil, "HybridSet must be nil when active set is fully equipped")
+
+-- Scenario B: Player manually equips Mark of the Champion (gear now matches Trash Undead)
+ItemRack.IsSetEquipped = function(name) return name == "Trash Undead" end
+ItemRack.UpdateCurrentSet()
+
+check(ItemRackUser.CurrentSet == "Trash Other", "Active CurrentSet must NOT be hijacked to Trash Undead during manual swap")
+check(ItemRack.HybridSet == "Trash Undead", "HybridSet must record detected Trash Undead")
+check(#visualCalls > 0 and visualCalls[#visualCalls].activeOwner == "Trash Other" and visualCalls[#visualCalls].hybridSet == "Trash Undead",
+  "SetButton20Visual must receive activeOwner and hybridSet for split icon rendering")
+
+-- Scenario C: Player switches back to Trash Other
+ItemRack.IsSetEquipped = function(name) return name == "Trash Other" end
+ItemRack.UpdateCurrentSet()
+
+check(ItemRackUser.CurrentSet == "Trash Other", "CurrentSet remains Trash Other")
+check(ItemRack.HybridSet == nil, "HybridSet must clear when returning to active set gear")
+
+-- Scenario D: Startup recovery (CurrentSet is nil on launch)
+ItemRackUser.CurrentSet = nil
+ItemRack.IsSetEquipped = function(name) return name == "Trash Undead" end
+ItemRack.UpdateCurrentSet()
+
+check(ItemRackUser.CurrentSet == "Trash Undead", "Startup recovery must adopt detected set when CurrentSet is nil")
+check(ItemRack.HybridSet == nil, "HybridSet must be nil on startup recovery")
 
 print(string.format("[QUEUE RUNTIME LUA] %d purity and provenance checks passed.",checks))
 `, 'queue-runtime');

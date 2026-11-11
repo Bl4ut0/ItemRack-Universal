@@ -2885,9 +2885,168 @@ function ItemRack.Print(msg)
 	end
 end
 
+function ItemRack.SetButton20Visual(currentSetName, hybridSetName)
+	local button = ItemRackButton20
+	if not button then return end
+
+	local icon = ItemRackButton20ItemRackIcon or (button.GetName and _G[button:GetName().."ItemRackIcon"])
+	if not icon then return end
+
+	local splitIcon = ItemRackButton20SplitIcon
+	local divider = ItemRackButton20Divider
+
+	local isHybrid = hybridSetName and currentSetName and ItemRackUser and ItemRackUser.Sets
+		and ItemRackUser.Sets[currentSetName] and ItemRackUser.Sets[hybridSetName]
+
+	if isHybrid then
+		local set1Icon = ItemRackUser.Sets[currentSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+		local set2Icon = ItemRackUser.Sets[hybridSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+
+		if not splitIcon and button.CreateTexture then
+			splitIcon = button:CreateTexture("ItemRackButton20SplitIcon", "ARTWORK")
+			ItemRackButton20SplitIcon = splitIcon
+		end
+		if not divider and button.CreateTexture then
+			divider = button:CreateTexture("ItemRackButton20Divider", "OVERLAY")
+			ItemRackButton20Divider = divider
+		end
+
+		if icon.ClearAllPoints then icon:ClearAllPoints() end
+		if icon.SetPoint then
+			icon:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+			icon:SetPoint("BOTTOMRIGHT", button, "BOTTOM", 0, 0)
+		end
+		if icon.SetTexCoord then icon:SetTexCoord(0, 0.5, 0, 1) end
+		if icon.SetTexture then icon:SetTexture(set1Icon) end
+		if icon.Show then icon:Show() end
+
+		if splitIcon then
+			if splitIcon.ClearAllPoints then splitIcon:ClearAllPoints() end
+			if splitIcon.SetPoint then
+				splitIcon:SetPoint("TOPLEFT", button, "TOP", 0, 0)
+				splitIcon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
+			end
+			if splitIcon.SetTexCoord then splitIcon:SetTexCoord(0.5, 1, 0, 1) end
+			if splitIcon.SetTexture then splitIcon:SetTexture(set2Icon) end
+			if splitIcon.Show then splitIcon:Show() end
+		end
+
+		if divider then
+			if divider.ClearAllPoints then divider:ClearAllPoints() end
+			if divider.SetPoint then
+				divider:SetPoint("TOP", button, "TOP", 0, 0)
+				divider:SetPoint("BOTTOM", button, "BOTTOM", 0, 0)
+			end
+			if divider.SetWidth then divider:SetWidth(2) end
+			if divider.SetTexture then divider:SetTexture("Interface\\Buttons\\WHITE8X8") end
+			if divider.SetVertexColor then divider:SetVertexColor(1, 0.82, 0, 0.9) end
+			if divider.Show then divider:Show() end
+		end
+	else
+		local solidTexture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+		if currentSetName and currentSetName ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[currentSetName] then
+			solidTexture = ItemRackUser.Sets[currentSetName].icon or solidTexture
+		end
+
+		if icon.ClearAllPoints then icon:ClearAllPoints() end
+		if icon.SetPoint then
+			icon:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+			icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
+		end
+		if icon.SetTexCoord then icon:SetTexCoord(0, 1, 0, 1) end
+		if icon.SetTexture then icon:SetTexture(solidTexture) end
+		if icon.Show then icon:Show() end
+
+		if splitIcon and splitIcon.Hide then
+			splitIcon:Hide()
+		end
+		if divider and divider.Hide then
+			divider:Hide()
+		end
+	end
+end
+
+function ItemRack.SetMinimapButtonVisual(currentSetName, hybridSetName)
+	local button = _G["LibDBIcon10_ItemRack"]
+	if not button then return end
+
+	local icon = button.icon
+	if not icon then return end
+
+	local splitIcon = button.SplitIcon
+	local divider = button.Divider
+
+	local isHybrid = hybridSetName and currentSetName and ItemRackUser and ItemRackUser.Sets
+		and ItemRackUser.Sets[currentSetName] and ItemRackUser.Sets[hybridSetName]
+
+	if isHybrid then
+		local set1Icon = ItemRackUser.Sets[currentSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+		local set2Icon = ItemRackUser.Sets[hybridSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+
+		if not splitIcon and button.CreateTexture then
+			splitIcon = button:CreateTexture(nil, "ARTWORK")
+			button.SplitIcon = splitIcon
+		end
+		if not divider and button.CreateTexture then
+			divider = button:CreateTexture(nil, "OVERLAY")
+			button.Divider = divider
+		end
+
+		if icon.ClearAllPoints then icon:ClearAllPoints() end
+		if icon.SetPoint then
+			icon:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+			icon:SetPoint("BOTTOMRIGHT", button, "BOTTOM", 0, 0)
+		end
+		if icon.SetTexCoord then icon:SetTexCoord(0, 0.5, 0, 1) end
+		if icon.SetTexture then icon:SetTexture(set1Icon) end
+		if icon.Show then icon:Show() end
+
+		if splitIcon then
+			if splitIcon.ClearAllPoints then splitIcon:ClearAllPoints() end
+			if splitIcon.SetPoint then
+				splitIcon:SetPoint("TOPLEFT", button, "TOP", 0, 0)
+				splitIcon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
+			end
+			if splitIcon.SetTexCoord then splitIcon:SetTexCoord(0.5, 1, 0, 1) end
+			if splitIcon.SetTexture then splitIcon:SetTexture(set2Icon) end
+			if splitIcon.Show then splitIcon:Show() end
+		end
+
+		if divider then
+			if divider.ClearAllPoints then divider:ClearAllPoints() end
+			if divider.SetPoint then
+				divider:SetPoint("TOP", button, "TOP", 0, 0)
+				divider:SetPoint("BOTTOM", button, "BOTTOM", 0, 0)
+			end
+			if divider.SetWidth then divider:SetWidth(2) end
+			if divider.SetTexture then divider:SetTexture("Interface\\Buttons\\WHITE8X8") end
+			if divider.SetVertexColor then divider:SetVertexColor(1, 0.82, 0, 0.9) end
+			if divider.Show then divider:Show() end
+		end
+	else
+		local solidTexture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+		if currentSetName and currentSetName ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[currentSetName] then
+			solidTexture = ItemRackUser.Sets[currentSetName].icon or solidTexture
+		end
+
+		if icon.ClearAllPoints then icon:ClearAllPoints() end
+		if icon.SetPoint then
+			icon:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+			icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
+		end
+		if icon.SetTexCoord then icon:SetTexCoord(0, 1, 0, 1) end
+		if icon.SetTexture then icon:SetTexture(solidTexture) end
+		if icon.Show then icon:Show() end
+
+		if splitIcon and splitIcon.Hide then splitIcon:Hide() end
+		if divider and divider.Hide then divider:Hide() end
+	end
+end
+
 function ItemRack.UpdateCurrentSet()
 	local texture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
-	local setname = ItemRackUser.CurrentSet or _G.CUSTOM
+	local previousSet = ItemRackUser and ItemRackUser.CurrentSet
+	local setname = previousSet or _G.CUSTOM
 	if setname and setname ~= _G.CUSTOM then
 		local equipped = ItemRack.IsSetEquipped(setname)
 		
@@ -2914,23 +3073,53 @@ function ItemRack.UpdateCurrentSet()
 			end
 		end
 		if bestSet then
-			setname = bestSet
-			ItemRackUser.CurrentSet = bestSet
-			texture = ItemRack.GetTextureBySlot(20)
+			if previousSet and previousSet ~= _G.CUSTOM and bestSet ~= previousSet then
+				-- Hybrid state: player had an active set (preserving queue rules), but worn gear matches bestSet
+				ItemRack.HybridSet = bestSet
+				setname = previousSet .. "*"
+				texture = (ItemRackUser.Sets[previousSet] and ItemRackUser.Sets[previousSet].icon) or texture
+			else
+				-- Startup recovery or matched previous set
+				ItemRack.HybridSet = nil
+				setname = bestSet
+				ItemRackUser.CurrentSet = bestSet
+				texture = ItemRack.GetTextureBySlot(20)
+			end
+		else
+			ItemRack.HybridSet = nil
 		end
+	else
+		ItemRack.HybridSet = nil
 	end
-	if ItemRackButton20 and ItemRackUser.Buttons and ItemRackUser.Buttons[20] then
+
+	local activeOwner = previousSet or ItemRackUser.CurrentSet
+	if ItemRack.SetButton20Visual then
+		ItemRack.SetButton20Visual(activeOwner, ItemRack.HybridSet)
+	elseif ItemRackButton20 and ItemRackButton20ItemRackIcon and ItemRackButton20ItemRackIcon.SetTexture then
 		ItemRackButton20ItemRackIcon:SetTexture(texture)
+	end
+
+	if ItemRack.SetMinimapButtonVisual then
+		ItemRack.SetMinimapButtonVisual(activeOwner, ItemRack.HybridSet)
+	end
+
+	if ItemRackButton20 and ItemRackUser and ItemRackUser.Buttons and ItemRackUser.Buttons[20] then
 		local nameText = _G["ItemRackButton20Name"]
-		if nameText then
+		if nameText and nameText.SetText then
 			nameText:SetText(setname)
-			nameText:Show()
+			if nameText.Show then nameText:Show() end
 		end
 	end
+
 	if ItemRack.Broker then
 		ItemRack.Broker.icon = texture
-		ItemRack.Broker.text = setname
+		if ItemRack.HybridSet and activeOwner then
+			ItemRack.Broker.text = activeOwner .. " (" .. ItemRack.HybridSet .. ")"
+		else
+			ItemRack.Broker.text = setname
+		end
 	end
+
 	if ItemRack.RefreshCustomItemIcons then ItemRack.RefreshCustomItemIcons() end
 end
 
@@ -4759,10 +4948,16 @@ function ItemRack.MenuOnClick(self,button)
 				ItemRackOpt.SetModified = true
 				ItemRackOpt.UpdateInv()
 			end
-			if ItemRack.menuOpen>=13 and ItemRack.menuOpen<=14 and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then
-				ItemRack.menuOpen = button=="RightButton" and 14 or 13
+			local targetSlot = ItemRack.menuOpen
+			local requestHold = false
+			if targetSlot>=13 and targetSlot<=14 and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then
+				targetSlot = (button=="RightButton") and 14 or 13
+				requestHold = ((IsAltKeyDown and IsAltKeyDown()) or (IsControlKeyDown and IsControlKeyDown())) and true or false
+			else
+				requestHold = (button=="RightButton")
 			end
-			ItemRack.EquipItemByID(item,ItemRack.menuOpen)
+			local origin = requestHold and "manual_hold" or "manual_swap"
+			ItemRack.EquipItemByID(item,targetSlot,false,nil,nil,origin)
 			ItemRackMenuFrame:Hide()
 		end
 	elseif ItemRack.menuOpen==20 then
@@ -4841,14 +5036,28 @@ end
 function ItemRack.EquipItemByID(id,slot,isAutoQueue,sourceBag,sourceSlot,origin)
 	if id == nil or slot == nil then return "failed", "invalid_request" end
 	origin = origin or (isAutoQueue and "autoqueue" or "manual_popup")
-	local isManual = origin == "manual_popup" or origin == "manual_queue"
+	local isManual = origin == "manual_popup" or origin == "manual_queue" or origin == "manual_swap" or origin == "manual_hold"
 
 	if isAutoQueue then
 		if ItemRack.ClearManualQueueChoice then
 			ItemRack.ClearManualQueueChoice(slot)
 		end
-	elseif isManual and ItemRack.SetManualQueueChoice then
-		ItemRack.SetManualQueueChoice(slot, id)
+	elseif origin == "manual_hold" or origin == "manual_queue" then
+		if ItemRack.SetManualQueueChoice then
+			ItemRack.SetManualQueueChoice(slot, id)
+		end
+		if ItemRack.ManualToggledSet then
+			ItemRack.ManualToggledSet = nil
+		end
+	elseif isManual then
+		-- Normal manual swap (Left-Click or unflagged manual equip) clears any active manual hold
+		-- and clears manual toggle protection for this slot, allowing AutoQueue to resume.
+		if ItemRack.ClearManualQueueChoice then
+			ItemRack.ClearManualQueueChoice(slot)
+		end
+		if ItemRack.ManualToggledSet then
+			ItemRack.ManualToggledSet = nil
+		end
 	end
 
 	-- A satisfied request is still meaningful: it supersedes an older queued
@@ -5982,6 +6191,15 @@ end
 
 function ItemRack.SetTooltip(self,setname)
 	if ItemRackSettings.ShowTooltips ~= "ON" then return end
+	if ItemRack.HybridSet and ItemRackUser and ItemRackUser.CurrentSet and self and self.GetID and self:GetID()==20 then
+		ItemRack.AnchorTooltip(self)
+		GameTooltip:AddLine("ItemRack: Hybrid Set", 1, 0.82, 0)
+		GameTooltip:AddLine("Active Queue: |cFFFFFFFF" .. tostring(ItemRackUser.CurrentSet) .. "|r", 0.8, 0.8, 0.8)
+		GameTooltip:AddLine("Equipped Gear: |cFF00FF00" .. tostring(ItemRack.HybridSet) .. "|r", 0.8, 0.8, 0.8)
+		GameTooltip:AddLine("Left-Click: Fully switch to " .. tostring(ItemRack.HybridSet), 1, 1, 1)
+		GameTooltip:Show()
+		return
+	end
 	local set = setname and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].equip
 	if set then
 		local itemName,itemColor
@@ -6407,6 +6625,11 @@ function ItemRack.MinimapOnEnter(tooltip)
 	end
 
 	tooltip:AddLine("ItemRack")
+	if ItemRack.HybridSet and ItemRackUser and ItemRackUser.CurrentSet then
+		tooltip:AddLine("Hybrid: |cFFFFFFFF" .. tostring(ItemRackUser.CurrentSet) .. "|r / |cFF00FF00" .. tostring(ItemRack.HybridSet) .. "|r", 1, 0.82, 0)
+		tooltip:AddLine("Active Queue: " .. tostring(ItemRackUser.CurrentSet), 0.8, 0.8, 0.8)
+		tooltip:AddLine("Equipped Gear: " .. tostring(ItemRack.HybridSet), 0.8, 0.8, 0.8)
+	end
 	tooltip:AddLine("Left click: Select a set",.8,.8,.8,1)
 	tooltip:AddLine("Right click: Open options",.8,.8,.8,1)
 	tooltip:AddLine("Alt left click: Show hidden sets",.8,.8,.8,1)
@@ -7147,6 +7370,7 @@ function ItemRack.SlashHandler(arg1)
 			dumpText = dumpText .. "ItemRackUser.Locked = " .. tostring(ItemRackUser.Locked) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.Buttons = " .. ItemRackLogFrame.Serialize(ItemRackUser.Buttons) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.CurrentSet = " .. tostring(ItemRackUser.CurrentSet) .. "\n"
+			dumpText = dumpText .. "ItemRack.HybridSet = " .. tostring(ItemRack.HybridSet) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.EventStack = " .. ItemRackLogFrame.Serialize(ItemRackUser.EventStack) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.Queues = " .. ItemRackLogFrame.Serialize(ItemRackUser.Queues) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.QueuesEnabled = " .. ItemRackLogFrame.Serialize(ItemRackUser.QueuesEnabled) .. "\n"
@@ -7188,6 +7412,7 @@ function ItemRack.SlashHandler(arg1)
 				{ name = "ItemRackUser.EnableEvents", val = ItemRackUser.EnableEvents },
 				{ name = "ItemRackUser.EnableQueues", val = ItemRackUser.EnableQueues },
 				{ name = "ItemRackUser.EnablePerSetQueues", val = ItemRackUser.EnablePerSetQueues },
+				{ name = "ItemRack.HybridSet", val = ItemRack.HybridSet },
 				{ name = "ItemRackUser.EnableQueueContextCheck", val = ItemRackUser.EnableQueueContextCheck },
 				{ name = "ItemRackUser.ButtonSpacing", val = ItemRackUser.ButtonSpacing },
 				{ name = "ItemRackUser.Alpha", val = ItemRackUser.Alpha },

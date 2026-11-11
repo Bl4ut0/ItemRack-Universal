@@ -1366,6 +1366,7 @@ function ItemRack.EndSetSwap(setname)
 		end
 		if not string.match(setname,"^~") then --do not list internal sets, prefixed with ~
 			ItemRackUser.CurrentSet = setname
+			ItemRack.HybridSet = nil
 			C_Timer.After(0.5, ItemRack.UpdateCurrentSet)
 
 			-- Dual Spec Support: Auto-Swap Spec if Set is bound
@@ -1748,12 +1749,10 @@ function ItemRack.ToggleSet(setname,exact,disableSound,isSecureKeybind)
 	end
 	local set = ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[setname]
 	local isEquipped = ItemRack.IsSetEquipped(setname,exact)
-	if not otherSetActive and (isEquipped or (currentSet == setname and set and set.old)) then
---		print("remove "..setname)
+	if not otherSetActive and currentSet == setname and (isEquipped or (set and set.old)) then
 		ItemRack.ManualToggledSet = nil
 		ItemRack.UnequipSet(setname,disableSound)
 	else
---		print("equip "..setname)
 		ItemRack.ManualToggledSet = setname
 		if ItemRack.ReleaseEventSlotsForManualChange and set and set.equip then
 			ItemRack.ReleaseEventSlotsForManualChange(set.equip)
