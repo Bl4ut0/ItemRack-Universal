@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.59-beta3 - By Bl4ut0 __
 - Hybrid Set State & Split-Icon Visual Presentation (GitHub Issue #33 Follow-up):
   * Preserved ItemRackUser.CurrentSet as the active queue authority during live gameplay swaps to prevent unintended queue context hijacking when using sets that share identical armor or per-set queues.
   * Added ItemRack.HybridSet to track when worn gear matches another saved set without silently overwriting CurrentSet or changing AutoQueue rules.

@@ -3,6 +3,9 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+
+
+## [4.59-beta3] - 2026-11-10
 ### Bug Fixes & Improvements
 - **Hybrid Set State & Split-Icon Visual Presentation (GitHub Issue #33 Follow-up)**:
   - Fixed unintended set and queue context hijacking when manually swapping items or trinkets while using sets with identical armor or per-set queues (`EnablePerSetQueues`).
@@ -13,7 +16,6 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
   - Normal Left-Click manual equips in flyout menus now cleanly clear previous manual queue holds (`ManualQueueChoice`) and manual toggle protection (`ManualToggledSet`), allowing AutoQueue to resume naturally.
   - Right-Click manual equips in flyout menus set an explicit manual hold that AutoQueue respects, including full support for "foreign" items not present in the active queue list.
   - In Trinket Menu Mode (`TrinketMenuMode == "ON"`), Left-Click equips Slot 13 and Right-Click equips Slot 14 as normal swaps, while Alt-Click or Ctrl-Click sets explicit manual holds for either slot.
-
 
 ## [4.59-beta2] - 2026-11-06
 ### Bug Fixes & Improvements
