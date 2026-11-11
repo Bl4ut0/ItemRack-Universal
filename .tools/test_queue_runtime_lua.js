@@ -687,16 +687,24 @@ ItemRack.GetID = function(slot) return slot == 13 and "20130" or "0" end
 ItemRack.HoldSlot(13)
 check(ItemRack.ManualQueueChoice and ItemRack.ManualQueueChoice[13] == "20130",
   "HoldSlot must record equipped item as manual hold for slot")
+check(ItemRack.ManualQueueHold and ItemRack.ManualQueueHold[13] == true,
+  "HoldSlot must set ManualQueueHold for persistent hold")
 
 ItemRack.HoldSlot(14, "item:23047")
 check(ItemRack.ManualQueueChoice and ItemRack.ManualQueueChoice[14] == 23047,
   "HoldSlot with explicit item link/string must record item ID")
+check(ItemRack.ManualQueueHold and ItemRack.ManualQueueHold[14] == true,
+  "HoldSlot must set ManualQueueHold for slot 14")
 
 ItemRack.ClearHoldSlot(13)
 check(ItemRack.ManualQueueChoice[13] == nil,
   "ClearHoldSlot must clear the manual hold for slot 13")
+check(ItemRack.ManualQueueHold[13] == nil,
+  "ClearHoldSlot must clear ManualQueueHold for slot 13")
 check(ItemRack.ManualQueueChoice[14] == 23047,
   "ClearHoldSlot for slot 13 must preserve slot 14 hold")
+check(ItemRack.ManualQueueHold[14] == true,
+  "ClearHoldSlot for slot 13 must preserve slot 14 ManualQueueHold")
 
 -- 6. SetButton20Visual text alignment and external manual equip hold
 local mockTexture = {

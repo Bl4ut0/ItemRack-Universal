@@ -58,6 +58,9 @@ function ItemRack.ClearManualQueueChoice(slot)
 	if ItemRack.ManualQueueChoiceOwner then
 		ItemRack.ManualQueueChoiceOwner[slot] = nil
 	end
+	if ItemRack.ManualQueueHold then
+		ItemRack.ManualQueueHold[slot] = nil
+	end
 end
 
 -- A deliberately bare queue seed can resolve any carried copy with the same
@@ -164,6 +167,8 @@ function ItemRack.HoldSlot(slot, id)
 		return false
 	end
 	ItemRack.SetManualQueueChoice(slot, id)
+	ItemRack.ManualQueueHold = ItemRack.ManualQueueHold or {}
+	ItemRack.ManualQueueHold[slot] = true
 	if ItemRack.ManualToggledSet then
 		ItemRack.ManualToggledSet = nil
 	end
@@ -179,6 +184,9 @@ function ItemRack.ClearHoldSlot(slot)
 		return false
 	end
 	ItemRack.ClearManualQueueChoice(slot)
+	if ItemRack.ManualQueueHold then
+		ItemRack.ManualQueueHold[slot] = nil
+	end
 	if ItemRack.ManualToggledSet then
 		ItemRack.ManualToggledSet = nil
 	end
@@ -885,8 +893,11 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 
 			local isEquippedInQueue = currentMatchIndex ~= nil
 			local canSwap = not ready or (not isEquippedInQueue) or (not isEquippedActive) or list[i].priority
-			if manualHold and ready and i ~= currentMatchIndex then
-				canSwap = false
+			local isPersistentHold = manualHold and ItemRack.ManualQueueHold and ItemRack.ManualQueueHold[slot]
+			if manualHold and i ~= currentMatchIndex then
+				if isPersistentHold or ready then
+					canSwap = false
+				end
 			end
 			if canSwap then
 				local candidateCustomTime = list[i].swapInEnabled and list[i].swapIn or nil

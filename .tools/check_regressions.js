@@ -561,6 +561,13 @@ check(
 );
 
 check(
+  core.includes('if targetSlot>=13 and targetSlot<=14 and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then') &&
+    core.includes('targetSlot = (button=="RightButton") and 14 or 13') &&
+    core.includes('requestHold = (button=="RightButton")'),
+  'MenuOnClick must route TrinketMenuMode clicks (Left=13, Right=14) and standard breakout Right-Click to hold.'
+);
+
+check(
   queue.includes('function ItemRack.HoldSlot(slot, id)') &&
     queue.includes('function ItemRack.ClearHoldSlot(slot)') &&
     core.includes('string.match(arg1, "^hold%s*")'),

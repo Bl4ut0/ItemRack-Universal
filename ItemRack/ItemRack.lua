@@ -4892,10 +4892,15 @@ function ItemRack.MenuOnClick(self,button)
 				ItemRackOpt.UpdateInv()
 			end
 			local targetSlot = ItemRack.menuOpen
+			local requestHold = false
 			if targetSlot>=13 and targetSlot<=14 and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then
 				targetSlot = (button=="RightButton") and 14 or 13
+				requestHold = (IsControlKeyDown and IsControlKeyDown()) and true or false
+			else
+				requestHold = (button=="RightButton")
 			end
-			ItemRack.EquipItemByID(item,targetSlot,false,nil,nil,"manual_popup")
+			local origin = requestHold and "manual_hold" or "manual_swap"
+			ItemRack.EquipItemByID(item,targetSlot,false,nil,nil,origin)
 			ItemRackMenuFrame:Hide()
 		end
 	elseif ItemRack.menuOpen==20 then
@@ -4980,9 +4985,21 @@ function ItemRack.EquipItemByID(id,slot,isAutoQueue,sourceBag,sourceSlot,origin)
 		if ItemRack.ClearManualQueueChoice then
 			ItemRack.ClearManualQueueChoice(slot)
 		end
+	elseif origin == "manual_hold" then
+		if ItemRack.SetManualQueueChoice then
+			ItemRack.SetManualQueueChoice(slot, id)
+		end
+		ItemRack.ManualQueueHold = ItemRack.ManualQueueHold or {}
+		ItemRack.ManualQueueHold[slot] = true
+		if ItemRack.ManualToggledSet then
+			ItemRack.ManualToggledSet = nil
+		end
 	elseif isManual then
 		if ItemRack.SetManualQueueChoice then
 			ItemRack.SetManualQueueChoice(slot, id)
+		end
+		if ItemRack.ManualQueueHold then
+			ItemRack.ManualQueueHold[slot] = nil
 		end
 		if ItemRack.ManualToggledSet then
 			ItemRack.ManualToggledSet = nil
