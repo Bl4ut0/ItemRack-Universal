@@ -146,6 +146,46 @@ function ItemRack.SetManualQueueChoice(slot, id, setname)
 	ItemRack.ManualQueueChoiceOwner[slot] = context and context.owner
 end
 
+function ItemRack.HoldSlot(slot, id)
+	slot = tonumber(slot)
+	if not slot or slot < 0 or slot > 19 then
+		if ItemRack.Print then ItemRack.Print("Usage: ItemRack.HoldSlot(slot, [itemID]) - slot must be 0-19") end
+		return false
+	end
+	if id and type(id) == "string" then
+		local numericID = id:match("(%d+)")
+		if numericID then id = tonumber(numericID) end
+	end
+	if not id or id == "" or id == 0 then
+		id = ItemRack.GetID(slot)
+	end
+	if not id or id == 0 or id == "0" then
+		if ItemRack.Print then ItemRack.Print("No equipped item found in slot " .. slot .. " to hold.") end
+		return false
+	end
+	ItemRack.SetManualQueueChoice(slot, id)
+	if ItemRack.ManualToggledSet then
+		ItemRack.ManualToggledSet = nil
+	end
+	local name = (ItemRack.GetInfoByID and select(1, ItemRack.GetInfoByID(id))) or tostring(id)
+	if ItemRack.Print then ItemRack.Print("Manual hold active for slot " .. slot .. ": " .. name) end
+	return true
+end
+
+function ItemRack.ClearHoldSlot(slot)
+	slot = tonumber(slot)
+	if not slot or slot < 0 or slot > 19 then
+		if ItemRack.Print then ItemRack.Print("Usage: ItemRack.ClearHoldSlot(slot) - slot must be 0-19") end
+		return false
+	end
+	ItemRack.ClearManualQueueChoice(slot)
+	if ItemRack.ManualToggledSet then
+		ItemRack.ManualToggledSet = nil
+	end
+	if ItemRack.Print then ItemRack.Print("Manual hold cleared for slot " .. slot .. ". AutoQueue resumed.") end
+	return true
+end
+
 function ItemRack.IsSlotProtectedByManualToggle(slot)
 	if not slot or not ItemRack.ManualToggledSet or not ItemRackUser or not ItemRackUser.Sets then
 		return false

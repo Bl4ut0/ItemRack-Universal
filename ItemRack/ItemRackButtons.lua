@@ -50,7 +50,7 @@ function ItemRack.ButtonOnLoad(self)
 	self.HotKey = _G[name.."HotKey"]
 	self.Name = _G[name.."Name"]
 	self.Cooldown = _G[name.."Cooldown"]
-	self.UpdateTooltip = ItemRack.OnEnterButton
+	self.UpdateTooltip = ItemRack.InventoryTooltip
 
 	for _,fontString in ipairs({self.Count,self.HotKey,self.Name}) do
 		if fontString then
@@ -640,6 +640,10 @@ function ItemRack.OnEnterButton(self)
 		return -- don't show menu while buttons docking
 	end
 	local button = self:GetID()
+	local selfName = self.GetName and self:GetName()
+	if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.menuOpen == button and ItemRack.menuDockedTo == selfName then
+		return -- menu is already open and docked to this button
+	end
 	ItemRack.DockMenuToButton(button)
 	ItemRack.BuildMenu(button, nil, 2)
 end

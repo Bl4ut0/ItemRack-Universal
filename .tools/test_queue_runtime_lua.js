@@ -21,6 +21,8 @@ const isSetPendingInCombatQueue = extractFunction(equipFile, 'ItemRack.IsSetPend
 const cancelCombatQueueSet = extractFunction(equipFile, 'ItemRack.CancelCombatQueueSet');
 const purgeAutomaticSetsWaiting = extractFunction(equipFile, 'ItemRack.PurgeAutomaticSetsWaiting');
 const endSetSwap = extractFunction(equipFile, 'ItemRack.EndSetSwap');
+const holdSlot = extractFunction(queueFile, 'ItemRack.HoldSlot');
+const clearHoldSlot = extractFunction(queueFile, 'ItemRack.ClearHoldSlot');
 const updateCurrentSet = extractFunction(itemRackFile, 'ItemRack.UpdateCurrentSet');
 const setButton20Visual = extractFunction(itemRackFile, 'ItemRack.SetButton20Visual');
 const optionsFile = 'ItemRackOptions/ItemRackOptions.lua';
@@ -676,6 +678,25 @@ ItemRack.UpdateCurrentSet()
 
 check(ItemRackUser.CurrentSet == "Trash Undead", "Startup recovery must adopt detected set when CurrentSet is nil")
 check(ItemRack.HybridSet == nil, "HybridSet must be nil on startup recovery")
+
+-- 5. HoldSlot and ClearHoldSlot
+${holdSlot}
+${clearHoldSlot}
+
+ItemRack.GetID = function(slot) return slot == 13 and "20130" or "0" end
+ItemRack.HoldSlot(13)
+check(ItemRack.ManualQueueChoice and ItemRack.ManualQueueChoice[13] == "20130",
+  "HoldSlot must record equipped item as manual hold for slot")
+
+ItemRack.HoldSlot(14, "item:23047")
+check(ItemRack.ManualQueueChoice and ItemRack.ManualQueueChoice[14] == 23047,
+  "HoldSlot with explicit item link/string must record item ID")
+
+ItemRack.ClearHoldSlot(13)
+check(ItemRack.ManualQueueChoice[13] == nil,
+  "ClearHoldSlot must clear the manual hold for slot 13")
+check(ItemRack.ManualQueueChoice[14] == 23047,
+  "ClearHoldSlot for slot 13 must preserve slot 14 hold")
 
 print(string.format("[QUEUE RUNTIME LUA] %d purity and provenance checks passed.",checks))
 `, 'queue-runtime');

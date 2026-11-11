@@ -2966,80 +2966,23 @@ function ItemRack.SetButton20Visual(currentSetName, hybridSetName)
 	end
 end
 
-function ItemRack.SetMinimapButtonVisual(currentSetName, hybridSetName)
+function ItemRack.RestoreMinimapButtonVisual()
 	local button = _G["LibDBIcon10_ItemRack"]
 	if not button then return end
 
+	if button.SplitIcon and button.SplitIcon.Hide then button.SplitIcon:Hide() end
+	if button.Divider and button.Divider.Hide then button.Divider:Hide() end
+
 	local icon = button.icon
-	if not icon then return end
-
-	local splitIcon = button.SplitIcon
-	local divider = button.Divider
-
-	local isHybrid = hybridSetName and currentSetName and ItemRackUser and ItemRackUser.Sets
-		and ItemRackUser.Sets[currentSetName] and ItemRackUser.Sets[hybridSetName]
-
-	if isHybrid then
-		local set1Icon = ItemRackUser.Sets[currentSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
-		local set2Icon = ItemRackUser.Sets[hybridSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
-
-		if not splitIcon and button.CreateTexture then
-			splitIcon = button:CreateTexture(nil, "ARTWORK")
-			button.SplitIcon = splitIcon
+	if icon then
+		icon:ClearAllPoints()
+		icon:SetSize(17, 17)
+		icon:SetPoint("TOPLEFT", button, "TOPLEFT", 7, -6)
+		if icon.UpdateCoord then
+			icon:UpdateCoord()
+		else
+			icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
 		end
-		if not divider and button.CreateTexture then
-			divider = button:CreateTexture(nil, "OVERLAY")
-			button.Divider = divider
-		end
-
-		if icon.ClearAllPoints then icon:ClearAllPoints() end
-		if icon.SetPoint then
-			icon:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
-			icon:SetPoint("BOTTOMRIGHT", button, "BOTTOM", 0, 0)
-		end
-		if icon.SetTexCoord then icon:SetTexCoord(0, 0.5, 0, 1) end
-		if icon.SetTexture then icon:SetTexture(set1Icon) end
-		if icon.Show then icon:Show() end
-
-		if splitIcon then
-			if splitIcon.ClearAllPoints then splitIcon:ClearAllPoints() end
-			if splitIcon.SetPoint then
-				splitIcon:SetPoint("TOPLEFT", button, "TOP", 0, 0)
-				splitIcon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
-			end
-			if splitIcon.SetTexCoord then splitIcon:SetTexCoord(0.5, 1, 0, 1) end
-			if splitIcon.SetTexture then splitIcon:SetTexture(set2Icon) end
-			if splitIcon.Show then splitIcon:Show() end
-		end
-
-		if divider then
-			if divider.ClearAllPoints then divider:ClearAllPoints() end
-			if divider.SetPoint then
-				divider:SetPoint("TOP", button, "TOP", 0, 0)
-				divider:SetPoint("BOTTOM", button, "BOTTOM", 0, 0)
-			end
-			if divider.SetWidth then divider:SetWidth(2) end
-			if divider.SetTexture then divider:SetTexture("Interface\\Buttons\\WHITE8X8") end
-			if divider.SetVertexColor then divider:SetVertexColor(1, 0.82, 0, 0.9) end
-			if divider.Show then divider:Show() end
-		end
-	else
-		local solidTexture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
-		if currentSetName and currentSetName ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[currentSetName] then
-			solidTexture = ItemRackUser.Sets[currentSetName].icon or solidTexture
-		end
-
-		if icon.ClearAllPoints then icon:ClearAllPoints() end
-		if icon.SetPoint then
-			icon:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
-			icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
-		end
-		if icon.SetTexCoord then icon:SetTexCoord(0, 1, 0, 1) end
-		if icon.SetTexture then icon:SetTexture(solidTexture) end
-		if icon.Show then icon:Show() end
-
-		if splitIcon and splitIcon.Hide then splitIcon:Hide() end
-		if divider and divider.Hide then divider:Hide() end
 	end
 end
 
@@ -3099,8 +3042,8 @@ function ItemRack.UpdateCurrentSet()
 		ItemRackButton20ItemRackIcon:SetTexture(texture)
 	end
 
-	if ItemRack.SetMinimapButtonVisual then
-		ItemRack.SetMinimapButtonVisual(activeOwner, ItemRack.HybridSet)
+	if ItemRack.RestoreMinimapButtonVisual then
+		ItemRack.RestoreMinimapButtonVisual()
 	end
 
 	if ItemRackButton20 and ItemRackUser and ItemRackUser.Buttons and ItemRackUser.Buttons[20] then
@@ -4754,9 +4697,13 @@ function ItemRack.MenuMouseover()
 		if ok then frameVisible = isVis end
 	end
 
-	local function SafeMouseIsOver(f)
+	local function SafeMouseIsOver(f, top, bottom, left, right)
 		if not f then return false end
 		if f.IsMouseOver then
+			if top and bottom and left and right then
+				local ok, res = pcall(f.IsMouseOver, f, top, bottom, left, right)
+				if ok and res then return true end
+			end
 			local ok, res = pcall(f.IsMouseOver, f)
 			return ok and res and true or false
 		elseif MouseIsOver then
@@ -4771,13 +4718,13 @@ function ItemRack.MenuMouseover()
 			IRmouseOverFrame = ItemRack.MenuMouseoverFrames[frameName]
 		end
 	end
-	if SafeMouseIsOver(ItemRackMenuFrame) or IsShiftKeyDown() or (frame and frameName and frameVisible and IRmouseOverFrame) then
+	if SafeMouseIsOver(ItemRackMenuFrame, 16, -16, -16, 16) or IsShiftKeyDown() or (frame and frameName and frameVisible and IRmouseOverFrame) then
 		return -- keep menu open if mouse over menu, shift is down or mouse is immediately over a mouseover frame
 	end
 	for i in pairs(ItemRack.MenuMouseoverFrames) do
 		if i ~= "PaperDollFrame" or ItemRackSettings.CharacterSheetMenus == "ON" then
 			frame = _G[i]
-			if frame and frame:IsVisible() and SafeMouseIsOver(frame) then
+			if frame and frame:IsVisible() and SafeMouseIsOver(frame, 8, -8, -8, 8) then
 				return -- keep menu open if some frame beneath mouse is a mouseover frame
 			end
 		end
@@ -4854,35 +4801,36 @@ function ItemRack.MenuOnClick(self,button)
 	local item = ItemRack.Menu[self:GetID()]
 	ItemRack.Debug("UI", "MenuOnClick:", self:GetName(), "button:", button, "item:", item, "InCombat:", InCombatLockdown(), "menuOpen:", ItemRack.menuOpen)
 	ItemRack.ClearLockList()
-	if IsAltKeyDown() and ItemRackSettings.AllowHidden == "ON" and item ~= "MENU" then
-		ItemRack.ToggleHidden(item)
-		ItemRack.BuildMenu()
-	elseif IsAltKeyDown() and ItemRackSettings.DisableAltClick == "OFF" then
-		-- In the Quick Access Menu, Alt-Click toggles the queue for the slot this menu belongs to
+	if IsAltKeyDown() and button == "LeftButton" and ItemRackSettings.DisableAltClick == "OFF" and item ~= "MENU" and ItemRack.menuOpen and ItemRack.menuOpen < 20 then
+		-- In the Quick Access Menu, Alt+Left-Click toggles the queue for the slot this menu belongs to
 		local slot = ItemRack.menuOpen
-		if slot and slot < 20 then
-			if not ItemRack.GetQueues()[slot] then
-				LoadAddOn("ItemRackOptions")
+		if not ItemRack.GetQueues()[slot] then
+			LoadAddOn("ItemRackOptions")
+			if ItemRackOpt and ItemRackOpt.TabOnClick and ItemRackOpt.SetupQueue then
 				ItemRackOptFrame:Show()
 				ItemRackOpt.TabOnClick(self, 4)
 				ItemRackOpt.SetupQueue(slot)
 			end
-			-- Ensure per-set table exists before writing
-			if ItemRackUser.EnablePerSetQueues == "ON" then
-				local currentSet = ItemRackUser.CurrentSet and ItemRackUser.Sets[ItemRackUser.CurrentSet]
-				if currentSet and not currentSet.QueuesEnabled then
-					currentSet.QueuesEnabled = {}
-				end
-			end
-			ItemRack.GetQueuesEnabled()[slot] = not ItemRack.GetQueuesEnabled()[slot]
-			if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot == slot then
-				ItemRackOpt.UpdateQueueEnable()
-			end
-			ItemRack.UpdateCombatQueue()
-			
 		end
-		-- Re-build the menu to reflect the new gear icon on the main button
+		-- Ensure per-set table exists before writing
+		if ItemRackUser.EnablePerSetQueues == "ON" then
+			local currentSet = ItemRackUser.CurrentSet and ItemRackUser.Sets[ItemRackUser.CurrentSet]
+			if currentSet and not currentSet.QueuesEnabled then
+				currentSet.QueuesEnabled = {}
+			end
+		end
+		ItemRack.GetQueuesEnabled()[slot] = not ItemRack.GetQueuesEnabled()[slot]
+		if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot == slot then
+			ItemRackOpt.UpdateQueueEnable()
+		end
+		ItemRack.UpdateCombatQueue()
+		-- Re-build the menu to reflect the new state
 		ItemRack.BuildMenu()
+		return
+	elseif IsAltKeyDown() and (button == "RightButton" or ItemRackSettings.DisableAltClick == "ON") and ItemRackSettings.AllowHidden == "ON" and item ~= "MENU" then
+		ItemRack.ToggleHidden(item)
+		ItemRack.BuildMenu()
+		return
 	elseif IsShiftKeyDown() and ChatFrame1EditBox:IsVisible() then
 		ItemRack.ChatLinkID(item)
 	elseif ItemRack.menuInclude then
@@ -5807,6 +5755,40 @@ end
 
 -- request a tooltip of a menu item (called when hovering over a button in the popout menu of SET NAMES that comes up when clicking the minimap button or bar addon plugin, this is NOT the "Sets" dropdown INSIDE ItemRack's GUI)
 function ItemRack.OnModifierStateChanged(self, event, ...)
+	if ItemRackSettings.MenuOnShift == "ON" then
+		if IsShiftKeyDown() then
+			-- Shift pressed: if hovering over an ItemRack button or paperdoll slot, open breakout immediately
+			if not (ItemRackMenuFrame and ItemRackMenuFrame:IsVisible()) then
+				local focus = (GetMouseFocus and GetMouseFocus()) or (GetMouseFoci and GetMouseFoci()[1])
+				if focus and focus.GetName and focus:GetName() then
+					local fname = focus:GetName()
+					local slotID = focus.GetID and focus:GetID()
+					if slotID and string.match(fname, "^ItemRackButton%d+$") then
+						ItemRack.OnEnterButton(focus)
+					elseif string.match(fname, "^Character.*Slot$") and PaperDollItemSlotButton_OnEnter then
+						PaperDollItemSlotButton_OnEnter(focus)
+					end
+				end
+			end
+		else
+			-- Shift released: if menu is open and mouse is not directly over the menu, dismiss it
+			if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() then
+				local isOverMenu = false
+				if ItemRackMenuFrame.IsMouseOver then
+					local ok, res = pcall(ItemRackMenuFrame.IsMouseOver, ItemRackMenuFrame)
+					isOverMenu = ok and res and true or false
+				elseif MouseIsOver then
+					local ok, res = pcall(MouseIsOver, ItemRackMenuFrame)
+					isOverMenu = ok and res and true or false
+				end
+				if not isOverMenu then
+					ItemRack.StopTimer("MenuMouseover")
+					ItemRackMenuFrame:Hide()
+				end
+			end
+		end
+	end
+
 	if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.TooltipOwner then
 		local owner = ItemRack.TooltipOwner
 		if owner.UpdateTooltip and type(owner.IsVisible) == "function" and owner:IsVisible() then
@@ -7527,10 +7509,26 @@ function ItemRack.SlashHandler(arg1)
 		end
 	elseif arg1=="opt" or arg1=="options" or arg1=="config" then
 		ItemRack.ToggleOptions()
+	elseif arg1 and string.match(arg1, "^hold%s*") then
+		local slotStr, itemStr = string.match(arg1, "^hold%s+(%d+)%s*(.*)$")
+		if slotStr and ItemRack.HoldSlot then
+			ItemRack.HoldSlot(tonumber(slotStr), itemStr ~= "" and itemStr or nil)
+		else
+			ItemRack.Print("Usage: /itemrack hold <slot 0-19> [itemID]")
+		end
+	elseif arg1 and string.match(arg1, "^unhold%s*") then
+		local slotStr = string.match(arg1, "^unhold%s+(%d+)$")
+		if slotStr and ItemRack.ClearHoldSlot then
+			ItemRack.ClearHoldSlot(tonumber(slotStr))
+		else
+			ItemRack.Print("Usage: /itemrack unhold <slot 0-19>")
+		end
 	else
 		ItemRack.Print("/itemrack opt : summons options window.")
 		ItemRack.Print("/itemrack equip set name : equip set 'set name'.")
 		ItemRack.Print("/itemrack toggle set name[, second set] : toggles set 'set name'.")
+		ItemRack.Print("/itemrack hold <slot 0-19> [itemID] : sets manual queue hold for a slot.")
+		ItemRack.Print("/itemrack unhold <slot 0-19> : clears manual queue hold for a slot.")
 		ItemRack.Print("/itemrack reset : resets buttons and their settings.")
 		ItemRack.Print("/itemrack reset everything : wipes ItemRack to default.")
 		ItemRack.Print("/itemrack lock/unlock : locks/unlocks the buttons.")

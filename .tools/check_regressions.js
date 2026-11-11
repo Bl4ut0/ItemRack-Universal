@@ -528,6 +528,38 @@ check(
   'IsSetEquipped must allow single-slot ring/trinket cross checks and only gate queue readiness on slots with active queues.'
 );
 
+check(
+  core.includes('function ItemRack.RestoreMinimapButtonVisual()') &&
+    core.includes('icon:SetSize(17, 17)') &&
+    core.includes('icon:SetPoint("TOPLEFT", button, "TOPLEFT", 7, -6)') &&
+    !core.includes('function ItemRack.SetMinimapButtonVisual('),
+  'RestoreMinimapButtonVisual must preserve LibDBIcon native circular inset geometry and coords.'
+);
+
+check(
+  buttons.includes('self.UpdateTooltip = ItemRack.InventoryTooltip') &&
+    !buttons.includes('self.UpdateTooltip = ItemRack.OnEnterButton'),
+  'ItemRackButtons must bind UpdateTooltip to InventoryTooltip to avoid redundant menu rebuilds on hover.'
+);
+
+check(
+  core.includes('SafeMouseIsOver(ItemRackMenuFrame, 16, -16, -16, 16)'),
+  'MenuMouseover must bridge the docking gap with hit-test margin around ItemRackMenuFrame.'
+);
+
+check(
+  core.includes('IsAltKeyDown() and button == "LeftButton" and ItemRackSettings.DisableAltClick == "OFF"') &&
+    core.includes('IsAltKeyDown() and (button == "RightButton" or ItemRackSettings.DisableAltClick == "ON") and ItemRackSettings.AllowHidden == "ON"'),
+  'MenuOnClick must disambiguate Alt+Left-Click queue toggling from Alt+Right-Click item hiding.'
+);
+
+check(
+  queue.includes('function ItemRack.HoldSlot(slot, id)') &&
+    queue.includes('function ItemRack.ClearHoldSlot(slot)') &&
+    core.includes('string.match(arg1, "^hold%s*")'),
+  'HoldSlot and ClearHoldSlot must provide manual queue hold commands for macros and external addons.'
+);
+
 const betaMarkdown = `# Changelog\n\n## [Development]\n\n### Bug Fixes & Improvements\n- Beta change\n\n## [4.0] - 2025-01-01\n- Old\n`;
 const promotedMarkdown = releaseTools.promoteBetaMarkdown(betaMarkdown, '4.1-beta1', '2026-08-14').text;
 check(promotedMarkdown.includes('## [4.1-beta1] - 2026-08-14'), 'Beta Markdown promotion failed.');

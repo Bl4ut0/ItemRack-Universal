@@ -3,6 +3,25 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+### Bug Fixes & Improvements
+- **Minimap Icon Circular Border Geometry (GitHub Issue #33 Follow-up)**:
+  - Fixed an issue introduced in `4.59-beta3` where the minimap button icon appeared square and spilled outside the circular tracking border.
+  - Restored `LibDBIcon-1.0` native coordinate clipping and 17x17 inset geometry (`LibDBIcon10_ItemRack:SetSize(17, 17)` at `TOPLEFT 7, -6`), allowing LibDBIcon to manage circular masking via `ItemRack.Broker.icon`.
+  - Confined split-icon visuals exclusively to ItemRack's own toolbar Button 20.
+- **Breakout Menu Responsiveness & Hover Stability (GitHub Issue #33 Follow-up)**:
+  - Fixed an issue where breakout menus felt sluggish, delayed, or intermittently failed to appear on mouseover.
+  - Eliminated redundant 5Hz menu teardowns caused by binding `self.UpdateTooltip` to `ItemRack.OnEnterButton` on quick-access buttons. Re-bound `UpdateTooltip` to `ItemRack.InventoryTooltip` to refresh tooltip contents without continuously rebuilding the menu frame and scanning inventory.
+  - Prevented redundant menu re-docking and rebuilding in `OnEnterButton` when the menu is already open and docked to the hovered button.
+  - Expanded `MenuMouseover` hit-testing with a 16px border margin around `ItemRackMenuFrame` to smoothly bridge the 8px docking gap, preventing the menu from closing prematurely during mouse transit.
+  - Dynamic Shift activation: When "Require Shift for breakouts" is enabled, pressing Shift while already hovering over an item button or character sheet slot now immediately pops out the breakout menu without requiring mouse re-entry.
+- **Breakout Menu Alt-Click Queue Toggling & Item Hiding (GitHub Issue #33 Follow-up)**:
+  - Fixed an input conflict where having "Allow hidden items" enabled intercepted Alt-Clicks and attempted to hide items rather than toggling AutoQueue for that slot.
+  - Alt + Left-Click in breakout menus now reliably toggles AutoQueue for that slot on the first click (when "Disable Alt+Click" is OFF).
+  - Alt + Right-Click (or Alt + Left-Click when "Disable Alt+Click" is ON) toggles the item's hidden state when "Allow hidden items" is enabled.
+- **Manual Queue Hold Helper & Macro Commands (GitHub Issue #33 Personal Request)**:
+  - Added `ItemRack.HoldSlot(slot, [itemID])` and `ItemRack.ClearHoldSlot(slot)` API functions.
+  - Added slash commands `/itemrack hold <slot 0-19> [itemID]` and `/itemrack unhold <slot 0-19>`.
+  - Enables macros (e.g. `/equipslot 13 20130` followed by `/run ItemRack.HoldSlot(13, 20130)` or `/itemrack hold 13`) and external addons (such as TrinketMenu) to register manual holds directly, preventing AutoQueue from evicting foreign or manually swapped items until explicitly cleared or replaced via Left-Click.
 
 
 ## [4.59-beta3] - 2026-11-10
