@@ -5,6 +5,15 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 ## [Development]
 
 
+## [4.59-beta7] - 2026-11-12
+### Bug Fixes & Improvements
+- **Ammunition & Ranged Weapon Equipment Set Swapping (GitHub Issue #37)**:
+  - Fixed a timing bug where switching between sets requiring cross-type ranged weapons and ammunition (e.g. Gun + Bullets to Crossbow + Arrows) failed on the first click with `destination_rejected`, leaving ammunition equipped but aborting before the ranged weapon could equip.
+  - Classic Engine Lock & Latency Protection: In Blizzard's Classic engine, `INVSLOT_AMMO` (slot 0) never reports locked (`IsInventoryItemLocked(0) == false`), causing ItemRack's 50ms unchanged destination heuristic to prematurely time out and fail before the server's acknowledgement packet arrived over the network. Ammunition steps now remain patient for server acknowledgement or transaction deadline rather than aborting at 50ms.
+  - Stackable Ammunition Merging: Displaced ammunition returning to bags can merge with existing stacks or change stack counts. Slot 0 equipment moves now authoritatively confirm based on destination matching (`inventory[0]`), stabilized across 2 consecutive observation frames before proceeding to dependent slot 18.
+  - Instant Rejection Detection: Synchronous engine rejections (e.g. attempting to equip an incompatible weapon into slot 18) are now identified immediately (0ms) by inspecting `GetCursorInfo()` following destination pickup, avoiding unnecessary 5-second observation delays.
+  - Transaction Reversals: Hardened `IsAmmoStep` to cover both `step.to == 0` and `step.from == 0`, ensuring ammo unequips and transaction rollbacks receive identical latency and stack protection.
+
 ## [4.59-beta6] - 2026-11-12
 ### Bug Fixes & Improvements
 - **Character Sheet Breakout Compatibility & Addon Load Chaining (GearQuest Forever / Forever 1.60.1)**:
