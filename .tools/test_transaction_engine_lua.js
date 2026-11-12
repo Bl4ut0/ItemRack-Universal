@@ -382,4 +382,123 @@ assert(cursor == nil, "cursor must remain clear")
 `
 );
 
-console.log('[TRANSACTION ENGINE LUA] 34 production-Lua assertions passed.');
+runCase(
+  'asynchronous server latency and stack merging on slot 0 allows clean single-click ranged set swap (Rummelboxer99 Issue 37 hardened regression)',
+  `${common}
+local bags = { [0] = { [1] = 18042, [2] = 21459 } } -- bag 0 slot 1: Arrows, slot 2: Crossbow
+local inventory = { [0] = 15997, [18] = 23557 } -- slot 0: Bullets, slot 18: Gun
+local lockedInv = {}
+local lockedBags = {}
+cursor = nil
+local pendingAcks = {}
+
+function ItemRack.GetID(bag, slot)
+  if slot then return bags[bag] and bags[bag][slot] or 0 end
+  return inventory[bag] or 0
+end
+function CursorHasItem() return cursor ~= nil end
+function GetCursorInfo()
+  if cursor then return "item", cursor end
+  return nil
+end
+function IsInventoryItemLocked(slot)
+  return lockedInv[slot] == true
+end
+function GetContainerItemInfo(bag, slot)
+  local key = tostring(bag) .. "," .. tostring(slot)
+  return nil, nil, lockedBags[key] == true
+end
+
+function PickupContainerItem(bag, slot)
+  local held = cursor
+  local key = tostring(bag) .. "," .. tostring(slot)
+  if not held then
+    cursor = bags[bag][slot]
+    lockedBags[key] = true
+  else
+    cursor = nil
+    -- Ammo (slot 1) can stack-merge in bags, changing its representation:
+    local returnedItem = held
+    if bag == 0 and slot == 1 then
+      returnedItem = 99999 -- ammo stack merge
+    end
+    table.insert(pendingAcks, { due = now + 0.08, apply = function()
+      lockedBags[key] = false
+      bags[bag][slot] = returnedItem
+    end })
+  end
+end
+
+function PickupInventoryItem(slot)
+  if slot == 18 and cursor == 21459 and inventory[0] == 15997 then
+    return -- engine destination_rejected! Cursor retains Crossbow!
+  end
+  if slot == 0 then
+    -- Real WoW Classic engine quirk: slot 0 (ammo) does NOT trigger IsInventoryItemLocked!
+    local held = cursor
+    cursor = inventory[slot]
+    table.insert(pendingAcks, { due = now + 0.08, apply = function()
+      inventory[slot] = held
+    end })
+    return
+  end
+  if slot == 18 then
+    -- Normal equipment slots lock until server ACK
+    local held = cursor
+    cursor = inventory[slot]
+    lockedInv[slot] = true
+    table.insert(pendingAcks, { due = now + 0.08, apply = function()
+      lockedInv[slot] = false
+      inventory[slot] = held
+    end })
+    return
+  end
+  local held = cursor
+  cursor = inventory[slot]
+  inventory[slot] = held
+end
+
+function RunAsyncTimers(limit)
+  local runs = 0
+  while (#timers > 0 or #pendingAcks > 0) and runs < (limit or 100) do
+    runs = runs + 1
+    table.sort(timers, function(a, b) return a.due < b.due end)
+    table.sort(pendingAcks, function(a, b) return a.due < b.due end)
+    local nextTimerDue = timers[1] and timers[1].due or 999999
+    local nextAckDue = pendingAcks[1] and pendingAcks[1].due or 999999
+    if nextAckDue <= nextTimerDue and nextAckDue < 999999 then
+      local ack = table.remove(pendingAcks, 1)
+      now = ack.due
+      ack.apply()
+      ItemRack.ReconcileEquipmentTransaction("UNIT_INVENTORY_CHANGED")
+    elseif nextTimerDue < 999999 then
+      local t = table.remove(timers, 1)
+      now = t.due
+      t.callback()
+    end
+  end
+end
+`,
+  String.raw`
+local stepAmmo = ItemRack.NewEquipmentMove(0, 1, 0, nil)
+local stepRanged = ItemRack.NewEquipmentMove(0, 2, 18, nil)
+local completed, failed = 0, 0
+
+local status, request = ItemRack.StartEquipmentTransaction({
+  steps = { stepAmmo, stepRanged },
+  onComplete = function() completed = completed + 1 end,
+  onFailure = function() failed = failed + 1 end,
+})
+
+RunAsyncTimers()
+
+assert(request.status == "complete", "transaction must complete successfully across asynchronous network frames")
+assert(completed == 1 and failed == 0, "transaction must report completion exactly once without failure")
+assert(inventory[0] == 18042, "slot 0 (Ammo) must be equipped with Arrows")
+assert(inventory[18] == 21459, "slot 18 (Ranged) must be equipped with Crossbow")
+assert(cursor == nil, "cursor must remain clear")
+`
+);
+
+console.log('[TRANSACTION ENGINE LUA] 35 production-Lua assertions passed.');
+

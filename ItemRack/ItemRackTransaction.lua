@@ -58,6 +58,10 @@ local function LocationIsEquipmentSlot(location, slotId)
 	return location and location.bag == slotId and location.slot == nil
 end
 
+local function IsAmmoStep(step)
+	return LocationIsEquipmentSlot(step.to, 0) or LocationIsEquipmentSlot(step.from, 0)
+end
+
 local function PickupLocation(location)
 	if location.slot then
 		PickupContainerItem(location.bag, location.slot)
@@ -165,11 +169,24 @@ local function SubmitStep(step)
 	-- cursor is rejected above and is never cleared by this service.
 	step.cursorOwned = CursorHasItem() and true or false
 	if step.cursorOwned then
+		local heldBefore = nil
+		if GetCursorInfo then
+			local cType, cID = GetCursorInfo()
+			if cType == "item" then heldBefore = cID end
+		end
 		local destinationOK, destinationError = pcall(PickupLocation, step.to)
 		if not destinationOK then
 			step.submitError = tostring(destinationError)
 		end
 		if CursorHasItem() then
+			-- If the destination rejected the move synchronously, the cursor
+			-- still holds the exact source item that was picked up.
+			if heldBefore and GetCursorInfo then
+				local postType, postID = GetCursorInfo()
+				if postType == "item" and postID == heldBefore then
+					step.submitError = "destination_rejected"
+				end
+			end
 			-- A successful swap leaves the displaced destination item on the cursor;
 			-- a rejected destination leaves the original source there.  Returning it
 			-- to the exact source is safe in both cases.  Observation distinguishes
@@ -346,16 +363,29 @@ function ItemRack.ReconcileEquipmentTransaction(reason)
 
 		local sourceState = ReadLocation(step.from)
 		local destinationState = ReadLocation(step.to)
-		if SameIdentity(sourceState, step.expectedSourceState)
-		and SameIdentity(destinationState, step.expectedDestinationState) then
+		local isAmmo = IsAmmoStep(step)
+		local isAmmoEquip = LocationIsEquipmentSlot(step.to, 0)
+		local destinationMatches = SameIdentity(destinationState, step.expectedDestinationState)
+		local sourceMatches = SameIdentity(sourceState, step.expectedSourceState)
+
+		if destinationMatches and (isAmmoEquip or sourceMatches) then
+			if isAmmoEquip then
+				step.ammoConfirmedSamples = (step.ammoConfirmedSamples or 0) + 1
+				if step.ammoConfirmedSamples < 2 then
+					ScheduleObservation(request)
+					return false
+				end
+			end
 			step.status = "confirmed"
 			step.confirmedAt = GetTime()
 			request.stepIndex = request.stepIndex + 1
 		elseif SameIdentity(sourceState, step.sourceBefore)
 		and SameIdentity(destinationState, step.destinationBefore) then
+			step.ammoConfirmedSamples = 0
 			step.unchangedSamples = (step.unchangedSamples or 0) + 1
-			if step.unchangedSamples >= 2
-			and GetTime() - step.submittedAt >= ItemRack.TransactionSettleDelay then
+			if step.submitError == "destination_rejected"
+			or (not isAmmo and step.unchangedSamples >= 2 and GetTime() - step.submittedAt >= ItemRack.TransactionSettleDelay)
+			or (isAmmo and GetTime() >= request.deadline) then
 				if request.rollbackReason then
 					FinishRequest(request, "partial_failure", request.rollbackReason..":rollback_rejected")
 				else
@@ -373,6 +403,7 @@ function ItemRack.ReconcileEquipmentTransaction(reason)
 			end
 			return false
 		else
+			step.ammoConfirmedSamples = 0
 			ScheduleObservation(request)
 			return false
 		end

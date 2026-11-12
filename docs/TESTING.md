@@ -46,6 +46,21 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 12, 2026 Ranged Weapon + Ammo Set Switch Rejection Report (GitHub Issue #37):
+"Ranged weapon + Ammo not switching properly [BUG] ... destination_rejected ... Ammo was in bag slot 0,1 while ranged weapon is in bag slot 0,2 ... set 1 is cross bow + arrows ... set 2 is gun + bullets"
+Reported by Rummelboxer99 with diagnostic dumps (Itemrack debug dump.txt and Itemrack debug dump2.txt). When switching between sets requiring cross-type ranged weapon and ammunition (e.g. Gun + Bullets to Crossbow + Arrows), the set switch failed with destination_rejected, leaving the new ammunition equipped in slot 0, but aborting the transaction before the dependent ranged weapon (slot 18) could be equipped. A second click on the set succeeded because ammunition was already equipped.
+Root cause:
+1. Classic Engine Lack of Inventory Locks on Slot 0: In Blizzard's Classic engine, IsInventoryItemLocked(0) (INVSLOT_AMMO) never returns true during item pickup or equip, unlike normal equipment slots.
+2. Premature Timeout on Network Latency: Because slot 0 does not report locked state, ItemRackTransaction.lua fell through to the 50ms unchanged destination heuristic (ItemRack.TransactionSettleDelay = 0.05). Over live network connections with >50ms round-trip latency, the 50ms timer fired before the server's acknowledgement packet arrived, misclassifying in-flight ammo swaps as destination_rejected and aborting before Frame 2 could dispatch slot 18.
+3. Bag Stack Merging / Splitting: Ammunition items are stackable; returning displaced ammunition to bags can merge with existing stacks or change stack counts, causing the bag source endpoint to not match step.expectedSourceState.
+Unified Hardened Solution:
+- IsAmmoStep(step) inspects both step.to == 0 and step.from == 0 to safeguard ammo equips, unequips, and transaction rollbacks.
+- Instant Rejection Detection: SubmitStep queries GetCursorInfo() immediately after PickupLocation(step.to). If the cursor still retains the source item, submitError = "destination_rejected" is flagged synchronously (0ms) rather than waiting 5 seconds.
+- Destination-Authoritative Matching: In ReconcileEquipmentTransaction, slot 0 moves require only destinationMatches (verifying inventory[0] matches the expected ammo ID), with a 2-sample stability check to guard against transient UI ticks before advancing to dependent slot 18.
+- Anti-Premature Timeout: Unchanged ammo steps wait for server acknowledgement or request.deadline rather than aborting at 50ms.
+Coverage: .tools/test_transaction_engine_lua.js test case 35 (asynchronous server latency and stack merging on slot 0 allows clean single-click ranged set swap (Rummelboxer99 Issue 37 hardened regression)) executes asynchronous server latency with Fengari timers and pending ACK queues, simulating missing slot 0 locks, bag stack merging, and dependent slot 18 dispatch.
+Acceptance: With cross-type ranged weapons and ammunition (e.g., Bow + Arrows and Gun + Bullets) in bags, equip Set 1, then single-click Set 2 under live network latency. Verify both slot 0 (ammo) and slot 18 (ranged weapon) equip cleanly on the first click without destination_rejected errors.
+
 October 31, 2026 Set Dropdown Scrolling Report:
 "both of the dropdown lists should be scrollable incase the users have a bunch of sets"
 Reported need for complete scrollability across all set dropdown menus (Sets tab chooser, Queues tab active set selector, and Queues breakout sync dropdown) when players have more sets than can fit vertically in the popup dialogs.
