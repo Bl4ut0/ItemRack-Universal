@@ -3,6 +3,122 @@ const { extractFunction, runLua } = require('./lib/lua_harness');
 
 const policy = fs.readFileSync('ItemRack/ItemRackQueuePolicy.lua', 'utf8');
 
+// November 12 beta9 clarification: mirror the list, not the selected set's switch.
+runLua(String.raw`
+ItemRack={}
+${policy}
+ItemRackUser={EnablePerSetQueues='ON',EnableQueueContextCheck='ON',CurrentSet='A',
+ Queues={[13]={{id='global'}}},QueuesEnabled={[13]=true},Sets={
+ A={equip={},QueueSync={[13]='Master'},QueuesEnabled={[13]=false}},
+ B={equip={},QueueSync={[13]='Master'},QueuesEnabled={[13]=true}},
+ Master={equip={},Queues={[13]={{id='100',priority=true,delay=7},{id=0}}},QueuesEnabled={[13]=true}}
+}}
+${['ItemRack.GetQueueContext','QueueFieldProxy','ItemRack.GetQueues','ItemRack.GetQueuesEnabled','ItemRack.GetActiveQueueOwner'].map(n=>extractFunction('ItemRack/ItemRack.lua',n)).join('\n')}
+assert(ItemRack.QueuePolicy.InitializeMirroredStates(ItemRackUser)==2,
+ 'mirrored-initial-state: legacy mirrors must initialize from their previously effective master state')
+assert(ItemRackUser.Sets.A.QueuesEnabled[13]==true and ItemRackUser.Sets.B.QueuesEnabled[13]==true,
+ 'initial synchronization must copy master ON, not default OFF or a dormant local flag')
+ItemRackUser.Sets.A.QueuesEnabled[13]=false
+local a,b=ItemRack.GetQueueContext(13,'A'),ItemRack.GetQueueContext(13,'B')
+assert(a.enabled==false and b.enabled==true and a.owner=='A' and b.owner=='B',
+ 'mirrored-local-enablement: followers must own independent switches and runtime context')
+assert(a.list==b.list and a.list==ItemRackUser.Sets.Master.Queues[13] and a.mirroredFrom=='Master',
+ 'both followers must read the live master list and entry policies')
+ItemRackUser.Sets.Master.QueuesEnabled[13]=false
+ItemRackUser.Sets.Master.Queues[13][1].delay=19
+assert(ItemRack.QueuePolicy.InitializeMirroredStates(ItemRackUser)==0,
+ 'reinitialization must be idempotent after users choose their per-set switches')
+assert(ItemRack.GetQueueContext(13,'B').enabled==true and ItemRack.GetQueueContext(13,'A').list[1].delay==19,
+ 'master state changes must not affect followers, while item settings remain synced')
+ItemRack.GetQueuesEnabled('A')[13]=true
+assert(ItemRack.GetQueuesEnabled('A')[13]==true and ItemRackUser.Sets.Master.QueuesEnabled[13]==false,
+ 'writing an inactive follower switch must not write the master')
+ItemRackUser.Sets.Middle={equip={},QueueSync={[13]='Master'},QueuesEnabled={[13]=false}}
+ItemRackUser.Sets.B.QueueSync[13]='Middle'
+assert(ItemRack.GetQueueContext(13,'B').enabled==true and ItemRack.GetQueueContext(13,'B').mirroredFrom=='Master',
+ 'chained mirroring must ignore intermediate enablement too')
+ItemRackUser.Sets.A.QueuesEnabled[13]=nil
+assert(not ItemRack.GetQueueContext(13,'A').enabled,'an initialized local OFF must not resume borrowing master state')
+-- New links seed from the chosen master's current switch, even if it too mirrors.
+ItemRackUser.Sets.C={equip={},QueuesEnabled={[13]=false}}
+ItemRackOpt={SetupQueue=function() end}
+${extractFunction('ItemRackOptions/ItemRackOptions.lua','ItemRackOpt.SetQueueSlotSync')}
+${extractFunction('ItemRackOptions/ItemRackOptions.lua','ItemRackOpt.ClearQueueSlotSync')}
+ItemRackOpt.SetQueueSlotSync(13,'C','B')
+assert(ItemRack.GetQueueContext(13,'C').enabled==true,'new follower must seed from initialized master B, not terminal Master OFF')
+ItemRackUser.Sets.C.QueuesEnabled[13]=false
+ItemRackOpt.SetQueueSlotSync(13,'C','Master')
+assert(ItemRack.GetQueueContext(13,'C').enabled==false,'changing provider while synced must retain the user switch')
+ItemRackOpt.ClearQueueSlotSync(13,'C')
+ItemRackUser.Sets.Master.QueuesEnabled[13]=true
+ItemRackOpt.SetQueueSlotSync(13,'C','Master')
+assert(ItemRack.GetQueueContext(13,'C').enabled==true,'a new link after unsync must initialize from its new master again')
+-- Event-stack inheritance chooses one set's policy; mirroring only replaces its list.
+ItemRackUser.Sets.Current={equip={}}
+ItemRackUser.CurrentSet='Current'; ItemRackUser.EventStack={'E'}
+ItemRackUser.Events={Set={E='B'}}
+assert(ItemRack.GetQueueContext(13).owner=='B' and ItemRack.GetQueueContext(13).enabled==true,
+ 'inherited mirrored queues must retain the event-set switch and owner')
+ItemRackUser.EnablePerSetQueues='OFF'
+assert(ItemRack.GetQueueContext(13).owner==false and ItemRack.GetQueueContext(13).list[1].id=='global',
+ 'disabling per-set queues must retain global behavior')
+-- Save/reload model: rehydrate a Lua SavedVariables chunk, not shared runtime objects.
+ItemRackUser.EnablePerSetQueues='ON'; ItemRackUser.CurrentSet='A'
+ItemRackUser.Sets.A.QueuesEnabled[13]=false
+local function serialize(v)
+ if type(v)=='table' then
+  local fields={}
+  for k,entry in pairs(v) do fields[#fields+1]='['..serialize(k)..']='..serialize(entry) end
+  return '{'..table.concat(fields,',')..'}'
+ elseif type(v)=='string' then return string.format('%q',v)
+ else return tostring(v) end
+end
+ItemRackUser=assert((loadstring or load)('return '..serialize(ItemRackUser)))()
+assert(ItemRack.QueuePolicy.InitializeMirroredStates(ItemRackUser)==0,'saved initialization markers must prevent reseeding on reload')
+assert(ItemRack.GetQueuesEnabled('A')[13]==false and ItemRack.GetQueuesEnabled('B')[13]==true,
+ 'rehydrated per-set switches must remain independent with mirroring intact')
+assert(ItemRack.GetQueues('B')[13][1].delay==19 and ItemRackUser.Sets.B.QueueSync[13]=='Middle')
+print('[MIRRORED LOCAL STATE LUA] Independent switches, chained policies, event context and saved chunks passed.')
+`, 'mirrored-local-enablement');
+
+runLua(String.raw`
+ItemRack={CombatQueue={},RunAfterCombat={},Debug=function() end,UpdateCombatQueue=function() end,
+ IsPlayerReallyDead=function() return false end,GetInfoByID=function(id) return id end,
+ GetEquippedSlotState=function() return 'resolved','999' end,
+ MatchesStoredItemID=function(a,b) return a==b end,MatchesStoredItemFields=function(a,b) return a==b end,
+ IsQueueEntryUnambiguous=function() return true end,IsBareItemID=function() return false end}
+function CursorHasItem() return false end
+function InCombatLockdown() return false end
+function UnitAffectingCombat() return false end
+${policy}
+${['ItemRack.GetQueueContext','QueueFieldProxy','ItemRack.GetQueues','ItemRack.GetQueuesEnabled','ItemRack.GetActiveQueueOwner',
+ 'ItemRack.ClearCombatQueueMetadata','ItemRack.AddToCombatQueue','ItemRack.ProcessCombatQueue'].map(n=>extractFunction('ItemRack/ItemRack.lua',n)).join('\n')}
+${['ItemRack.FindQueueEntryIndex','ItemRack.IsManualQueueChoice','ItemRack.SetManualQueueChoice'].map(n=>extractFunction('ItemRack/ItemRackQueue.lua',n)).join('\n')}
+ItemRackUser={EnablePerSetQueues='ON',CurrentSet='A',Sets={
+ A={QueueSync={[13]='Master'},QueuesEnabled={[13]=true}},
+ B={QueueSync={[13]='Master'},QueuesEnabled={[13]=true}},
+ Master={Queues={[13]={{id='100'}}},QueuesEnabled={[13]=true}},['~CombatQueue']={equip={}}}}
+local gear='999'
+ItemRack.EquipSet=function(name) gear=ItemRackUser.Sets[name].equip[13] end
+ItemRack.SetManualQueueChoice(13,'100')
+assert(ItemRack.IsManualQueueChoice(13,'100','100'),'hold must validate in its owning follower')
+ItemRack.AddToCombatQueue(13,'100',true)
+ItemRackUser.CurrentSet='B'
+assert(not ItemRack.IsManualQueueChoice(13,'100','100'),
+ 'mirrored-runtime-isolation: manual holds must not cross followers sharing the same queue list')
+ItemRack.ProcessCombatQueue()
+assert(gear=='999' and not next(ItemRack.CombatQueue) and not ItemRack.AutoQueueOwner[13],
+ 'mirrored-runtime-isolation: a stale automatic request must clear without equipping after changing followers')
+ItemRack.AddToCombatQueue(13,'100',true)
+ItemRackUser.Sets.B.QueuesEnabled[13]=false
+ItemRack.ProcessCombatQueue()
+assert(gear=='999' and not next(ItemRack.CombatQueue),'disabling a follower must discard its pending automatic request')
+ItemRack.AddToCombatQueue(13,'100',false)
+ItemRack.ProcessCombatQueue()
+assert(gear=='100' and not next(ItemRack.CombatQueue),'a pending explicit manual request must survive queue disablement')
+print('[MIRRORED RUNTIME LUA] Follower holds, stale automatic requests and explicit pending requests passed.')
+`, 'mirrored-runtime-isolation');
+
 runLua(String.raw`
 ItemRack = {}
 ${policy}
@@ -127,14 +243,15 @@ do
     QueuesEnabled = { [13]=true },
   }
   user.Sets.Current.QueueSync = { [13]="MasterSet" }
+  user.Sets.Current.QueuesEnabled = { [13]=false }
   local context = resolve(user,13)
-  check(context.owner == "MasterSet" and context.list[1].id == "MasterTrinket" and context.enabled == true and context.mirroredFrom == "MasterSet",
-    "mirrored set queue must resolve master set queue tuple and record mirroredFrom")
+  check(context.owner == "Current" and context.list[1].id == "MasterTrinket" and context.enabled == false and context.mirroredFrom == "MasterSet",
+    "mirrored set queue must use the local switch and owner with the master list")
 
   -- Explicit set inspection
   local explicit = resolve(user,13,"Current")
-  check(explicit.owner == "MasterSet" and explicit.list[1].id == "MasterTrinket" and explicit.enabled == true and explicit.mirroredFrom == "MasterSet",
-    "explicit set inspection on mirrored set must resolve to master set")
+  check(explicit.owner == "Current" and explicit.list[1].id == "MasterTrinket" and explicit.enabled == false and explicit.mirroredFrom == "MasterSet",
+    "explicit set inspection must keep that set's local switch")
 end
 
 do
@@ -143,7 +260,7 @@ do
   user.Sets.Middle = { equip={}, QueueSync={ [13]="Master" } }
   user.Sets.Current.QueueSync = { [13]="Middle" }
   local context = resolve(user,13)
-  check(context.owner == "Master" and context.list[1].id == "ChainMaster" and context.mirroredFrom == "Master",
+  check(context.owner == "Current" and context.list[1].id == "ChainMaster" and context.mirroredFrom == "Master",
     "chained queue mirroring must resolve to the terminal master set")
 end
 
@@ -181,26 +298,50 @@ ItemRackUser={EnablePerSetQueues='ON',CurrentSet='Follower',Sets={
 ItemRackSettings={DisableAltClick='OFF'}
 local notices,updates={},0
 ItemRack.Print=function(message) notices[#notices+1]=message end
+ItemRack.DebugAll=false
+ItemRack.DebugChat=false
+ItemRack.DebugTags={Queue=false}
+function date() return '[16:08:18]' end
+${extractFunction('ItemRack/ItemRack.lua','ItemRack.Debug')}
 ItemRack.UpdateCombatQueue=function() updates=updates+1 end
 ItemRack.CombatQueue={[13]='pending'}
 function IsAltKeyDown() return true end
 ${['ItemRack.GetQueueContext','QueueFieldProxy','ItemRack.GetQueues','ItemRack.GetQueuesEnabled'].map(n=>extractFunction('ItemRack/ItemRack.lua',n)).join('\n')}
 ${extractFunction('ItemRack/ItemRackButtons.lua','ItemRack.ButtonPreClick')}
 local button={GetID=function() return 13 end}
-for i=1,3 do ItemRack.ButtonPreClick(button,'LeftButton') end
+ItemRack.ButtonPreClick(button,'LeftButton')
+assert(ItemRackUser.Sets.Follower.QueuesEnabled[13]==false and ItemRack.GetQueuesEnabled()[13]==false,
+ 'issue-33-synced-alt-click: mirrored slot must toggle its selected set OFF')
+ItemRack.ButtonPreClick(button,'LeftButton')
 assert(ItemRackUser.Sets.Follower.QueuesEnabled[13]==true and ItemRack.GetQueuesEnabled()[13]==true,
- 'issue-33-synced-alt-click: refuse ineffective follower writes rather than silently changing dormant settings')
-assert(#notices==3 and notices[1]:find('Master'),'synced clicks must identify the master in feedback')
-assert(updates==0 and ItemRack.CombatQueue[13]=='pending','synced refusal must not change pending work')
+ 'issue-33-synced-alt-click: mirrored slot must toggle its selected set ON')
+assert(#notices==0 and ItemRack.GetQueues()[13]==ItemRackUser.Sets.Master.Queues[13],
+ 'mirrored toggling must stay quiet and leave the master list linked')
+assert(updates==2 and ItemRack.CombatQueue[13]=='pending','mirrored toggles must refresh presentation without canceling pending manual work')
 ItemRackUser.Sets.Follower.QueueSync[13]=nil
 ItemRack.ButtonPreClick(button,'LeftButton')
-assert(ItemRack.GetQueuesEnabled()[13]==false and notices[#notices]:find('OFF'),
- 'ordinary Alt-click must turn off and show immediate feedback even with a pending overlay')
+assert(ItemRack.GetQueuesEnabled()[13]==false and #notices==0,
+ 'reported-autoqueue-toggle-debug-only: ordinary OFF toggle must not print routine chat messages')
 ItemRack.ButtonPreClick(button,'LeftButton')
-assert(ItemRack.GetQueuesEnabled()[13]==true and notices[#notices]:find('ON'), 'ordinary Alt-click must turn on')
+assert(ItemRack.GetQueuesEnabled()[13]==true and #notices==0 and not ItemRack.LogBuffer,
+ 'reported-autoqueue-toggle-debug-only: ordinary ON toggle must stay silent with debug disabled')
+-- Silent debug keeps diagnostic evidence without chat; explicit debug chat prints it.
+ItemRack.DebugTags.Queue=true
+ItemRack.ButtonPreClick(button,'LeftButton')
+ItemRack.ButtonPreClick(button,'LeftButton')
+assert(#notices==0 and #ItemRack.LogBuffer==2 and ItemRack.LogBuffer[1]:find('OFF') and ItemRack.LogBuffer[2]:find('ON'),
+ 'reported-autoqueue-toggle-debug-only: Queue debug without debug chat must only record ON/OFF in the log')
+ItemRack.DebugChat=true
+ItemRack.ButtonPreClick(button,'LeftButton')
+assert(#notices==1 and notices[1]:find('IR%-Queue') and notices[1]:find('OFF'),
+ 'reported-autoqueue-toggle-debug-only: explicitly enabled debug chat must print the toggle')
+ItemRack.DebugTags.Queue=false
+ItemRack.ButtonPreClick(button,'LeftButton')
+assert(#notices==1 and ItemRack.GetQueuesEnabled()[13]==true,
+ 'reported-autoqueue-toggle-debug-only: disabling Queue debug must silence its chat output again')
 assert(ItemRackUser.Sets.Master.QueuesEnabled[13]==true and ItemRack.CombatQueue[13]=='pending',
  'slot toggling must not modify the master or cancel a pending manual request')
-print('[QUEUE ALT-CLICK LUA] Mirrored refusal, ordinary toggles and pending feedback passed.')
+print('[QUEUE ALT-CLICK LUA] Independent mirrored/ordinary toggles and debug-only feedback passed.')
 `, 'issue-33-synced-alt-click');
 
 runLua(String.raw`
@@ -217,8 +358,8 @@ ${extractFunction('ItemRackOptions/ItemRackOptions.lua','ItemRackOpt.ClearQueueS
 ${extractFunction('ItemRackOptions/ItemRackOptions.lua','ItemRackOpt.DeleteSet')}
 local function checkSnapshot()
  local set=ItemRackUser.Sets.Follower
- assert(set.Queues[13][1].id=='live' and set.Queues[13][2].id==0 and set.QueuesEnabled[13]==false,
-  'chained-mirror-detach: preserve the effective terminal list, stop marker and disabled state')
+ assert(set.Queues[13][1].id=='live' and set.Queues[13][2].id==0 and set.QueuesEnabled[13]==true,
+  'chained-mirror-detach: preserve the effective terminal list, stop marker and local enabled state')
  assert(set.Queues[13][1].metadata.future=='preserve','preserve unknown nested entry fields')
  set.Queues[13][1].metadata.future='local'
  assert(ItemRackUser.Sets.Master.Queues[13][1].metadata.future=='preserve','detached metadata must be independent')
@@ -242,8 +383,8 @@ checkSnapshot()
 ItemRackUser.Sets.Empty={equip={}}
 ItemRackUser.Sets.Follower.QueueSync[13]='Empty'
 ItemRackOpt.ClearQueueSlotSync(13,'Follower')
-assert(#ItemRackUser.Sets.Follower.Queues[13]==0 and ItemRackUser.Sets.Follower.QueuesEnabled[13]==nil,
- 'detaching an empty master must clear dormant list and enabled fields')
+assert(#ItemRackUser.Sets.Follower.Queues[13]==0 and ItemRackUser.Sets.Follower.QueuesEnabled[13]==true,
+ 'detaching an empty master must clear dormant list and retain the local switch')
 ItemRackUser.EnableQueueContextCheck='ON'
 ItemRackUser.Queues={[13]={{id='unrelated-global'}}}
 ItemRackUser.QueuesEnabled={[13]=true}
@@ -280,6 +421,7 @@ ItemRack.GetQueues=function() return {[13]={}} end
 ItemRack.GetQueuesEnabled=function() return setmetatable({}, {__index=function() return enabled end,
  __newindex=function(_,_,v) enabled=v end}) end
 ItemRack.Print=function() end
+ItemRack.Debug=function() end
 ItemRack.UpdateCombatQueue=function() end
 ItemRackUser={}
 ItemRackSettings={DisableAltClick='OFF'}

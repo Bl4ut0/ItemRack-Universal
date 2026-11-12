@@ -2899,6 +2899,8 @@ function ItemRack.MigrateQueues()
 	ItemRack.QueueSchemaUnsupported = report.skipped == "future_schema" and true or nil
 	if ItemRack.QueueSchemaUnsupported then
 		ItemRack.Print("This profile uses a newer queue schema. Queue data was left unchanged and automatic swaps are suspended to prevent corruption.")
+	else
+		ItemRack.QueuePolicy.InitializeMirroredStates(ItemRackUser)
 	end
 	ItemRack.Debug("Queue","Queue schema migration",report.fromVersion,"->",report.toVersion,
 		report.queuesVisited,"queues",report.entriesChanged,"changed",

@@ -743,13 +743,6 @@ function ItemRack.ButtonPreClick(self,button)
 	local id = self:GetID()
 	if button=="LeftButton" and IsAltKeyDown() then
 		if id<20 and ItemRackSettings.DisableAltClick=="OFF" then
-			local context = ItemRack.GetQueueContext(id)
-			local master = context.mirroredFrom or ItemRack.GetQueueSlotSyncTarget(id)
-			if master then
-				if ItemRack.RecordButtonInput then ItemRack.RecordButtonInput("toggle_blocked_mirror",self,button) end
-				ItemRack.Print("This slot mirrors "..master..". Edit its master queue or turn off Sync with set before toggling AutoQueue.")
-				return
-			end
 			if ItemRack.QueueSchemaUnsupported then
 				ItemRack.Print("AutoQueue settings cannot be changed with an unsupported queue schema.")
 				return
@@ -782,7 +775,7 @@ function ItemRack.ButtonPreClick(self,button)
 				ItemRackOpt.UpdateQueueEnable()
 			end
 			ItemRack.UpdateCombatQueue()
-			ItemRack.Print("AutoQueue for slot "..id..": "..(ItemRack.GetQueuesEnabled()[id] and "ON" or "OFF"))
+			ItemRack.Debug("Queue","AutoQueue for slot "..id..": "..(ItemRack.GetQueuesEnabled()[id] and "ON" or "OFF"))
 		elseif id==20 then
 			ItemRack.ToggleEvents(self)
 		end

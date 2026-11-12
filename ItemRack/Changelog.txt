@@ -1,5 +1,8 @@
 __ Development __
 
+- With Use per-set queues enabled, mirrored slots share the master's queue order, stop marker, item policies and icons, but save Auto Queue ON/OFF independently per set. First linking copies the chosen master's current state once; existing mirrors initialize once from their previously effective state on upgrade. Later master changes and retargeting preserve the local choice. Alt-click and the Queue checkbox edit the follower's switch, including inactive sets in Options. Unsync preserves that choice; automatic requests and manual holds stay scoped to each follower. With per-set queues disabled, global queues remain normally editable and mirror links are dormant.
+- Routine AutoQueue ON/OFF messages now appear only through Queue debug chat, not normal chat. Enable /itemrack debug chat for visible diagnostics; silent debug still records them. Input capture is unchanged.
+
 __ New in 4.59-beta8 - By Bl4ut0 __
 - Fixed the reported SoD character-slot OnEnter stack overflow caused by XML forwarding back into ItemRack. Preserve native tooltip calls and third-party hooks, including disabled menus, with safe error cleanup. Live SoD testing remains required.
 - Synced-slot Alt-click now names the controlling master instead of silently changing unused follower settings. Normal queue toggles show ON/OFF feedback even with a pending icon; they do not cancel existing pending swaps.

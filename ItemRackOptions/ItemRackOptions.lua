@@ -1945,11 +1945,15 @@ function ItemRackOpt.BuildQueueSyncSetList()
 end
 
 function ItemRackOpt.SetQueueSlotSync(slot, editingSet, masterSet)
+	if ItemRack.QueueSchemaUnsupported then return end
 	if not slot or not editingSet or not ItemRackUser.Sets[editingSet] then return end
 	if not masterSet or not ItemRackUser.Sets[masterSet] or masterSet == editingSet then return end
 	local set = ItemRackUser.Sets[editingSet]
+	local wasSynced = set.QueueSync and set.QueueSync[slot] ~= nil
 	set.QueueSync = set.QueueSync or {}
 	set.QueueSync[slot] = masterSet
+	if not wasSynced and type(set.QueueSyncInitialized)=="table" then set.QueueSyncInitialized[slot] = nil end
+	ItemRack.QueuePolicy.InitializeMirroredStates(ItemRackUser)
 	ItemRackOpt.SetupQueue(slot)
 end
 
@@ -2366,7 +2370,7 @@ function ItemRackOpt.LayoutQueueControls()
 	syncCheck:SetPoint("TOPLEFT",panel,"TOPLEFT",10,-272)
 	syncCheck:SetScript("OnClick",ItemRackOpt.QueueSyncCheckOnClick)
 	syncCheck:SetScript("OnEnter",function(self)
-		ItemRack.OnTooltip(self,"Sync Queue With Set","Mirror this slot's cooldown queue from another set. Changes to the master set will automatically update this slot.")
+		ItemRack.OnTooltip(self,"Sync Queue With Set","Requires Use per-set queues. Mirror this slot's item order and item settings from another set. Copy its current Auto Queue ON/OFF once when first linked; afterward save ON/OFF independently for the set you are editing. Changing the master while linked preserves your choice.")
 	end)
 	syncCheck:SetScript("OnLeave",ItemRack.ClearTooltip)
 	ItemRackOpt.QueueSyncCheck = syncCheck
@@ -3295,10 +3299,10 @@ function ItemRackOpt.ValidateSortButtons()
 		end
 	end
 	ItemRackOptQueueEnable:SetChecked(ItemRack.GetQueuesEnabled(ItemRackOpt.QueueEditingSet)[ItemRackOpt.SelectedSlot])
-	if isSynced then
-		ItemRackOptQueueEnable:Disable()
-	else
+	if not ItemRack.QueueSchemaUnsupported then
 		ItemRackOptQueueEnable:Enable()
+	else
+		ItemRackOptQueueEnable:Disable()
 	end
 end
 
@@ -3410,9 +3414,7 @@ function ItemRackOpt.UpdateQueueEnable()
 end
 
 function ItemRackOpt.QueueEnableSlotOnClick(self)
-	local isSynced = (ItemRackOpt.IsQueueSlotSynced and ItemRackOpt.IsQueueSlotSynced(ItemRackOpt.SelectedSlot, ItemRackOpt.QueueEditingSet))
-		or (ItemRack.IsQueueSlotSynced and ItemRack.IsQueueSlotSynced(ItemRackOpt.SelectedSlot, ItemRackOpt.QueueEditingSet))
-	if isSynced then
+	if ItemRack.QueueSchemaUnsupported then
 		ItemRackOpt.UpdateQueueEnable()
 		return
 	end

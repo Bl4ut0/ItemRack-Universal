@@ -4,6 +4,9 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **Independent mirrored queue switches**: With Use per-set queues enabled, mirrored slots share the master's item order, stop marker, item policies and icons while saving Auto Queue ON/OFF independently for each set. First linking copies the chosen master's current switch once; existing mirrors initialize once from their previously effective state on upgrade. Later master changes and retargeting do not overwrite the local choice. Alt-click and the Queue checkbox now edit the follower's own switch; unsyncing retains it. Automatic requests and manual holds remain scoped to the selected follower. With per-set queues disabled, normal editable global queues remain in control and mirror links are dormant.
+- **Quiet AutoQueue toggles**: Routine Alt-click ON/OFF messages now use Queue debug logging instead of default chat output. `/itemrack debug chat` enables visible diagnostic messages; silent Queue debug retains log evidence without chat spam. Automatic input diagnostics remain available.
+
 
 ## [4.59-beta8] - 2026-11-12
 - **SoD character-slot stack overflow**: Fixed recursion when a captured `PaperDollFrame.xml` OnEnter script forwards to ItemRack's global handler. Native tooltip dispatch runs once, earlier/later addon hooks remain chained, disabled menus retain native behavior, and errors clear dispatch guards before propagating. Added `reported-sod-character-onenter-recursion`; live SoD confirmation is pending.

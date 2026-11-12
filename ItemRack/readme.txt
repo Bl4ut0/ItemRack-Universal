@@ -54,9 +54,9 @@ QUICK-ACCESS BUTTONS
 * Alt-click the character model to create or remove the set button (slot 20).
 * Left-click an equipment-slot button to use its equipped item.
 * Alt-left-click an equipment-slot button to toggle its Auto Queue.
-  Mirrored slots are read-only: edit the named master or turn off Sync with set
-  first. A normal toggle prints ON/OFF immediately, even when a pending swap
-  hides the gear indicator. Turning Auto Queue off does not cancel a swap
+  A mirrored slot toggles ON/OFF for the active set; its item order and settings
+  still follow its master. Routine ON/OFF messages are silent by default; /itemrack debug chat
+  enables them for troubleshooting. Turning Auto Queue off does not cancel a swap
   already pending for that slot.
 * Alt-right-click an equipment-slot button to open its Queue configuration.
 * Shift-left-click an equipment-slot button while chat input is open to link
@@ -130,13 +130,23 @@ items as carried queue candidates.
 Master / mirrored queues [Character-specific; per-set queues required]:
 
 * In the Queue panel, select the set and slot to edit, enable Sync with set,
-  and choose the master set. That slot mirrors the master's queue AND its
-  enabled state. Other slots remain independent. Chains resolve to the final
-  master; cycles fall back to the local queue rather than looping.
-* Mirrored item order, policies, icons and enablement are read-only. Edit the
-  master to update followers. Turning sync off creates an independent copy of
-  the currently effective queue; deleting a provider preserves its followers'
-  effective settings. Editing queues does not itself equip the edited set.
+  and choose the master set. That slot mirrors the master's item order, stop
+  marker, policies and icons. Chains resolve to the final master; cycles fall
+  back to the local queue rather than looping.
+* First linking copies the chosen master's current Auto Queue ON/OFF state
+  once. Afterward Alt-click and Auto Queue This Slot save ON/OFF independently
+  for the follower. Master state changes and choosing a different master while
+  linked preserve that choice. Unsyncing and linking again initializes anew.
+  Existing mirrors initialize once from their previously effective state on
+  upgrade, then retain the local choice across reloads and set saves.
+* Mirrored item order, policies and icons are read-only; edit the master to
+  update followers. Turning sync off copies the effective queue and retains
+  the follower's switch; deleting a provider preserves its followers' effective
+  settings. Editing queues does not itself equip the edited set.
+* With Use per-set queues OFF, all sets use the normal editable global queues
+  and global ON/OFF state. Saved per-set links and switches are inactive until
+  per-set queues are enabled again. Enable AutoQueue also needs to be ON for
+  automatic selection to run.
 
 Manual choices and holds:
 
@@ -545,7 +555,9 @@ The compact row labels are Priority, Pause Queue, Burn, Swap in, and sec. The
 slot and set controls use Auto Queue This Slot and Hide respectively.
 
 * Auto Queue This Slot [Character-specific or per-set; Fresh-profile default:
-  OFF per slot] Enables automatic selection for the displayed queue owner.
+  OFF per slot] Enables automatic selection for the set being edited, or the
+  global queue when Use per-set queues is OFF. A newly mirrored slot starts
+  with its chosen master's current switch, then saves its own choice.
 * Item delay [Queue-item policy; Fresh-profile default: 0 seconds] Delays when a
   candidate becomes eligible after its cooldown state permits it.
 * Priority [Queue-item policy; Fresh-profile default: OFF] Prefers the entry when

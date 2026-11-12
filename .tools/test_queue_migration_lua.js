@@ -1,11 +1,45 @@
 const assert = require('assert');
 const fs = require('fs');
-const { runLua } = require('./lib/lua_harness');
+const { runLua, extractFunction } = require('./lib/lua_harness');
 
 const migration = fs.readFileSync('ItemRack/ItemRackQueueMigration.lua', 'utf8');
 const toc = fs.readFileSync('ItemRack/ItemRack.toc', 'utf8');
 const core = fs.readFileSync('ItemRack/ItemRack.lua', 'utf8');
 const options = fs.readFileSync('ItemRackOptions/ItemRackOptions.lua', 'utf8');
+
+runLua(String.raw`
+ItemRack={GetIRString=function(id) return tostring(id) end,Print=function() end,Debug=function() end}
+ItemRackItems={}
+function GetTime() return 100 end
+${migration}
+${fs.readFileSync('ItemRack/ItemRackQueuePolicy.lua','utf8')}
+${extractFunction('ItemRack/ItemRack.lua','ItemRack.MigrateQueues')}
+ItemRackUser={QueueSchemaVersion=2,EnablePerSetQueues='OFF',Queues={},Sets={
+ Master={equip={},Queues={[13]={{id='100'}}},QueuesEnabled={[13]=true}},
+ Middle={equip={},QueueSync={[13]='Master'},QueuesEnabled={[13]=false}},
+ Follower={equip={},QueueSync={[13]='Middle'},QueuesEnabled={[13]=false}},
+ Missing={equip={},QueueSync={[13]='Absent'},QueuesEnabled={[13]=false}},
+ CycleA={equip={},QueueSync={[13]='CycleB'},QueuesEnabled={[13]=true}},
+ CycleB={equip={},QueueSync={[13]='CycleA'},QueuesEnabled={[13]=false}}
+}}
+assert(ItemRack.MigrateQueues() and not ItemRack.QueueSchemaUnsupported)
+assert(ItemRackUser.Sets.Middle.QueuesEnabled[13] and ItemRackUser.Sets.Follower.QueuesEnabled[13],
+ 'mirrored-state-login-migration: legacy chains must seed from their previously effective switch even while dormant')
+assert(not ItemRackUser.Sets.Missing.QueueSyncInitialized and not ItemRackUser.Sets.CycleA.QueueSyncInitialized,
+ 'missing/cyclic links must preserve their local fallback without recording a completed initialization')
+ItemRackUser.Sets.Follower.QueuesEnabled[13]=nil
+ItemRack.MigrateQueues()
+assert(ItemRackUser.Sets.Follower.QueueSyncInitialized[13] and not ItemRackUser.Sets.Follower.QueuesEnabled[13],
+ 'login rerun must preserve the initialized follower OFF choice')
+ItemRackUser={QueueSchemaVersion=999,Sets={
+ Master={QueuesEnabled={[13]=true}},Follower={QueueSync={[13]='Master'},QueuesEnabled={[13]=false}}
+}}
+ItemRack.MigrateQueues()
+assert(ItemRack.QueueSchemaUnsupported and not ItemRackUser.Sets.Follower.QueueSyncInitialized
+ and ItemRackUser.Sets.Follower.QueuesEnabled[13]==false,
+ 'future schemas must not be modified by mirrored-state initialization')
+print('[MIRRORED STATE MIGRATION LUA] Login seeding, idempotence, invalid links and future-schema refusal passed.')
+`, 'mirrored-state-login-migration');
 
 runLua(String.raw`
 ItemRack = {}

@@ -1,7 +1,7 @@
 -- ItemRackQueuePolicy.lua
 --
--- Pure, atomic queue-context resolution. A slot's owner, list, and enabled
--- state always come from one layer. An explicit equipment slot is a policy
+-- Pure queue-context resolution. One set owns the slot policy and enabled
+-- state; explicit mirroring may supply its list from another set. Equipment is a
 -- boundary even when that set has no queue, preventing a lower event/global
 -- queue from replacing gear owned by the higher layer.
 --
@@ -19,8 +19,9 @@ local function HasBoundary(setData,slot)
 	)
 end
 
-local function FromSet(setName,setData,slot,reason)
-	local list = setData.Queues and setData.Queues[slot]
+local function FromSet(setName,setData,slot,reason,queueData)
+	queueData = queueData or setData
+	local list = queueData.Queues and queueData.Queues[slot]
 	local enabled = setData.QueuesEnabled and setData.QueuesEnabled[slot]
 	return {
 		owner = setName,
@@ -56,6 +57,45 @@ local function ResolveSetQueue(user,initialSetName,initialSet,slot)
 	return resolvedName, resolvedSet, isMirrored
 end
 
+local function InitialMirrorEnabled(user,setName,slot,visited)
+	local set = user.Sets[setName]
+	local master = set.QueueSync and set.QueueSync[slot]
+	if visited[setName] or (type(set.QueueSyncInitialized)=="table" and set.QueueSyncInitialized[slot]==true)
+	or not master or not user.Sets[master] then
+		return set.QueuesEnabled and set.QueuesEnabled[slot] and true or false
+	end
+	visited[setName] = true
+	return InitialMirrorEnabled(user,master,slot,visited)
+end
+
+-- Seed each new/legacy mirror once, before applying any changes. Existing
+-- legacy chains used the terminal master's switch; initialized masters now
+-- have their own local switch. Getters stay read-only.
+function QueuePolicy.InitializeMirroredStates(user)
+	local pending = {}
+	for name,set in pairs(user.Sets or {}) do
+		if type(set)=="table" and type(set.QueueSync)=="table" then
+			for slot in pairs(set.QueueSync) do
+				if type(slot)=="number" and slot>=0 and slot<20
+				and not (type(set.QueueSyncInitialized)=="table" and set.QueueSyncInitialized[slot]==true) then
+					local _,_,mirrored = ResolveSetQueue(user,name,set,slot)
+					if mirrored then
+						pending[#pending+1] = {set=set,slot=slot,enabled=InitialMirrorEnabled(user,name,slot,{})}
+					end
+				end
+			end
+		end
+	end
+	for _,entry in ipairs(pending) do
+		local set = entry.set
+		set.QueuesEnabled = set.QueuesEnabled or {}
+		set.QueueSyncInitialized = type(set.QueueSyncInitialized)=="table" and set.QueueSyncInitialized or {}
+		set.QueuesEnabled[entry.slot] = entry.enabled
+		set.QueueSyncInitialized[entry.slot] = true
+	end
+	return #pending
+end
+
 local function CopyQueueValue(value,seen)
 	if type(value) ~= "table" then return value end
 	seen = seen or {}
@@ -73,7 +113,7 @@ function QueuePolicy.SnapshotSetSlot(user,setName,slot)
 	if not set then return end
 	local _,resolved = ResolveSetQueue(user,setName,set,slot)
 	return { list=CopyQueueValue(resolved.Queues and resolved.Queues[slot]),
-		enabled=resolved.QueuesEnabled and resolved.QueuesEnabled[slot] }
+		enabled=set.QueuesEnabled and set.QueuesEnabled[slot] }
 end
 
 function QueuePolicy.DetachSetSlot(user,setName,slot,snapshot)
@@ -87,6 +127,7 @@ function QueuePolicy.DetachSetSlot(user,setName,slot,snapshot)
 	set.Queues[slot] = CopyQueueValue(snapshot.list) or {}
 	set.QueuesEnabled[slot] = snapshot.enabled
 	set.QueueSync[slot] = nil
+	if type(set.QueueSyncInitialized)=="table" then set.QueueSyncInitialized[slot] = nil end
 	return true
 end
 
@@ -114,7 +155,7 @@ function QueuePolicy.Resolve(user,getEventSet,slot,explicitSetName)
 	if explicitSetName then
 		if targetSet then
 			local resolvedName, resolvedSet, isMirrored = ResolveSetQueue(user,targetSetName,targetSet,slot)
-			local context = FromSet(resolvedName,resolvedSet,slot,"explicit_set")
+			local context = FromSet(targetSetName,targetSet,slot,"explicit_set",resolvedSet)
 			if not HasBoundary(targetSet,slot) and not HasBoundary(resolvedSet,slot) then context.owner = false end
 			if isMirrored then context.mirroredFrom = resolvedName end
 			return context
@@ -125,12 +166,12 @@ function QueuePolicy.Resolve(user,getEventSet,slot,explicitSetName)
 	if targetSet then
 		local resolvedName, resolvedSet, isMirrored = ResolveSetQueue(user,targetSetName,targetSet,slot)
 		if HasBoundary(targetSet,slot) or HasBoundary(resolvedSet,slot) then
-			local context = FromSet(resolvedName,resolvedSet,slot,"current_set")
+			local context = FromSet(targetSetName,targetSet,slot,"current_set",resolvedSet)
 			if isMirrored then context.mirroredFrom = resolvedName end
 			return context
 		end
 		if user.EnableQueueContextCheck ~= "ON" then
-			local context = FromSet(resolvedName,resolvedSet,slot,"context_inheritance_disabled")
+			local context = FromSet(targetSetName,targetSet,slot,"context_inheritance_disabled",resolvedSet)
 			context.owner = false
 			if isMirrored then context.mirroredFrom = resolvedName end
 			return context
@@ -155,7 +196,7 @@ function QueuePolicy.Resolve(user,getEventSet,slot,explicitSetName)
 			if eventSet then
 				local resolvedName, resolvedSet, isMirrored = ResolveSetQueue(user,eventSetName,eventSet,slot)
 				if HasBoundary(eventSet,slot) or HasBoundary(resolvedSet,slot) then
-					local context = FromSet(resolvedName,resolvedSet,slot,"event_stack")
+					local context = FromSet(eventSetName,eventSet,slot,"event_stack",resolvedSet)
 					if isMirrored then context.mirroredFrom = resolvedName end
 					return context
 				end

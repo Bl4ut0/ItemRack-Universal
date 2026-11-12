@@ -46,6 +46,48 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 12 beta9 mirrored-queue clarification: **Use per-set queues** is the
+feature gate. With it OFF, global list editing and enablement remain unchanged.
+With it ON, the selected/event set owns enablement and runtime context while
+explicit mirroring supplies the live master's list and item policies.
+`mirrored-local-enablement` in `.tools/test_queue_policy_lua.js` failed against
+the previous master-owned switch behavior. It now checks one-time master-state
+initialization, independent follower switches, chain resolution, retargeting,
+unsync/relink, event inheritance, global fallback and rehydrated saved chunks.
+`mirrored-runtime-isolation` uses production manual-choice and combat-queue
+functions to reject holds/stale automatic requests from another follower with
+the same list, while retaining explicit manual pending swaps.
+`mirrored-state-login-migration` in `.tools/test_queue_migration_lua.js` runs the
+real core migration entry point: legacy chains initialize once, later local OFF
+survives reruns, missing/cyclic links retain fallbacks and future schemas remain
+untouched. `.tools/test_set_icon_picker_lua.js` adds `mirrored-local-checkbox`
+with actual Options handlers and SaveSet: edit an inactive follower, retain
+item-policy/icon edit restrictions, save OFF without reseeding, and edit normal
+global queues while links are dormant. These model APIs and saved chunks; they
+do not execute WoW's SavedVariables writer or protected gear actions.
+Live acceptance: upgrade an existing mirrored profile, link new followers to
+ON and OFF masters, toggle each through Alt-click and Options, switch sets,
+reload/relog, and confirm choices persist while master order/policy/icon edits
+propagate. Retarget without losing the choice; unsync/relink should seed again.
+Toggle per-set queues OFF, edit global order/state, then ON and verify the
+saved follower choices return. Confirm stale automatic swaps clear and pending
+manual swaps remain. The reporter's suspected external mouse obstruction and
+other pending client-only checks remain separate; beta9 does not establish
+their resolution.
+
+November 12 beta8 chat-noise follow-up: the supplied screenshot shows routine
+`AutoQueue for slot 16: ON/OFF` messages at 16:08:18/19. Client build and profile
+were not supplied. Named `reported-autoqueue-toggle-debug-only` assertions in
+`.tools/test_queue_policy_lua.js` execute production ButtonPreClick and Debug.
+They fail against beta8's unconditional Print, and require silent default
+toggles, log-only Queue debug, explicit debug-chat output, silence when the tag
+is disabled again, unchanged queue state/pending requests and independently
+editable mirrored switches. Input capture remains automatic. Live acceptance: toggle a
+normal slot with debugging off, with Queue-only silent debugging, and after
+`/itemrack debug chat`; verify no routine chat by default and no change to
+equipping or pending icons. Published beta8 is immutable; this is a dev change
+for the next candidate, not a retag or an update to installed beta8.
+
 November 12, 2026 local remediation after the 4.59-beta7 review:
 
 - SoD report at 14:22:44: stack overflow on CharacterLegsSlot, alternating
@@ -58,9 +100,9 @@ November 12, 2026 local remediation after the 4.59-beta7 review:
   disabled menus, repeated registration and guard cleanup after a hook error.
 - `issue-33-synced-alt-click` in `.tools/test_queue_policy_lua.js` runs actual
   ButtonPreClick with the real resolver and read/write proxy. Pre-fix clicks
-  silently write ineffective follower state; corrected clicks leave both sets
-  intact and identify the master. Ordinary toggles provide ON/OFF feedback
-  without canceling the pending item. The reporter's newer character-specific
+  silently write ineffective follower state; beta8 identified the master. Beta9
+  supersedes that refusal with independent follower ON/OFF and debug-only
+  feedback, without canceling a pending manual item. The reporter's newer character-specific
   obstruction is a separate suspected external-frame problem, not verified as
   this mirrored-slot bug or attributed to any addon.
 - `chained-mirror-detach` in that suite fails pre-fix on stale intermediate

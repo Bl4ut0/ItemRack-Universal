@@ -27,9 +27,15 @@ A comprehensive guide to all mouse, keyboard, and command controls available in 
 | **Alt+Right-Click** | Opens the Queue Menu (Configuration Panel) for that slot |
 | **Drag (Left or Right)** | Moves the button (if unlocked); Shift+Drag moves just that button, otherwise the entire docked group moves |
 
-Synced queue slots are read-only: Alt-click identifies the controlling master;
-edit that set or disable Sync with set first. Normal toggles print ON/OFF even
-when a pending-item icon obscures the gear indicator. Turning AutoQueue off does
+With **Use per-set queues** enabled, synced slots mirror item order and item
+settings, while Alt-click toggles the active set's own ON/OFF state. First
+linking copies the chosen master's current switch once; subsequent choices are
+saved independently. The Queue checkbox edits the displayed set, including an
+inactive set. Changing the master while linked retains that choice; unsyncing
+and linking again seeds anew. With per-set queues disabled, the global queue
+and its switch remain normally editable and saved mirror links are inactive.
+Normal toggles are silent by default; `/itemrack debug chat` enables their
+ON/OFF diagnostic messages. Turning AutoQueue off does
 not cancel an existing pending request. If another frame may cover the button,
 hover it and run `/itemrack debug mouse`, try the click, then collect a dump.
 

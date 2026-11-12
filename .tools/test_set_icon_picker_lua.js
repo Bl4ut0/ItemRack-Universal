@@ -1087,6 +1087,54 @@ check(syncPick.offset == 0, "queue-sync-dropdown: mouse wheel up on sync button 
 ItemRackOpt.ToggleQueueSyncPicker()
 check(not syncPick:IsVisible(), "queue-sync-dropdown: toggling again must close popup")
 ItemRackOptSubFrame7:Hide()
+
+-- beta9: the selected set's checkbox remains editable while its item policies
+-- are mirrored/read-only, including when editing an inactive set.
+ItemRackUser.Sets.MirrorMaster={equip={},Queues={[9]={{id=wanted,priority=true,delay=17},{id=0}}},QueuesEnabled={[9]=false}}
+ItemRackUser.Sets.MirrorFollower={equip={},QueueSync={[9]='MirrorMaster'},QueuesEnabled={[9]=true}}
+ItemRack.QueuePolicy.InitializeMirroredStates(ItemRackUser)
+local mirroredList=ItemRackUser.Sets.MirrorMaster.Queues[9]
+local activeBefore=ItemRackUser.CurrentSet
+local gearBefore=equipment[9]
+ItemRackOptSubFrame7:Show()
+ItemRackOpt.QueueEditingSet='MirrorFollower'; ItemRackOpt.SelectedSlot=9; ItemRackOpt.SortSelected=1
+ItemRack.SlotInfo[9].real='Wrist'
+ItemRackOptSetsName:SetText('MirrorFollower')
+ItemRackOpt.ValidateSortButtons()
+check(ItemRackOptQueueEnable.enabled and not ItemRackOptQueueEnable:GetChecked(),
+ 'mirrored-local-checkbox: seeded OFF checkbox must remain editable')
+check(not ItemRackOptSortMoveDelete.enabled and not ItemRackOptItemStatsPriority.enabled and not ItemRackOpt.QueueIconButton.enabled,
+ 'mirrored item order, policies and icons must remain read-only')
+ItemRackOptQueueEnable:SetChecked(true)
+ItemRackOpt.QueueEnableSlotOnClick(ItemRackOptQueueEnable)
+check(ItemRack.GetQueuesEnabled('MirrorFollower')[9]==true and ItemRackUser.Sets.MirrorMaster.QueuesEnabled[9]==false,
+ 'mirrored-local-checkbox: editing inactive follower must change only its local switch')
+ItemRackOpt.SaveSet()
+check(ItemRackUser.Sets.MirrorFollower.QueueSync[9]=='MirrorMaster' and ItemRackUser.Sets.MirrorFollower.QueueSyncInitialized[9],
+ 'saving a mirrored set must preserve its link and initialized local state')
+ItemRackOptQueueEnable:SetChecked(false)
+ItemRackOpt.QueueEnableSlotOnClick(ItemRackOptQueueEnable)
+ItemRackOpt.SaveSet()
+ItemRackUser.Sets.MirrorMaster.QueuesEnabled[9]=true
+ItemRack.QueuePolicy.InitializeMirroredStates(ItemRackUser)
+check(not ItemRack.GetQueuesEnabled('MirrorFollower')[9] and ItemRack.GetQueues('MirrorFollower')[9]==mirroredList,
+ 'saved OFF must survive initialization and later master enablement without breaking list sync')
+-- The feature checkbox is the gate: global queues remain normally editable.
+ItemRackUser.EnablePerSetQueues='OFF'
+ItemRackUser.Queues[9]={{id=wanted},{id=other},{id=0}}
+ItemRackOpt.ValidateSortButtons()
+ItemRackOptQueueEnable:SetChecked(true); ItemRackOpt.QueueEnableSlotOnClick(ItemRackOptQueueEnable)
+ItemRackOpt.SortMove(ItemRackOptSortMoveDown)
+check(ItemRackUser.QueuesEnabled[9]==true and ItemRackUser.Queues[9][1].id==other,
+ 'global mode must allow normal queue enablement and order editing despite saved mirror links')
+check(ItemRackUser.Sets.MirrorFollower.QueuesEnabled[9]==nil and mirroredList[1].id==wanted,
+ 'global edits must not modify dormant per-set choices or master item settings')
+ItemRackUser.EnablePerSetQueues='ON'
+check(not ItemRack.GetQueuesEnabled('MirrorFollower')[9] and ItemRack.GetQueues('MirrorFollower')[9]==mirroredList,
+ 'reenabling per-set queues must restore the local OFF and live mirror after global editing')
+check(ItemRackUser.CurrentSet==activeBefore and equipment[9]==gearBefore,
+ 'editing mirror/global queue state must not equip or select another set')
+ItemRackOptSubFrame7:Hide()
 print(string.format("[QUEUE ITEM ICON LUA] %d scope, picker, persistence and presentation checks passed.",checks))
 `, 'queue-item-icons');
 

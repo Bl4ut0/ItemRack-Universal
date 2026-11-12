@@ -13,6 +13,14 @@ Use the same universal archive for every row; do not build or test separate Fore
 - On Forever 1.60.1, log in twice with a saved set key and verify no SaveBindings usage error, working set hotkeys, and persisted keys after relog (PR #28).
 - Test Auto/Up/Down/Left/Right minimap flyouts with the stock button and any minimap collector. Verify direction, item clicks, and dropdown layout. EllesmereUI 9.3 collector layering requires its upstream PR #2305 fix according to the contributor; ItemRack's dock tests do not verify that external fix (PR #26).
 
+## 4.59-beta9: mirrored queue switches and quiet toggles
+
+- With **Use per-set queues** ON, link followers to masters whose Auto Queue state is ON and OFF. Verify the initial checkbox matches the chosen master, then toggle each follower independently through Alt-click and Options (including an inactive edited set). Changing the master switch must leave follower choices intact; master item order, stop markers, policies and icons must still propagate.
+- Upgrade an existing mirrored profile, save sets, reload and relog. Verify the formerly effective master switch is copied once and subsequent local choices persist. Retarget a link without losing its choice; unsync and link again to copy the newly chosen master's current state.
+- Switch between followers sharing one master while an automatic combat request is pending. Confirm stale automatic requests clear; explicit pending manual requests still execute after combat. Verify manual holds do not follow into the other set.
+- Turn **Use per-set queues** OFF, edit the global queue's order and ON/OFF normally, then turn it ON and confirm the saved mirror links and local states return.
+- Toggle with debug disabled: no routine ON/OFF chat. Enable silent Queue debugging and collect a dump; enable `/itemrack debug chat` for visible feedback. Confirm pending icons and input diagnostics still work. These checks require live-client acceptance.
+
 ## 1. Tooltip safety and layout
 
 ### Next dev build: queue item icons and duplicate rows
