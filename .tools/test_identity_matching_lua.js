@@ -50,16 +50,17 @@ ItemRack.oldPaperDollItemSlotButton_OnEnter=function(s) nativeEnterCalls=nativeE
 ${extractFunction(core,'ItemRack.GetMenuFrameTooltipSide')}
 ${extractFunction(core,'ItemRack.AnchorTooltip')}
 ${extractFunction(core,'ItemRack.ApplyTooltipAnchor')}
+${extractFunction(core,'ItemRack.PaperDollItemSlotButton_UpdateTooltip')}
 ${extractFunction(core,'PaperDollItemSlotButton_OnEnter')}
 ${extractFunction(core,'ItemRack.RegisterCharacterSlotOnEnterHandlers')}
 ${anchorHooks}
 -- Issue #34 + Forever evidence: both OnEnter script AND button.UpdateTooltip field
--- must be updated from oldPaperDollItemSlotButton_OnEnter to PaperDollItemSlotButton_OnEnter.
+-- must be updated from oldPaperDollItemSlotButton_OnEnter to ItemRack's non-flickering handlers.
 slot.scripts.OnEnter=ItemRack.oldPaperDollItemSlotButton_OnEnter
 slot.UpdateTooltip=ItemRack.oldPaperDollItemSlotButton_OnEnter
 assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==1,'Native character OnEnter and UpdateTooltip handlers must be replaced explicitly')
 assert(slot:GetScript('OnEnter')==PaperDollItemSlotButton_OnEnter,'character slot OnEnter must dispatch through ItemRack wrapper')
-assert(slot.UpdateTooltip==PaperDollItemSlotButton_OnEnter,'character slot UpdateTooltip must dispatch through ItemRack wrapper to prevent 0.2s flicker')
+assert(slot.UpdateTooltip==ItemRack.PaperDollItemSlotButton_UpdateTooltip,'character slot UpdateTooltip must dispatch through ItemRack safe updater to prevent 0.2s flicker')
 assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==0,'character handler registration must be idempotent')
 slot:GetScript('OnEnter')(slot)
 assert(nativeEnterCalls==1,'registered ItemRack wrapper must invoke the captured native handler exactly once')
@@ -82,6 +83,16 @@ ItemRackMenuFrame.left=1600; ItemRackMenuFrame.right=1850
 PaperDollItemSlotButton_OnEnter(slot)
 assert(GameTooltip.side=='LEFT' and GameTooltip.relTo==slot,'near right screen edge, slot tooltip must fall back to left of slot')
 ItemRackMenuFrame.left=300; ItemRackMenuFrame.right=420
+
+-- Verify UpdateTooltip on character slot does NOT call nativeEnterCalls, does not wipe tooltip, and updates cursor
+local cursorUpdateCalls = 0
+function CursorUpdate(button) if button == slot then cursorUpdateCalls = cursorUpdateCalls + 1 end end
+local enterCallsBefore = nativeEnterCalls
+local ownerCallsBefore = GameTooltip.ownerCalls
+slot:UpdateTooltip()
+assert(nativeEnterCalls == enterCallsBefore, 'character slot UpdateTooltip must not re-invoke PaperDollItemSlotButton_OnEnter at 5Hz')
+assert(GameTooltip.ownerCalls == ownerCallsBefore, 'character slot UpdateTooltip must not reset GameTooltip owner or wipe content')
+assert(cursorUpdateCalls == 1, 'character slot UpdateTooltip must update cursor state via CursorUpdate')
 
 -- Opposite menu direction (RightSlotsGoLeft == ON): leave Blizzard native ANCHOR_RIGHT untouched
 ItemRackSettings.RightSlotsGoLeft='ON'; PaperDollItemSlotButton_OnEnter(slot)

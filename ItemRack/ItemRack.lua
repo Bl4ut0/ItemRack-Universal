@@ -2741,6 +2741,11 @@ function ItemRack.InitCore()
 
 	ItemRack.DURABILITY_PATTERN = string.match(DURABILITY_TEMPLATE,"(.+) .+/.+") or ""
 	ItemRack.REQUIRES_PATTERN = string.gsub(ITEM_MIN_SKILL,"%%.",".+")
+	ItemRack.MIN_LEVEL_PATTERN = ITEM_MIN_LEVEL and string.gsub(string.gsub(ITEM_MIN_LEVEL, "%%d", "%%d+"), "%%s", ".+") or "^Requires Level"
+	ItemRack.CLASSES_PATTERN = ITEM_CLASSES_ALLOWED and string.gsub(ITEM_CLASSES_ALLOWED, "%%s", ".+") or "^Classes:"
+	ItemRack.RACES_PATTERN = ITEM_RACES_ALLOWED and string.gsub(ITEM_RACES_ALLOWED, "%%s", ".+") or "^Races:"
+	ItemRack.MIN_SKILL_PATTERN = ITEM_MIN_SKILL and string.gsub(string.gsub(ITEM_MIN_SKILL, "%%d", "%%d+"), "%%s", ".+") or "^Requires "
+	ItemRack.REQ_REP_PATTERN = ITEM_REQ_REPUTATION and string.gsub(ITEM_REQ_REPUTATION, "%%s", ".+") or "^Requires "
 
 	-- pattern splitter by Maldivia http://forums.worldofwarcraft.com/thread.html?topicId=6441208576
 	local function split(str, t)
@@ -2987,24 +2992,105 @@ function ItemRack.SetButton20Visual(currentSetName, hybridSetName)
 	end
 end
 
-function ItemRack.RestoreMinimapButtonVisual()
+function ItemRack.SetMinimapButtonVisual(currentSetName, hybridSetName)
 	local button = _G["LibDBIcon10_ItemRack"]
 	if not button then return end
 
-	if button.SplitIcon and button.SplitIcon.Hide then button.SplitIcon:Hide() end
-	if button.Divider and button.Divider.Hide then button.Divider:Hide() end
-
 	local icon = button.icon
-	if icon then
-		icon:ClearAllPoints()
-		icon:SetSize(17, 17)
-		icon:SetPoint("TOPLEFT", button, "TOPLEFT", 7, -6)
+	if not icon then return end
+
+	local isHybrid = hybridSetName and currentSetName and ItemRackUser and ItemRackUser.Sets
+		and ItemRackUser.Sets[currentSetName] and ItemRackUser.Sets[hybridSetName]
+
+	if isHybrid then
+		local set1Icon = ItemRackUser.Sets[currentSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+		local set2Icon = ItemRackUser.Sets[hybridSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+
+		local splitIcon = button.SplitIcon
+		local divider = button.Divider
+
+		if not splitIcon and button.CreateTexture then
+			splitIcon = button:CreateTexture(nil, "ARTWORK")
+			button.SplitIcon = splitIcon
+		end
+		if not divider and button.CreateTexture then
+			divider = button:CreateTexture(nil, "ARTWORK", nil, 7)
+			button.Divider = divider
+		end
+
+		-- Native LibDBIcon circular inset: 17x17 at TOPLEFT 7, -6
+		local insetX, insetY = 7, -6
+		local iconSize = 17
+		local halfWidth = 8.5
+
+		-- Left half: active queue set
+		if icon.ClearAllPoints then icon:ClearAllPoints() end
+		if icon.SetPoint then icon:SetPoint("TOPLEFT", button, "TOPLEFT", insetX, insetY) end
+		if icon.SetSize then icon:SetSize(halfWidth, iconSize) end
+		if icon.SetTexCoord then icon:SetTexCoord(0.05, 0.5, 0.05, 0.95) end
+		if icon.SetTexture then icon:SetTexture(set1Icon) end
+		if icon.Show then icon:Show() end
+
+		-- Right half: detected gear set
+		if splitIcon then
+			if splitIcon.ClearAllPoints then splitIcon:ClearAllPoints() end
+			if splitIcon.SetPoint then splitIcon:SetPoint("TOPLEFT", button, "TOPLEFT", insetX + halfWidth, insetY) end
+			if splitIcon.SetSize then splitIcon:SetSize(halfWidth, iconSize) end
+			if splitIcon.SetTexCoord then splitIcon:SetTexCoord(0.5, 0.95, 0.05, 0.95) end
+			if splitIcon.SetTexture then splitIcon:SetTexture(set2Icon) end
+			if splitIcon.Show then splitIcon:Show() end
+		end
+
+		-- Center divider line (1px, within 17px height so it sits under the gold circular tracking border)
+		if divider then
+			if divider.ClearAllPoints then divider:ClearAllPoints() end
+			if divider.SetPoint then
+				divider:SetPoint("TOP", button, "TOPLEFT", insetX + halfWidth, insetY)
+				divider:SetPoint("BOTTOM", button, "TOPLEFT", insetX + halfWidth, insetY - iconSize)
+			end
+			if divider.SetWidth then divider:SetWidth(1) end
+			if divider.SetTexture then divider:SetTexture("Interface\\Buttons\\WHITE8X8") end
+			if divider.SetVertexColor then divider:SetVertexColor(1, 0.82, 0, 0.9) end
+			if divider.Show then divider:Show() end
+		end
+
+		-- Optional engine alpha mask for clients with CreateMaskTexture
+		if button.CreateMaskTexture and not button.CircleMask then
+			local mask = button:CreateMaskTexture()
+			mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+			mask:SetSize(iconSize, iconSize)
+			mask:SetPoint("TOPLEFT", button, "TOPLEFT", insetX, insetY)
+			button.CircleMask = mask
+		end
+		if button.CircleMask then
+			if icon.AddMaskTexture then icon:AddMaskTexture(button.CircleMask) end
+			if splitIcon and splitIcon.AddMaskTexture then splitIcon:AddMaskTexture(button.CircleMask) end
+		end
+	else
+		-- Restore solid icon inside native LibDBIcon 17x17 circular inset
+		if button.SplitIcon and button.SplitIcon.Hide then button.SplitIcon:Hide() end
+		if button.Divider and button.Divider.Hide then button.Divider:Hide() end
+
+		local solidTexture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+		if currentSetName and currentSetName ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[currentSetName] then
+			solidTexture = ItemRackUser.Sets[currentSetName].icon or solidTexture
+		end
+
+		if icon.ClearAllPoints then icon:ClearAllPoints() end
+		if icon.SetPoint then icon:SetPoint("TOPLEFT", button, "TOPLEFT", 7, -6) end
+		if icon.SetSize then icon:SetSize(17, 17) end
 		if icon.UpdateCoord then
 			icon:UpdateCoord()
 		else
-			icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+			if icon.SetTexCoord then icon:SetTexCoord(0.05, 0.95, 0.05, 0.95) end
 		end
+		if icon.SetTexture then icon:SetTexture(solidTexture) end
+		if icon.Show then icon:Show() end
 	end
+end
+
+function ItemRack.RestoreMinimapButtonVisual()
+	ItemRack.SetMinimapButtonVisual(nil, nil)
 end
 
 function ItemRack.UpdateCurrentSet()
@@ -3063,7 +3149,9 @@ function ItemRack.UpdateCurrentSet()
 		ItemRackButton20ItemRackIcon:SetTexture(texture)
 	end
 
-	if ItemRack.RestoreMinimapButtonVisual then
+	if ItemRack.SetMinimapButtonVisual then
+		ItemRack.SetMinimapButtonVisual(activeOwner, ItemRack.HybridSet)
+	elseif ItemRack.RestoreMinimapButtonVisual then
 		ItemRack.RestoreMinimapButtonVisual()
 	end
 
@@ -3861,18 +3949,39 @@ function ItemRack.PlayerCanWear(invslot,bag,slot,diagnostic)
 	ItemRackTooltip:SetBagItem(bag,slot)
 
 	for i=2,ItemRackTooltip:NumLines() do
-		txt = _G["ItemRackTooltipTextLeft"..i]:GetText()
+		txt = _G["ItemRackTooltipTextLeft"..i]:GetText() or ""
 		if diagnostic then
 			diagnostic.stage = "tooltip_filter"
 			diagnostic.tooltipLine = i
 			diagnostic.tooltipText = ItemRack.MenuDiagnosticValue(txt)
 		end
-		-- if either left or right text is red and this isn't a Durability x/x line, this item can't be worn
+		-- if either left or right text is red and this isn't a Durability x/x line, check if this is a genuine wear restriction
 		local red = ItemRack.IsRed("Left"..i) or ItemRack.IsRed("Right"..i)
 		if diagnostic then diagnostic.tooltipRed=ItemRack.MenuDiagnosticValue(red) end
-		if red and not string.find(txt,ItemRack.DURABILITY_PATTERN) and not string.match(txt,ItemRack.REQUIRES_PATTERN) then
-			if diagnostic then diagnostic.wearReason="red_tooltip" end
-			return nil
+		if red and not string.find(txt,ItemRack.DURABILITY_PATTERN) then
+			local isRestriction = false
+			if i <= 4 then
+				-- Lines 2-4 are native Blizzard header lines: weapon/armor proficiency (e.g. Two-Handed Axe, Plate) or combat lock
+				isRestriction = true
+			else
+				-- Lines 5+ must match an actual requirement pattern (level, class, race, skill, rep)
+				-- to avoid rejecting items when third-party addons (GearQuest, BiS, Pawn) append red stat-loss or downgrade lines.
+				if (ItemRack.MIN_LEVEL_PATTERN and string.match(txt, ItemRack.MIN_LEVEL_PATTERN))
+				or (ItemRack.CLASSES_PATTERN and string.match(txt, ItemRack.CLASSES_PATTERN))
+				or (ItemRack.RACES_PATTERN and string.match(txt, ItemRack.RACES_PATTERN))
+				or (ItemRack.MIN_SKILL_PATTERN and string.match(txt, ItemRack.MIN_SKILL_PATTERN))
+				or (ItemRack.REQUIRES_PATTERN and string.match(txt, ItemRack.REQUIRES_PATTERN))
+				or (ItemRack.REQ_REP_PATTERN and string.match(txt, ItemRack.REQ_REP_PATTERN))
+				or string.find(txt, "^Requires ")
+				or string.find(txt, "^Classes:")
+				or string.find(txt, "^Races:") then
+					isRestriction = true
+				end
+			end
+			if isRestriction then
+				if diagnostic then diagnostic.wearReason="red_tooltip" end
+				return nil
+			end
 		end
 	end
 
@@ -4375,12 +4484,28 @@ end
 function ItemRack.RefreshQuickAccessMenuSnapshots(onlySlot,reason)
 	if not ItemRack.IsForever() or InCombatLockdown() then return false end
 	local activeMenu = ItemRack.Menu
-	for id in pairs(ItemRackUser.Buttons or {}) do
-		if id<20 and (onlySlot==nil or onlySlot==id) then
-			local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,nil,reason or "snapshot_refresh")
+	local slotsToRefresh = {}
+	if onlySlot then
+		slotsToRefresh[onlySlot] = true
+	else
+		for id in pairs(ItemRackUser.Buttons or {}) do
+			if id<20 then
+				slotsToRefresh[id] = true
+			end
+		end
+		-- Always ensure weapon and trinket slots have fresh snapshots for combat breakouts,
+		-- even when the player has no buttons placed on the quick-access bar.
+		for _, slot in ipairs({13, 14, 16, 17, 18}) do
+			slotsToRefresh[slot] = true
+		end
+	end
+
+	for id in pairs(slotsToRefresh) do
+		for _, includeWorn in ipairs({false, true}) do
+			local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,includeWorn,reason or "snapshot_refresh")
 			ItemRack.Menu = {}
-			ItemRack.DiscoverEquipmentMenuItems(id,nil,diagnostic)
-			ItemRack.StoreMenuSnapshot(id,nil,diagnostic)
+			ItemRack.DiscoverEquipmentMenuItems(id,includeWorn,diagnostic)
+			ItemRack.StoreMenuSnapshot(id,includeWorn,diagnostic)
 			if diagnostic then ItemRack.FinishMenuDiagnostic(diagnostic) end
 		end
 	end
@@ -6331,10 +6456,16 @@ function ItemRack.IsEquipmentManagerOpen()
 	return false
 end
 
+function ItemRack.PaperDollItemSlotButton_UpdateTooltip(self)
+	if CursorUpdate then
+		CursorUpdate(self)
+	end
+end
+
 ItemRack.oldPaperDollItemSlotButton_OnEnter = PaperDollItemSlotButton_OnEnter
 function PaperDollItemSlotButton_OnEnter(self)
-	if self and self.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter then
-		self.UpdateTooltip = PaperDollItemSlotButton_OnEnter
+	if self and (self.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter or self.UpdateTooltip == PaperDollItemSlotButton_OnEnter) then
+		self.UpdateTooltip = ItemRack.PaperDollItemSlotButton_UpdateTooltip
 	end
 	if ItemRackSettings.CharacterSheetMenus ~= "ON" or ItemRack.IsEquipmentManagerOpen() then
 		ItemRack.pendingTooltipAnchor = nil
@@ -6376,6 +6507,12 @@ function PaperDollItemSlotButton_OnEnter(self)
 	ItemRack.pendingTooltipVerticalOwner = nil
 	ItemRack.oldPaperDollItemSlotButton_OnEnter(self)
 	
+	-- Bind UpdateTooltip to our safe updater that refreshes cursor state without wiping the tooltip
+	-- or resetting the anchor back to the slot button every 0.2s (preventing tooltip flicker loops).
+	if self then
+		self.UpdateTooltip = ItemRack.PaperDollItemSlotButton_UpdateTooltip
+	end
+
 	-- AFTER the secure handler and its post-hooks have finished, reposition the
 	-- tooltip outside the breakout menu when the menu opens to the right of the slot.
 	if isMenuOpen and slot then
@@ -6424,8 +6561,9 @@ function ItemRack.RegisterCharacterSlotOnEnterHandlers()
 				button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)
 				updated = true
 			end
-			if button.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter then
-				button.UpdateTooltip = PaperDollItemSlotButton_OnEnter
+			if button.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter
+			or button.UpdateTooltip == PaperDollItemSlotButton_OnEnter then
+				button.UpdateTooltip = ItemRack.PaperDollItemSlotButton_UpdateTooltip
 				updated = true
 			end
 			if updated then

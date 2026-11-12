@@ -3,6 +3,15 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+### Bug Fixes & Improvements
+- **Character Sheet Slot Tooltip Flicker Elimination (WoW Forever / GearQuest Forever)**:
+  - Fixed an issue where hovering over equipment slots on the Character Sheet caused rapid 5Hz tooltip flickering when `GearQuestForever` or other tooltip-augmenting addons are running.
+  - Character slot buttons now bind `UpdateTooltip` to `ItemRack.PaperDollItemSlotButton_UpdateTooltip`, which refreshes cursor state (e.g. repair hammer) via `CursorUpdate(self)` without re-invoking `GameTooltip:SetOwner(self, "ANCHOR_RIGHT")` or rebuilding tooltip lines every 0.2 seconds.
+  - Prevents the tooltip anchor from oscillating between native slot coordinates and `ItemRackMenuFrame`, eliminating 5Hz tooltip wiping and layout re-computations.
+- **Combat Weapon Breakout Discovery & Snapshot Coverage (WoW Forever)**:
+  - Fixed an issue on WoW Forever where only one of two 2-Handed axes in bags appeared in the breakout menu for weapon slot 16 during combat when 1H + Shield is equipped.
+  - Refined `PlayerCanWear` tooltip scanning to distinguish Blizzard's native requirement lines (level, class, race, skill proficiency, and header lines 2-4) from third-party addon stat differences or score comparisons (e.g. `Score: 45 (-15)`, `-10 Attack Power`, `Not Recommended`). Non-requirement lines after line 4 no longer trigger false-positive wearability rejections.
+  - Expanded `RefreshQuickAccessMenuSnapshots` on WoW Forever to always pre-cache snapshots for weapon slots (16, 17, 18) and trinket slots (13, 14) with both un-included (`bags`) and included (`character sheet`) keys, ensuring full breakout candidate availability in combat even for players with empty `ItemRackUser.Buttons` quick-access bars.
 
 
 ## [4.59-beta4] - 2026-11-11

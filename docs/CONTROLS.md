@@ -20,8 +20,8 @@ A comprehensive guide to all mouse, keyboard, and command controls available in 
 | Action | Effect |
 |--------|--------|
 | **Left-Click** | Uses the item (activates on-use trinkets, equippables, etc.) |
-| **Right-Click** | Opens the flyout when **Menu on Right-Click** is enabled; otherwise uses the equipped item when **Use on Right-Click** is enabled; otherwise advances to the next valid queue item |
-| **Hover** | Opens the item selection flyout menu |
+| **Right-Click** | Opens the flyout when **Menu on Right-Click** is enabled; otherwise uses the equipped item when **Use on Right-Click** is enabled; otherwise advances to the next valid queue item and temporarily holds it until used in combat |
+| **Hover** | Opens the item selection flyout menu (immediate without hover delay) |
 | **Shift+Left-Click** | Links the equipped item to chat (if chat edit box is open) |
 | **Alt+Left-Click** | Toggles Auto-Queue ON/OFF for that slot |
 | **Alt+Right-Click** | Opens the Queue Menu (Configuration Panel) for that slot |
@@ -33,7 +33,7 @@ A comprehensive guide to all mouse, keyboard, and command controls available in 
 
 | Action | Effect |
 |--------|--------|
-| **Left-Click** | Equips the current set (or toggles if "Equip Toggle" is ON). Manually equipping a set suppresses conflicting automated background events. |
+| **Left-Click** | Equips the current set (or toggles if "Equip Toggle" is ON). If in a **Hybrid Set State** (split-icon), officially switches the queue to the detected matching gear set. |
 | **Right-Click** | Opens the gear-set list when **Menu on right click** is enabled; otherwise opens ItemRack Options |
 | **Shift+Left-Click** | Unequips the current gear set |
 | **Alt+Left-Click** | Toggles ItemRack Events ON/OFF |
@@ -43,15 +43,28 @@ A comprehensive guide to all mouse, keyboard, and command controls available in 
 
 ## 📋 Flyout Menu (Item Selection) Controls
 
+### Standard Mode
 | Action | Effect |
 |--------|--------|
-| **Left-Click** item | Equips that item to the slot |
-| **Right-Click** item | Equips item (if TrinketMenuMode is ON, chooses slot 14; otherwise same as left-click) |
+| **Left-Click** item | Equips item as a **Manual Swap** (protected while ready; queue automatically resumes once used in combat) |
+| **Right-Click** item | Equips item with a **Persistent Hold** (locks the slot against AutoQueue until manually unheld or set switched) |
 | **Shift+Click** item | Links the item to chat (if chat edit box is open) |
-| **Alt+Click** item | Toggles the item as "Hidden" (if AllowHidden is ON) |
+| **Alt+Click** item | Toggles the item as "Hidden" from the breakout list (if "Allow hidden items" is enabled in Options) |
+
+### TrinketMenu Mode (`TrinketMenuMode == "ON"`)
+| Action | Effect |
+|--------|--------|
+| **Left-Click** item | Equips item to **Slot 13** (Upper Trinket) |
+| **Right-Click** item | Equips item to **Slot 14** (Lower Trinket) |
+| **Ctrl+Click** item | Equips item to Slot 13 (or Slot 14 on Right-Click) and sets a **Persistent Hold** |
+| **Alt+Click** item | Toggles the item as "Hidden" from the breakout list (if "Allow hidden items" is enabled in Options) |
+
+### General Flyout Controls
+| Action | Effect |
+|--------|--------|
 | **Left-Click** while bank is open | Pulls item from bank to bags, or pushes to bank if already owned |
 | **Shift+Left-Click** while bank is open | Equips the item directly from the bank instead of depositing/pulling it |
-| **Right-Click** menu frame | Toggles menu orientation (Vertical ↔ Horizontal) |
+| **Right-Click** menu frame border | Toggles menu orientation (Vertical ↔ Horizontal) |
 | **Drag** menu frame border | Re-docks the menu to a different corner of the button |
 
 ---
@@ -88,6 +101,8 @@ All 20 ItemRack equipment slots can be bound directly via the native WoW interfa
 | `/itemrack equip <set name>` | Equips the specified set |
 | `/itemrack toggle <set name>` | Toggles the specified set on/off |
 | `/itemrack toggle <set1>, <set2>` | Toggles between two sets |
+| `/itemrack hold <slot 0-19> [itemID]` | Sets a persistent manual queue hold for a slot (locks against AutoQueue) |
+| `/itemrack unhold <slot 0-19>` | Clears any manual queue hold for a slot, resuming normal AutoQueue |
 | `/itemrack lock` | Locks all buttons in place |
 | `/itemrack unlock` | Unlocks buttons for repositioning |
 | `/itemrack reset` | Resets all buttons and positions |
@@ -122,11 +137,13 @@ All 20 ItemRack equipment slots can be bound directly via the native WoW interfa
 
 The Auto-Queue system automatically swaps items based on cooldown availability:
 
-1. **Enable Queue**: Alt+Left-Click a slot button, or use the Queue tab in Options
+1. **Enable Queue**: Alt+Left-Click a docked slot button, or use the Queue tab in Options
 2. **Configure Priority**: In the Queue tab, rank items from highest to lowest priority
-3. **How it works**: When an equipped item goes on cooldown, ItemRack swaps to the next ready item
-4. **Pause Queue**: Check "Pause Queue" on items to prevent them from being swapped out during use
-5. **Per-Set Queues**: Gear Sets automatically save and recall which slot queues are currently enabled when you equip them
+3. **Automatic Rotation**: When an equipped item goes on cooldown, ItemRack swaps to the next ready item in the queue
+4. **Manual Swap Protection ("Protect Until Used")**: If you manually equip an item via Left-Click in the breakout, TrinketMenu, an `/equipslot` macro, or dragging from your bags, AutoQueue protects it while it is ready. Once you use it in combat and put it on cooldown, AutoQueue automatically resumes its normal rotation.
+5. **Persistent Hold**: Right-Clicking an item in the breakout (or Ctrl+Click in TrinketMenu mode, or `/itemrack hold`) permanently locks the slot so AutoQueue will not swap it out even on cooldown, until manually unheld.
+6. **Pause Queue**: Check "Pause Queue" on items in Options to prevent them from being swapped out during use
+7. **Per-Set Queues**: Gear Sets automatically save and recall which slot queues are currently enabled when you equip them
 
 ---
 

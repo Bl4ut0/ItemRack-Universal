@@ -529,11 +529,12 @@ check(
 );
 
 check(
-  core.includes('function ItemRack.RestoreMinimapButtonVisual()') &&
-    core.includes('icon:SetSize(17, 17)') &&
-    core.includes('icon:SetPoint("TOPLEFT", button, "TOPLEFT", 7, -6)') &&
-    !core.includes('function ItemRack.SetMinimapButtonVisual('),
-  'RestoreMinimapButtonVisual must preserve LibDBIcon native circular inset geometry and coords.'
+  core.includes('function ItemRack.SetMinimapButtonVisual(currentSetName, hybridSetName)') &&
+    core.includes('function ItemRack.RestoreMinimapButtonVisual()') &&
+    core.includes('icon:SetSize(halfWidth, iconSize)') &&
+    core.includes('icon:SetPoint("TOPLEFT", button, "TOPLEFT", insetX, insetY)') &&
+    core.includes('icon:SetPoint("TOPLEFT", button, "TOPLEFT", 7, -6)'),
+  'SetMinimapButtonVisual and RestoreMinimapButtonVisual must preserve LibDBIcon native circular inset geometry and coords.'
 );
 
 check(

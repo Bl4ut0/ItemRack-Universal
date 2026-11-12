@@ -213,8 +213,9 @@ C_Container={GetContainerNumSlots=GetContainerNumSlots}
 WOW_PROJECT_ID=1
 ItemRackUser={CustomMenuIcons='ON',CustomCharacterIcons='OFF'}
 ItemRackSettings={AllowEmpty='ON',AllowHidden='ON',HideTradables='OFF'}
-ItemRack={Menu={},MenuSnapshots={},SlotInfo={[13]={INVTYPE_TRINKET=true}},
+ItemRack={Menu={},MenuSnapshots={},SlotInfo={[13]={INVTYPE_TRINKET=true},[14]={INVTYPE_TRINKET=true},[16]={INVTYPE_TRINKET=true},[17]={INVTYPE_TRINKET=true},[18]={INVTYPE_TRINKET=true}},
   DURABILITY_PATTERN='Durability',REQUIRES_PATTERN='Requires',
+  IsForever=function() return true end,
   IsHidden=function() return mode=='hidden' end,
   IsSoulbound=function() return false end,
   GetID=function(bag,slot)
@@ -229,22 +230,35 @@ ItemRack={Menu={},MenuSnapshots={},SlotInfo={[13]={INVTYPE_TRINKET=true}},
     return 'Trinket',2,'INVTYPE_TRINKET'
   end,
 }
-local lineText='Trinket'
-for i=1,2 do
+local lineTexts={}
+for i=1,8 do
   for _,side in ipairs({'Left','Right'}) do
     _G['ItemRackTooltipText'..side..i]={
       SetTextColor=function() end,
-      GetText=function() return lineText end,
+      GetText=function()
+        if lineTexts[i] then return lineTexts[i] end
+        return 'Trinket'
+      end,
       GetTextColor=function()
         if mode=='red_tooltip' and side=='Left' and i==2 then return 1,0,0 end
+        if mode=='addon_red_stat' and side=='Left' and i==6 then return 1,0,0 end
+        if mode=='level_red_req' and side=='Left' and i==6 then return 1,0,0 end
         return 1,1,1
       end,
     }
   end
 end
 ItemRackTooltip={SetBagItem=function()
-  lineText=mode=='red_tooltip' and 'Cannot equip during combat' or 'Trinket'
-end,NumLines=function() return 2 end}
+  if mode=='red_tooltip' then
+    lineTexts={[2]='Cannot equip during combat'}
+  elseif mode=='addon_red_stat' then
+    lineTexts={[2]='Trinket',[6]='GearQuest Score: 45 (-15)'}
+  elseif mode=='level_red_req' then
+    lineTexts={[2]='Trinket',[6]='Requires Level 60'}
+  else
+    lineTexts={[2]='Trinket'}
+  end
+end,NumLines=function() return (mode=='addon_red_stat' or mode=='level_red_req') and 6 or 2 end}
 
 ${diagnosticFunctions}
 ${alreadyInMenu}
@@ -252,6 +266,7 @@ ${addToMenu}
 ${getSnapshotKey}
 ${storeSnapshot}
 ${discoverItems}
+${refreshSnapshots}
 ${extractFunction(coreFile,'ItemRack.IsRed')}
 ${extractFunction(coreFile,'ItemRack.PlayerCanWear')}
 
@@ -319,6 +334,28 @@ local soulbound=scan('normal')
 check(soulbound.soulboundRejected==1 and soulbound.wearRejected==0,
   'soulbound filtering must remain distinct and preserve production policy')
 ItemRackSettings.HideTradables='OFF'
+
+-- Third-party addon red stat comparison lines (e.g. GearQuest, AtlasBIS) must not reject wearable candidates
+combat=false; unitCombat=false
+local addonStat=scan('addon_red_stat')
+check(addonStat.wearRejected==0 and addonStat.accepted==1,
+  'addon red score or stat difference lines (lines 5+) must not reject wearable bag items')
+
+-- Genuine un-met level requirements in red must continue to be rejected
+local levelReq=scan('level_red_req')
+check(levelReq.wearRejected==1 and levelReq.accepted==0,
+  'genuine red level requirement on lines 5+ must reject unwearable items')
+
+-- RefreshQuickAccessMenuSnapshots must populate weapons and trinkets even with empty Buttons table
+ItemRackUser.Buttons = {}
+local refreshResult = ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'empty_buttons_test')
+check(refreshResult == true, 'RefreshQuickAccessMenuSnapshots must succeed with empty buttons table')
+check(ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(16, nil)] ~= nil,
+  'weapon slot 16 un-included snapshot must be populated even with empty buttons table')
+check(ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(16, true)] ~= nil,
+  'weapon slot 16 included (character sheet) snapshot must be populated even with empty buttons table')
+check(ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(13, true)] ~= nil,
+  'trinket slot 13 included snapshot must be populated even with empty buttons table')
 
 mode='metadata_error'; ItemRack.Menu={}
 local interrupted=ItemRack.BeginMenuDiagnostic(13,nil,'error_test')
