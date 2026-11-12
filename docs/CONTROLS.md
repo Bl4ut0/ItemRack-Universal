@@ -27,6 +27,12 @@ A comprehensive guide to all mouse, keyboard, and command controls available in 
 | **Alt+Right-Click** | Opens the Queue Menu (Configuration Panel) for that slot |
 | **Drag (Left or Right)** | Moves the button (if unlocked); Shift+Drag moves just that button, otherwise the entire docked group moves |
 
+Synced queue slots are read-only: Alt-click identifies the controlling master;
+edit that set or disable Sync with set first. Normal toggles print ON/OFF even
+when a pending-item icon obscures the gear indicator. Turning AutoQueue off does
+not cancel an existing pending request. If another frame may cover the button,
+hover it and run `/itemrack debug mouse`, try the click, then collect a dump.
+
 ---
 
 ## 🔘 Set Button (Slot 20) Controls
@@ -96,6 +102,7 @@ All 20 ItemRack equipment slots can be bound directly via the native WoW interfa
 |---------|--------|
 | `/itemrack opt` or `/itemrack options` | Opens the Options window |
 | `/itemrack debug` | Toggles the diagnostic logging framework (Silent mode by default) |
+| `/itemrack debug mouse` | Captures public mouse-focus details without changing any frame's mouse handling |
 | `/itemrack debug chat` | Toggles printing the diagnostic traces to the main chat window |
 | `/itemrack dump` | Retrieves the session Event logs & active SV data into a copyable UI |
 | `/itemrack equip <set name>` | Equips the specified set |

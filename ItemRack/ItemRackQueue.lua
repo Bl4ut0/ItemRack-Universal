@@ -733,7 +733,7 @@ function ItemRack.ProcessAutoQueue(slot)
 	
 	-- Visual updates logic (keep/delay/buff checks)
 	local buff = ItemRack.GetProxyBuff(baseID) or GetItemSpell(baseID)
-	if buff and (ItemRack.FindPlayerAura and ItemRack.FindPlayerAura(buff) or (AuraUtil and AuraUtil.FindAuraByName and AuraUtil.FindAuraByName(buff,"player"))) then
+	if buff and ItemRack.FindPlayerAura(buff) then
 		if icon then icon:SetDesaturated(true) end
 		return
 	end
@@ -820,7 +820,7 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 	if currentMatchIndex then
 		local currentEntry = list[currentMatchIndex]
 		local buff = ItemRack.GetProxyBuff(baseID) or GetItemSpell(baseID)
-		if buff and (ItemRack.FindPlayerAura and ItemRack.FindPlayerAura(buff) or (AuraUtil and AuraUtil.FindAuraByName and AuraUtil.FindAuraByName(buff,"player"))) then
+		if buff and ItemRack.FindPlayerAura(buff) then
 			return nil
 		end
 		-- Pause Queue: item is flagged to stay equipped indefinitely

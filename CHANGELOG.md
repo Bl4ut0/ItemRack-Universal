@@ -4,6 +4,12 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **SoD character-slot stack overflow**: Fixed recursion when a captured `PaperDollFrame.xml` OnEnter script forwards to ItemRack's global handler. Native tooltip dispatch runs once, earlier/later addon hooks remain chained, disabled menus retain native behavior, and errors clear dispatch guards before propagating. Added `reported-sod-character-onenter-recursion`; live SoD confirmation is pending.
+- **Queue ownership and manual choices**: Synced-slot Alt-click now explains that the master controls AutoQueue instead of silently writing ineffective follower settings. Ordinary toggles provide immediate ON/OFF feedback even while a pending-item overlay is visible; existing pending requests are not canceled. Internal transaction completion no longer marks AutoQueue swaps as external manual choices, and an external replacement clears the previous item's persistent hold.
+- **Mouse-routing evidence**: Added bounded hover/click receipts and `/itemrack debug mouse` focus capture to `/itemrack dump`, including public focus-frame names, parents, opacity, modifier state and effective queue state. This helps investigate character-specific invisible overlays without changing any frame's mouse handling; it does not attribute or resolve the reporter's suspected external obstruction.
+- **Safe mirror detachment**: Unsyncing a chained queue or deleting its intermediate provider preserves the effective terminal queue and enabled state, with independent copies of all entry metadata rather than stale intermediate settings.
+- **Aura caller containment and regression coverage**: Queue and event callers no longer retry an unsafe global aura lookup after the guarded helper returns nil; legacy aura shims avoid self-recursion. Strengthened the ammo regression to exercise two unlocked unchanged observations before server acknowledgement and same-item stack merging. Updated the packaged guide for mirroring, manual holds and hybrid state. All client-only acceptance checks remain explicit in `docs/TESTING.md`.
+
 
 ## [4.59-beta7] - 2026-11-12
 ### Bug Fixes & Improvements

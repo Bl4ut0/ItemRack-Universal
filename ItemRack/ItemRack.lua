@@ -164,7 +164,7 @@ function ItemRack.FindPlayerAura(buff)
 			return buff
 		end
 	end
-	if AuraUtil and AuraUtil.FindAuraByName then
+	if AuraUtil and AuraUtil.FindAuraByName and AuraUtil.FindAuraByName ~= ItemRack.FindAuraByName then
 		local ok, result = pcall(AuraUtil.FindAuraByName, buff, "player")
 		if ok and result then
 			if issecretvalue and issecretvalue(result) then
@@ -1661,7 +1661,7 @@ function ItemRack.ClearEquipTimer(slot)
 	end
 end
 
-function ItemRack.ReconcileEquippedSnapshot(fromInventoryEvent)
+function ItemRack.ReconcileEquippedSnapshot(fromInventoryEvent,finishedTransaction)
 	if ItemRack.QueueStateReady ~= true or type(ItemRack.EquippedSnapshot) ~= "table" then
 		return false, false
 	end
@@ -1669,6 +1669,18 @@ function ItemRack.ReconcileEquippedSnapshot(fromInventoryEvent)
 	local hasUnresolvedSlot = false
 	local stateChanged = false
 	local readinessRestored = false
+	-- FinishRequest clears ActiveEquipmentTransaction before this callback.
+	-- Keep its touched slots attributed to the internal request, including rollback.
+	local transactionSlots = {}
+	if finishedTransaction then
+		for _,steps in ipairs({finishedTransaction.steps or {},finishedTransaction.originalSteps or {}}) do
+			for _,step in ipairs(steps) do
+				for _,location in ipairs({step.from,step.to}) do
+					if location and location.slot == nil then transactionSlots[location.bag] = true end
+				end
+			end
+		end
+	end
 	local now = GetTime()
 	ItemRack.UnresolvedEquippedSlots = ItemRack.UnresolvedEquippedSlots or {}
 	ItemRack.PendingEquipTransitionTimes = ItemRack.PendingEquipTransitionTimes or {}
@@ -1739,11 +1751,12 @@ function ItemRack.ReconcileEquippedSnapshot(fromInventoryEvent)
 					end
 					stateChanged = true
 					isNewTransition = true
-					if currentID and currentID ~= 0 and not ItemRack.ActiveEquipmentTransaction and not ItemRack.SetSwapping then
+					if currentID and currentID ~= 0 and not transactionSlots[i] and not ItemRack.ActiveEquipmentTransaction and not ItemRack.SetSwapping then
 						if ItemRack.GetQueuesEnabled and ItemRack.GetQueuesEnabled()[i] and ItemRack.SetManualQueueChoice then
+							ItemRack.ClearManualQueueChoice(i)
 							ItemRack.SetManualQueueChoice(i, currentID)
 						end
-					elseif currentID == 0 and not ItemRack.ActiveEquipmentTransaction and not ItemRack.SetSwapping then
+					elseif currentID == 0 and not transactionSlots[i] and not ItemRack.ActiveEquipmentTransaction and not ItemRack.SetSwapping then
 						if ItemRack.ClearManualQueueChoice then
 							ItemRack.ClearManualQueueChoice(i)
 						end
@@ -1878,7 +1891,7 @@ end
 
 function ItemRack.OnEquipmentTransactionFinalized(request)
 	if ItemRack.QueueStateReady == true and ItemRack.ReconcileEquippedSnapshot then
-		local unresolved, changed, readinessRestored = ItemRack.ReconcileEquippedSnapshot(false)
+		local unresolved, changed, readinessRestored = ItemRack.ReconcileEquippedSnapshot(false,request)
 		if unresolved and ItemRack.ScheduleEquippedStateRetry then
 			ItemRack.ScheduleEquippedStateRetry()
 		end
@@ -4318,6 +4331,63 @@ function ItemRack.FinishMenuDiagnostic(record)
 	record.stage = "complete"
 end
 
+-- Keep only public mouse-routing evidence, never frame references or scripts.
+-- Optional diagnostics must not interrupt the hover/click they are observing.
+function ItemRack.RecordButtonInput(source,button,mouseButton)
+	local ok = pcall(function()
+		local state = ItemRack.ButtonInputDiagnostics or { sequence=0,recent={},clicks={} }
+		ItemRack.ButtonInputDiagnostics = state
+		state.sequence = state.sequence+1
+		local record = { sequence=state.sequence,source=source,
+			time=ItemRack.MenuDiagnosticCall(GetTime),mouseButton=mouseButton,
+			alt=ItemRack.MenuDiagnosticCall(IsAltKeyDown),shift=ItemRack.MenuDiagnosticCall(IsShiftKeyDown),
+			control=ItemRack.MenuDiagnosticCall(IsControlKeyDown),focus={},completed=false }
+		state.recent[#state.recent+1] = record
+		if #state.recent>16 then table.remove(state.recent,1) end
+		if button then
+			record.button = ItemRack.MenuDiagnosticCall(button.GetName,button)
+			record.slot = ItemRack.MenuDiagnosticCall(button.GetID,button)
+			if source=="preclick" then state.clicks[tostring(record.slot)] = record.sequence end
+			if type(record.slot)=="number" and record.slot<20 and ItemRack.GetQueueContext then
+				local context = ItemRack.GetQueueContext(record.slot)
+				record.queueEnabled = ItemRack.MenuDiagnosticValue(context.enabled)
+				record.queueOwner = ItemRack.MenuDiagnosticValue(context.owner)
+				record.mirroredFrom = ItemRack.MenuDiagnosticValue(context.mirroredFrom)
+			end
+		end
+		if GetCursorPosition then
+			local cursorOK,x,y = pcall(GetCursorPosition)
+			if cursorOK then record.x=ItemRack.MenuDiagnosticValue(x); record.y=ItemRack.MenuDiagnosticValue(y) end
+		end
+		local foci = {}
+		if GetMouseFoci then foci=GetMouseFoci() or {}
+		elseif GetMouseFocus then foci={GetMouseFocus()} end
+		for i=1,math.min(#foci,8) do
+			local frame = foci[i]
+			local frameOK,description = pcall(function()
+				local value = ItemRack.MenuDiagnosticValue(frame)
+				if value=="<secret>" or value=="<inaccessible>" or value=="<unavailable>" then return {status=value} end
+				if frame.IsForbidden and frame:IsForbidden() then return {forbidden=true} end
+				local info = {name=ItemRack.MenuDiagnosticCall(frame.GetName,frame),
+					shown=ItemRack.MenuDiagnosticCall(frame.IsShown,frame),
+					mouseEnabled=ItemRack.MenuDiagnosticCall(frame.IsMouseEnabled,frame),
+					alpha=ItemRack.MenuDiagnosticCall(frame.GetAlpha,frame),
+					effectiveAlpha=ItemRack.MenuDiagnosticCall(frame.GetEffectiveAlpha,frame),parents={}}
+				for depth=1,4 do
+					if not frame.GetParent then break end
+					frame = frame:GetParent()
+					if not frame or (frame.IsForbidden and frame:IsForbidden()) then break end
+					info.parents[#info.parents+1] = ItemRack.MenuDiagnosticCall(frame.GetName,frame)
+				end
+				return info
+			end)
+			record.focus[#record.focus+1] = frameOK and description or {status="<unavailable>"}
+		end
+		record.completed = true
+	end)
+	return ok
+end
+
 function ItemRack.GetMenuDiagnosticReport()
 	local state = ItemRack.MenuDiagnostics or { recent={},latest={} }
 	local frame = ItemRackMenuFrame
@@ -6478,7 +6548,31 @@ function ItemRack.PaperDollItemSlotButton_UpdateTooltip(self)
 end
 
 ItemRack.oldPaperDollItemSlotButton_OnEnter = PaperDollItemSlotButton_OnEnter
+-- XML slot scripts can forward to the global OnEnter name at call time.
+-- Dispatch their native call once without re-running ItemRack's menu logic.
+function ItemRack.CallCharacterSlotOnEnter(self)
+	local native = ItemRack.oldPaperDollItemSlotButton_OnEnter
+	if self._ItemRackCallingSlotOnEnter then
+		if not self._ItemRackNativeSlotOnEnterCalled then
+			self._ItemRackNativeSlotOnEnterCalled = true
+			if native and native ~= PaperDollItemSlotButton_OnEnter then return native(self) end
+		end
+		return
+	end
+	local handler = self._ItemRackOriginalOnEnter or native
+	if handler == PaperDollItemSlotButton_OnEnter then handler = native end
+	if type(handler) ~= "function" then return end
+	self._ItemRackCallingSlotOnEnter = true
+	self._ItemRackNativeSlotOnEnterCalled = handler == native
+	local ok,err = pcall(handler,self)
+	self._ItemRackCallingSlotOnEnter = nil
+	self._ItemRackNativeSlotOnEnterCalled = nil
+	if not ok then error(err,0) end
+end
+
 function PaperDollItemSlotButton_OnEnter(self)
+	if not self then return end
+	if self._ItemRackCallingSlotOnEnter then return ItemRack.CallCharacterSlotOnEnter(self) end
 	if self and (self.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter or self.UpdateTooltip == PaperDollItemSlotButton_OnEnter) then
 		self.UpdateTooltip = ItemRack.PaperDollItemSlotButton_UpdateTooltip
 	end
@@ -6490,9 +6584,7 @@ function PaperDollItemSlotButton_OnEnter(self)
 			ItemRackMenuFrame:Hide()
 			ItemRack.menuDockedTo = nil
 		end
-		if ItemRack.oldPaperDollItemSlotButton_OnEnter then
-			ItemRack.oldPaperDollItemSlotButton_OnEnter(self)
-		end
+		ItemRack.CallCharacterSlotOnEnter(self)
 		return
 	end
 
@@ -6520,11 +6612,7 @@ function PaperDollItemSlotButton_OnEnter(self)
 	-- handlers and causes ADDON_ACTION_BLOCKED errors on protected calls like SetShown().
 	-- A previous flyout row must not offset this newly hovered character slot.
 	ItemRack.pendingTooltipVerticalOwner = nil
-	if self and self._ItemRackOriginalOnEnter then
-		self._ItemRackOriginalOnEnter(self)
-	elseif ItemRack.oldPaperDollItemSlotButton_OnEnter then
-		ItemRack.oldPaperDollItemSlotButton_OnEnter(self)
-	end
+	ItemRack.CallCharacterSlotOnEnter(self)
 	
 	-- Bind UpdateTooltip to our safe updater that refreshes cursor state without wiping the tooltip
 	-- or resetting the anchor back to the slot button every 0.2s (preventing tooltip flicker loops).
@@ -6578,9 +6666,11 @@ function ItemRack.RegisterCharacterSlotOnEnterHandlers()
 		if button then
 			local updated = false
 			if button.GetScript and button.SetScript
+			and not button._ItemRackSlotOnEnterRegistered
 			and button:GetScript("OnEnter") ~= PaperDollItemSlotButton_OnEnter then
 				button._ItemRackOriginalOnEnter = button:GetScript("OnEnter")
 				button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)
+				button._ItemRackSlotOnEnterRegistered = true
 				updated = true
 			end
 			if button.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter
@@ -7302,9 +7392,13 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.LogBuffer = {}
 			ItemRack.ClearQueueDiagnostics()
 			ItemRack.MenuDiagnostics = nil
+			ItemRack.ButtonInputDiagnostics = nil
 			ItemRack.Print("Diagnostic log, AutoQueue and breakout recorders cleared.")
 		elseif subcmd == "status" then
 			ItemRack.PrintDebugStatus()
+		elseif subcmd == "mouse" then
+			ItemRack.RecordButtonInput("mouse_probe")
+			ItemRack.Print("Mouse focus captured. Keep the pointer over the affected button, try Alt-click, then run /itemrack dump before reloading.")
 		elseif subcmd == "audit" then
 			ItemRack.AuditSavedVariables(true)
 		elseif subcmd == "help" then
@@ -7313,6 +7407,7 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.Print("  /itemrack debug chat : Toggles printing logs directly to chat")
 			ItemRack.Print("  /itemrack debug clear : Clears the diagnostic log and AutoQueue trace buffers")
 			ItemRack.Print("  /itemrack debug status : Shows current status of all debug tags")
+			ItemRack.Print("  /itemrack debug mouse : Captures mouse focus without changing any frame's mouse handling")
 			ItemRack.Print("  /itemrack debug audit : Scans and repairs SavedVariables issues")
 			ItemRack.Print("  /itemrack debug <tag> : Toggles specific tag (Available: events, equip, queue, combatqueue, api, ui, combat)")
 			ItemRack.Print("  /itemrack dump : Opens a support dump; the AutoQueue recorder is populated only while Queue debug is enabled")
@@ -7468,6 +7563,7 @@ function ItemRack.SlashHandler(arg1)
 				dumpText = dumpText .. "Breakout report unavailable; other diagnostic sections are retained."
 			end
 			
+			dumpText = dumpText .. "\n\n=== BUTTON INPUT DIAGNOSTICS ===\n" .. ItemRackLogFrame.Serialize(ItemRack.ButtonInputDiagnostics or {})
 			dumpText = dumpText .. "\n\n=== ENABLED ADDONS ===\n"
 			local getNumAddOns = (C_AddOns and C_AddOns.GetNumAddOns) or _G.GetNumAddOns
 			local getAddOnInfo = (C_AddOns and C_AddOns.GetAddOnInfo) or _G.GetAddOnInfo

@@ -54,6 +54,10 @@ QUICK-ACCESS BUTTONS
 * Alt-click the character model to create or remove the set button (slot 20).
 * Left-click an equipment-slot button to use its equipped item.
 * Alt-left-click an equipment-slot button to toggle its Auto Queue.
+  Mirrored slots are read-only: edit the named master or turn off Sync with set
+  first. A normal toggle prints ON/OFF immediately, even when a pending swap
+  hides the gear indicator. Turning Auto Queue off does not cancel a swap
+  already pending for that slot.
 * Alt-right-click an equipment-slot button to open its Queue configuration.
 * Shift-left-click an equipment-slot button while chat input is open to link
   the equipped item.
@@ -69,6 +73,8 @@ Right-click behavior for equipment-slot buttons follows Global Settings:
 Set button controls:
 
 * Left-click equips the current set, or toggles it when Equip Toggle is enabled.
+  In a hybrid state, left-click instead selects the detected gear set and its
+  queues (see HYBRID SET STATE below).
 * Right-click opens the set flyout when Menu on Right-Click is enabled;
   otherwise it opens Options.
 * Shift-left-click unequips the current set.
@@ -83,6 +89,9 @@ FLYOUT MENUS AND BANKS
 ----------------------
 
 * Click an item or set to select/equip it.
+  In standard mode, left-click makes a temporary manual choice; right-click
+  equips with a persistent queue hold. With TrinketMenu Mode on and both trinket
+  buttons present, left/right-click chooses slot 13/14; Ctrl-click adds a hold.
 * Shift-click an item while chat input is open to link it.
 * Alt-click an item to hide or unhide it when Allow Hidden is enabled.
 * Hold Alt while opening a menu to include hidden entries.
@@ -117,6 +126,40 @@ Queue matching is exact-item aware. Different enchants, gems, suffixes, and
 runes do not incorrectly burn or replace one another. Saved unavailable items
 remain editable and the open bank is recognized without treating bank-only
 items as carried queue candidates.
+
+Master / mirrored queues [Character-specific; per-set queues required]:
+
+* In the Queue panel, select the set and slot to edit, enable Sync with set,
+  and choose the master set. That slot mirrors the master's queue AND its
+  enabled state. Other slots remain independent. Chains resolve to the final
+  master; cycles fall back to the local queue rather than looping.
+* Mirrored item order, policies, icons and enablement are read-only. Edit the
+  master to update followers. Turning sync off creates an independent copy of
+  the currently effective queue; deleting a provider preserves its followers'
+  effective settings. Editing queues does not itself equip the edited set.
+
+Manual choices and holds:
+
+* Manual swaps from ItemRack, macros, bags or TrinketMenu are protected while
+  ready, including the equip cooldown. After an on-use item is used in combat,
+  normal queue rotation resumes, subject to the queue's Pause/Delay policies.
+* A persistent hold also blocks replacement while the item is on cooldown.
+  Clear it with /itemrack unhold <slot>, a normal manual item selection, or a
+  set change affecting that slot. Replacing the item externally starts a new
+  temporary choice instead of inheriting the old persistent hold.
+* Holds are runtime choices, not saved policies; they do not survive /reload.
+  Pause Queue is the separately saved per-item policy.
+
+
+HYBRID SET STATE
+----------------
+
+The selected set remains the queue authority when manual gear changes happen
+to match another saved set. ItemRack can indicate this as a split icon on the
+set button/minimap: the active queue set on the left and detected gear set on
+the right. Tooltips identify both. Left-click slot 20 or explicitly select the
+detected set to adopt its gear and queue context. Returning to the selected
+set's gear clears the hybrid indicator without switching queue authority.
 
 
 COMBAT, CASTING, AND DEFERRED SWAPS
@@ -208,6 +251,13 @@ SLASH COMMANDS
 /itemrack toggle <set one>, <set two>
   Switch between two saved sets.
 
+/itemrack hold <slot 0-19> [itemID]
+  Persistently hold the currently worn or specified item against Auto Queue.
+  This records a hold; it does not equip the specified item.
+
+/itemrack unhold <slot 0-19>
+  Clear that slot's manual hold so normal Auto Queue evaluation can resume.
+
 /itemrack lock
 /itemrack unlock
   Lock or unlock quick-access buttons.
@@ -247,6 +297,14 @@ SLASH COMMANDS
   changes, rendering stages, client build, custom-icon switches and loaded
   addon names. Secret/inaccessible values are marked rather than printed.
   /itemrack debug clear intentionally clears this evidence for a fresh test.
+
+For a possibly covered or unresponsive quick-access button, leave the mouse
+over it and run /itemrack debug mouse. Try Alt-left-click, then run /itemrack
+dump before reloading. BUTTON INPUT DIAGNOSTICS records received clicks and
+bounded focus snapshots (frame names, parents, opacity and queue state), even
+with debug off. No frame scripts or mouse settings are changed. A focus frame
+name is not proof of addon ownership; a missing click receipt needs comparison
+with /fstack or a separate addon-isolation test. Debug clear erases this evidence.
 
 
 MACRO FUNCTIONS

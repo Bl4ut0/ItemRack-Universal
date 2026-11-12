@@ -635,6 +635,7 @@ function ItemRack.DockMenuToButton(button)
 end
 
 function ItemRack.OnEnterButton(self)
+	if ItemRack.RecordButtonInput then ItemRack.RecordButtonInput("hover",self) end
 	ItemRack.InventoryTooltip(self)
 	if ItemRack.IsTimerActive("ButtonsDocking") or (not IsShiftKeyDown() and ItemRackSettings.MenuOnShift=="ON") or ItemRackSettings.MenuOnRight=="ON" then
 		return -- don't show menu while buttons docking
@@ -738,9 +739,21 @@ end
 --[[ Using buttons ]]
 
 function ItemRack.ButtonPreClick(self,button)
+	if ItemRack.RecordButtonInput then ItemRack.RecordButtonInput("preclick",self,button) end
 	local id = self:GetID()
 	if button=="LeftButton" and IsAltKeyDown() then
 		if id<20 and ItemRackSettings.DisableAltClick=="OFF" then
+			local context = ItemRack.GetQueueContext(id)
+			local master = context.mirroredFrom or ItemRack.GetQueueSlotSyncTarget(id)
+			if master then
+				if ItemRack.RecordButtonInput then ItemRack.RecordButtonInput("toggle_blocked_mirror",self,button) end
+				ItemRack.Print("This slot mirrors "..master..". Edit its master queue or turn off Sync with set before toggling AutoQueue.")
+				return
+			end
+			if ItemRack.QueueSchemaUnsupported then
+				ItemRack.Print("AutoQueue settings cannot be changed with an unsupported queue schema.")
+				return
+			end
 			if not ItemRack.GetQueues()[id] then
 				LoadAddOn("ItemRackOptions")
 				if ItemRackOpt and ItemRackOpt.SetupQueue then
@@ -764,10 +777,12 @@ function ItemRack.ButtonPreClick(self,button)
 				end
 			end
 			ItemRack.GetQueuesEnabled()[id] = not ItemRack.GetQueuesEnabled()[id]
+			if ItemRack.RecordButtonInput then ItemRack.RecordButtonInput("toggle_changed",self,button) end
 			if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot==id then
 				ItemRackOpt.UpdateQueueEnable()
 			end
 			ItemRack.UpdateCombatQueue()
+			ItemRack.Print("AutoQueue for slot "..id..": "..(ItemRack.GetQueuesEnabled()[id] and "ON" or "OFF"))
 		elseif id==20 then
 			ItemRack.ToggleEvents(self)
 		end

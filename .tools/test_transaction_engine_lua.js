@@ -385,7 +385,7 @@ assert(cursor == nil, "cursor must remain clear")
 runCase(
   'asynchronous server latency and stack merging on slot 0 allows clean single-click ranged set swap (Rummelboxer99 Issue 37 hardened regression)',
   `${common}
-local bags = { [0] = { [1] = 18042, [2] = 21459 } } -- bag 0 slot 1: Arrows, slot 2: Crossbow
+local bags = { [0] = { [1] = 18042, [2] = 21459, [3] = 15997 } } -- displaced bullets may merge into slot 3
 local inventory = { [0] = 15997, [18] = 23557 } -- slot 0: Bullets, slot 18: Gun
 local lockedInv = {}
 local lockedBags = {}
@@ -414,15 +414,17 @@ function PickupContainerItem(bag, slot)
   local key = tostring(bag) .. "," .. tostring(slot)
   if not held then
     cursor = bags[bag][slot]
-    lockedBags[key] = true
+    -- Neither endpoint of this ammo move advertises a lock. Keep the old
+    -- identity visible for >100ms so both unchanged observations really run.
+    lockedBags[key] = not (bag == 0 and slot == 1)
   else
     cursor = nil
     -- Ammo (slot 1) can stack-merge in bags, changing its representation:
     local returnedItem = held
     if bag == 0 and slot == 1 then
-      returnedItem = 99999 -- ammo stack merge
+      returnedItem = 0 -- displaced bullets merged into the existing slot 3 stack
     end
-    table.insert(pendingAcks, { due = now + 0.08, apply = function()
+    table.insert(pendingAcks, { due = now + 0.18, apply = function()
       lockedBags[key] = false
       bags[bag][slot] = returnedItem
     end })
@@ -437,7 +439,7 @@ function PickupInventoryItem(slot)
     -- Real WoW Classic engine quirk: slot 0 (ammo) does NOT trigger IsInventoryItemLocked!
     local held = cursor
     cursor = inventory[slot]
-    table.insert(pendingAcks, { due = now + 0.08, apply = function()
+    table.insert(pendingAcks, { due = now + 0.18, apply = function()
       inventory[slot] = held
     end })
     return
@@ -490,12 +492,22 @@ local status, request = ItemRack.StartEquipmentTransaction({
   onFailure = function() failed = failed + 1 end,
 })
 
+local survivedUnlockedWindow=false
+C_Timer.After(0.12,function()
+  assert(ItemRack.ActiveEquipmentTransaction==request and request.steps[1].status=='submitted',
+    'issue-37-unlocked-ammo-ack-window: ammo must survive two unchanged samples before the server ACK')
+  assert(request.steps[2].status=='planned','dependent ranged pickup must wait for confirmed ammo')
+  survivedUnlockedWindow=true
+end)
 RunAsyncTimers()
 
 assert(request.status == "complete", "transaction must complete successfully across asynchronous network frames")
 assert(completed == 1 and failed == 0, "transaction must report completion exactly once without failure")
 assert(inventory[0] == 18042, "slot 0 (Ammo) must be equipped with Arrows")
 assert(inventory[18] == 21459, "slot 18 (Ranged) must be equipped with Crossbow")
+assert(survivedUnlockedWindow and bags[0][1]==0 and bags[0][3]==15997,
+  'ack-window coverage must include a real stack merge rather than changing the ammo base identity')
+assert(ItemRack.ActiveEquipmentTransaction==nil,'successful ammo swap must release transaction ownership')
 assert(cursor == nil, "cursor must remain clear")
 `
 );

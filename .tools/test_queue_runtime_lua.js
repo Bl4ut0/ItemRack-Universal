@@ -742,3 +742,34 @@ check(button20Name.width == 36,
 
 print(string.format("[QUEUE RUNTIME LUA] %d purity and provenance checks passed.",checks))
 `, 'queue-runtime');
+
+// #32: run the production caller as well as its guarded helper. A nil result
+// (absent aura or failed API) must not invoke the unsafe global a second time.
+runLua(String.raw`
+local calls=0
+ItemRack={QueueStateReady=true,
+ IsEquippedSlotStateReady=function() return true end,
+ GetID=function() return '123' end,
+ IsQueueItemBurnt=function() return false end,
+ IsManualQueueChoice=function() return false end,
+ FindQueueEntryIndex=function() return 1 end,
+ GetProxyBuff=function() return 'TestAura' end,
+ IsQueueEntryUnambiguous=function() return true end}
+ItemRackSettings={}
+AuraUtil={FindAuraByName=function() calls=calls+1; error('AuraUtil.lua:25: attempt to call a nil value') end}
+${findPlayerAura}
+${findAuraByName}
+${autoQueue}
+local context={owner='A',list={{id='123'}}}
+assert(ItemRack.AutoQueueItemToEquip(13,'123',1,true,nil,context)==nil,
+ 'issue-32-aura-caller-containment: failed aura lookup must not escape the queue caller')
+assert(calls==1,'the failing global lookup must not be called again after the safe helper returns nil')
+-- Legacy shim points back to ItemRack; do not recursively query our own shim.
+AuraUtil={FindAuraByName=ItemRack.FindAuraByName}
+local scans=0
+UnitBuff=function() scans=scans+1; return nil end
+assert(ItemRack.FindPlayerAura('MissingAura')==nil and scans==1,'legacy shim must perform one bounded scan')
+UnitBuff=function(_,i) return i==1 and 'TestAura' or nil end
+assert(ItemRack.FindPlayerAura('TestAura')=='TestAura','legacy aura presence must remain supported')
+print('[AURA CALLER LUA] Guarded caller failures and nonrecursive legacy lookup passed.')
+`, 'issue-32-aura-caller-containment');

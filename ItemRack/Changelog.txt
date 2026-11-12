@@ -1,5 +1,12 @@
 __ Development __
 
+- Fixed the reported SoD character-slot OnEnter stack overflow caused by XML forwarding back into ItemRack. Preserve native tooltip calls and third-party hooks, including disabled menus, with safe error cleanup. Live SoD testing remains required.
+- Synced-slot Alt-click now names the controlling master instead of silently changing unused follower settings. Normal queue toggles show ON/OFF feedback even with a pending icon; they do not cancel existing pending swaps.
+- Added /itemrack debug mouse and bounded input evidence in /itemrack dump to distinguish received clicks from focus on another frame, without altering other addons' mouse handling. The suspected character-specific external obstruction is tracked separately.
+- Fixed internal AutoQueue transactions being mistaken for external manual choices. Replacing a held item externally no longer transfers its persistent hold to the new item.
+- Unsyncing chained queues and deleting intermediate master sets now retain the effective queue, enabled state, stop marker and independent metadata.
+- Fixed unsafe aura retries in queue/event callers and legacy shim self-recursion. Strengthened unlocked-ammo latency coverage and updated the packaged guide for queue mirroring, holds and hybrid state.
+
 __ New in 4.59-beta7 - By Bl4ut0 __
 - Ammunition & Ranged Weapon Equipment Set Swapping (GitHub Issue #37):
   * Fixed a timing bug where switching between sets requiring cross-type ranged weapons and ammunition (e.g. Gun + Bullets to Crossbow + Arrows) failed on the first click with destination_rejected, leaving ammunition equipped but aborting before the ranged weapon could equip.

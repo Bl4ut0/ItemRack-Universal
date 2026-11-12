@@ -69,6 +69,7 @@ ItemRackUser = { EnableEvents="ON", Events={ Enabled={}, Set={} }, Sets={}, Even
 ItemRackEvents = {}
 
 ${reducer}
+${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.FindPlayerAura')}
 ${events}
 ${equipSet}
 ${unequipSet}

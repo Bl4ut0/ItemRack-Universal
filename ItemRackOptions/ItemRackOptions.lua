@@ -1103,30 +1103,20 @@ function ItemRackOpt.DeleteSet()
 			if ItemRack.UpdateCombatQueue then ItemRack.UpdateCombatQueue() end
 		end
 		-- Clean up any QueueSync references pointing to this deleted set
+		local followers = {}
 		for otherName, otherSet in pairs(ItemRackUser.Sets) do
 			if otherSet and otherSet.QueueSync and otherName ~= setname then
 				for slot, target in pairs(otherSet.QueueSync) do
 					if target == setname then
-						if ItemRackUser.Sets[setname].Queues and ItemRackUser.Sets[setname].Queues[slot] then
-							otherSet.Queues = otherSet.Queues or {}
-							otherSet.Queues[slot] = {}
-							for _, v in ipairs(ItemRackUser.Sets[setname].Queues[slot]) do
-								table.insert(otherSet.Queues[slot], {
-									id = v.id, keep = v.keep, priority = v.priority,
-									delay = v.delay, swapOnUse = v.swapOnUse,
-									swapInEnabled = v.swapInEnabled, customIcon = v.customIcon,
-									swapIn = v.swapIn
-								})
-							end
-						end
-						if ItemRackUser.Sets[setname].QueuesEnabled and ItemRackUser.Sets[setname].QueuesEnabled[slot] ~= nil then
-							otherSet.QueuesEnabled = otherSet.QueuesEnabled or {}
-							otherSet.QueuesEnabled[slot] = ItemRackUser.Sets[setname].QueuesEnabled[slot]
-						end
-						otherSet.QueueSync[slot] = nil
+						followers[#followers+1] = { name=otherName,slot=slot,
+							snapshot=ItemRack.QueuePolicy.SnapshotSetSlot(ItemRackUser,otherName,slot) }
 					end
 				end
 			end
+		end
+		-- Resolve every follower before mutating any link (cycles are supported).
+		for _,follower in ipairs(followers) do
+			ItemRack.QueuePolicy.DetachSetSlot(ItemRackUser,follower.name,follower.slot,follower.snapshot)
 		end
 		ItemRackUser.Sets[setname] = nil
 	end
@@ -1965,34 +1955,7 @@ end
 
 function ItemRackOpt.ClearQueueSlotSync(slot, editingSet)
 	if not slot or not editingSet or not ItemRackUser.Sets[editingSet] then return end
-	local set = ItemRackUser.Sets[editingSet]
-	if set.QueueSync and set.QueueSync[slot] then
-		local masterSet = set.QueueSync[slot]
-		local master = ItemRackUser.Sets[masterSet]
-		if master then
-			if master.Queues and master.Queues[slot] then
-				set.Queues = set.Queues or {}
-				set.Queues[slot] = {}
-				for _, entry in ipairs(master.Queues[slot]) do
-					table.insert(set.Queues[slot], {
-						id = entry.id,
-						keep = entry.keep,
-						priority = entry.priority,
-						delay = entry.delay,
-						swapOnUse = entry.swapOnUse,
-						swapInEnabled = entry.swapInEnabled,
-						customIcon = entry.customIcon,
-						swapIn = entry.swapIn
-					})
-				end
-			end
-			if master.QueuesEnabled and master.QueuesEnabled[slot] ~= nil then
-				set.QueuesEnabled = set.QueuesEnabled or {}
-				set.QueuesEnabled[slot] = master.QueuesEnabled[slot]
-			end
-		end
-		set.QueueSync[slot] = nil
-	end
+	ItemRack.QueuePolicy.DetachSetSlot(ItemRackUser,editingSet,slot)
 	ItemRackOpt.SetupQueue(slot)
 end
 

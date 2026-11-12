@@ -46,6 +46,65 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 12, 2026 local remediation after the 4.59-beta7 review:
+
+- SoD report at 14:22:44: stack overflow on CharacterLegsSlot, alternating
+  ItemRack.lua:6524 and PaperDollFrame.xml:33_OnEnter. Exact client build, addon
+  version, installed addons and profile were not supplied; lines match the
+  current dispatch path. `reported-sod-character-onenter-recursion` in
+  `.tools/test_identity_matching_lua.js` models that exact XML-to-global
+  forwarding shape, fails before correction and passes once native dispatch
+  runs once. It also covers direct native dispatch, early/late addon hooks,
+  disabled menus, repeated registration and guard cleanup after a hook error.
+- `issue-33-synced-alt-click` in `.tools/test_queue_policy_lua.js` runs actual
+  ButtonPreClick with the real resolver and read/write proxy. Pre-fix clicks
+  silently write ineffective follower state; corrected clicks leave both sets
+  intact and identify the master. Ordinary toggles provide ON/OFF feedback
+  without canceling the pending item. The reporter's newer character-specific
+  obstruction is a separate suspected external-frame problem, not verified as
+  this mirrored-slot bug or attributed to any addon.
+- `chained-mirror-detach` in that suite fails pre-fix on stale intermediate
+  data; production detach and DeleteSet now retain terminal order, stop marker,
+  false enablement and independent nested/unknown entry metadata. Empty masters
+  retain an empty local boundary rather than inheriting unrelated global work.
+- `internal-autoqueue-provenance` in `.tools/test_inventory_refresh_lua.js`
+  combines real EquipItemByID, transaction completion, snapshot reconciliation
+  and manual-choice functions. It fails pre-fix when a completed automatic
+  swap gets labeled manual. It also preserves explicit persistent holds,
+  recognizes unrelated external slot changes and clears stale persistent hold
+  flags on external replacements. Inventory/timer APIs are modeled.
+- `issue-32-aura-caller-containment` in `.tools/test_queue_runtime_lua.js`
+  fails pre-fix through the real queue caller, not just the safe helper. It
+  checks one failing native call, absent/present legacy auras and no shim loop.
+  Event processor tests also load the production safe helper.
+- Strengthened issue #37's existing asynchronous regression: both ammo
+  endpoints report unlocked and unchanged through 120ms, before a 180ms server
+  ACK; displaced bullets merge into another same-item stack. Removing the
+  ammo early-rejection exemption now fails `issue-37-unlocked-ammo-ack-window`.
+  This mutation survived the old fixture. No further ammo runtime fix is
+  claimed; live beta7 reporter acceptance remains pending.
+- `button-input-focus-evidence` models a transparent mouse-enabled focus frame,
+  received Alt-click state changes, forbidden/secret frame redaction, bounded
+  history and optional-provider failures. `/itemrack debug mouse` stores focus
+  without opening another window; dump includes BUTTON INPUT DIAGNOSTICS.
+  This records observations, not a forced click-through or proof of ownership.
+
+Before/after: pre-fix production functions from 9348b76 fail the Alt-click,
+mirror-detach, provenance and aura-caller cases above; corrected functions pass.
+The SoD case was first executed before editing the dispatch and failed on
+repeated XML re-entry. All cases remain in the normal npm test gate.
+Client acceptance before publication: on SoD hover Legs and other character
+slots with menus ON/OFF and with GearQuest/other tooltip addons; verify native
+tooltip contents, one breakout, no overflow, flicker or taint. On working and
+affected characters test ordinary/synced Alt-click with Alt held through mouse
+release, pending icons, global/per-set queues, manual temporary/persistent holds,
+set changes and external TrinketMenu/macro swaps. For suspected obstructions,
+hover the affected button, run `/itemrack debug mouse`, try one Alt-click and
+collect `/itemrack dump` before reload; compare focus and click receipts with
+`/fstack` and a separate addon-isolation test. Do not alter another addon's frame
+or mark the reporter's obstruction resolved from these modeled tests. Check
+mirror detach/delete/reload persistence, ammo swaps and real Edit Mode too.
+
 November 12, 2026 Ranged Weapon + Ammo Set Switch Rejection Report (GitHub Issue #37):
 "Ranged weapon + Ammo not switching properly [BUG] ... destination_rejected ... Ammo was in bag slot 0,1 while ranged weapon is in bag slot 0,2 ... set 1 is cross bow + arrows ... set 2 is gun + bullets"
 Reported by Rummelboxer99 with diagnostic dumps (Itemrack debug dump.txt and Itemrack debug dump2.txt). When switching between sets requiring cross-type ranged weapon and ammunition (e.g. Gun + Bullets to Crossbow + Arrows), the set switch failed with destination_rejected, leaving the new ammunition equipped in slot 0, but aborting the transaction before the dependent ranged weapon (slot 18) could be equipped. A second click on the set succeeded because ammunition was already equipped.

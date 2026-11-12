@@ -121,3 +121,74 @@ check(visualsUpdated == 0, "empty CombatQueue must not trigger visual updates")
 
 print(string.format("[INVENTORY REFRESH LUA] %d coalescing and transaction checks passed.",checks))
 `, 'inventory-refresh');
+
+// November 12 review: actual transaction completion must retain its provenance
+// after FinishRequest clears ActiveEquipmentTransaction. API state is modeled.
+runLua(String.raw`
+local now=0
+local timers={}
+local bags={[0]={[1]='200'}}
+local inv={[13]='100'}
+local cursor
+function GetTime() return now end
+C_Timer={After=function(delay,cb) timers[#timers+1]={due=now+delay,cb=cb} end}
+local function settle()
+ while #timers>0 do local t=table.remove(timers,1);now=t.due;t.cb() end
+end
+function CursorHasItem() return cursor~=nil end
+function GetCursorInfo() if cursor then return 'item',tonumber(cursor) end end
+function SpellIsTargeting() return false end
+function InCombatLockdown() return false end
+function IsInventoryItemLocked() return false end
+function GetContainerItemInfo() return nil,nil,false end
+function PickupContainerItem(b,s) cursor,bags[b][s]=bags[b][s],cursor end
+function PickupInventoryItem(s) cursor,inv[s]=inv[s],cursor end
+ItemRackSettings={DisableSwapSound='OFF'}
+ItemRackUser={EnableQueues='ON'}
+local list={{id='200'},{id='100'}}
+ItemRack={QueueStateReady=true,EquippedSnapshot={[13]='100'},CombatQueue={},
+ Debug=function() end,QueueDiagnostic=function() end,
+ GetID=function(b,s) if s then return bags[b][s] or 0 end return inv[b] or 0 end,
+ GetEquippedSlotState=function(s) if inv[s] then return 'resolved',inv[s] end return 'empty',0 end,
+ SameExactID=function(a,b) return a==b end,
+ SameID=function(a,b) return a==b end,
+ MatchesStoredItemID=function(a,b) return a==b end,
+ MatchesStoredItemFields=function(a,b) return a==b end,
+ IsBareItemID=function() return true end,
+ IsQueueEntryUnambiguous=function() return true end,
+ GetQueueContext=function() return {owner='A',list=list,enabled=true} end,
+ GetQueuesEnabled=function() return {[13]=true,[14]=true} end,
+ GetInfoByID=function() return 'Trinket',1,'INVTYPE_TRINKET' end,
+ IsPlayerReallyDead=function() return false end,
+ AnythingLocked=function() return false end,
+ ClearEquipTimer=function() end,
+ RequestInventoryRefresh=function() end,
+ MuteSwapSounds=function() end}
+${['ItemRack.FindQueueEntryIndex','ItemRack.SetManualQueueChoice','ItemRack.ClearManualQueueChoice'].map(n=>extractFunction('ItemRack/ItemRackQueue.lua',n)).join('\n')}
+${extractFunction(coreFile,'ItemRack.ReconcileEquippedSnapshot')}
+${transactionFinalized}
+${require('fs').readFileSync('ItemRack/ItemRackTransaction.lua','utf8')}
+${extractFunction(coreFile,'ItemRack.EquipItemByID')}
+local result=ItemRack.EquipItemByID('200',13,true,0,1)
+assert(result=='submitted')
+-- An unrelated external slot change during completion must still be noticed.
+inv[14]='400'
+settle()
+assert(inv[13]=='200' and not ItemRack.ActiveEquipmentTransaction and not cursor)
+assert(not ItemRack.ManualQueueChoice[13],
+ 'internal-autoqueue-provenance: an internally equipped queue item must not acquire a manual hold at completion')
+assert(ItemRack.ManualQueueChoice[14]=='400','only transaction-touched slots are exempt from external detection')
+-- A deliberately requested persistent hold must survive internal completion.
+ItemRack.EquipItemByID('100',13,false,0,1,'manual_hold')
+settle()
+assert(inv[13]=='100' and ItemRack.ManualQueueChoice[13]=='100' and ItemRack.ManualQueueHold[13],
+ 'transaction completion must preserve an explicitly requested persistent hold')
+-- An external replacement is a fresh temporary choice, not the old persistent hold.
+inv[13]='300'
+ItemRack.ReconcileEquippedSnapshot(true)
+assert(ItemRack.ManualQueueChoice[13]=='300' and not ItemRack.ManualQueueHold[13],
+ 'external replacement must clear the previous item persistent-hold flag')
+assert(ItemRack.ManualQueueChoice[14]=='400' and ItemRack.ManualQueueChoiceOwner[13]=='A',
+ 'external detection must retain independent slot and owner context')
+print('[TRANSACTION PROVENANCE LUA] Internal swaps, external choices and explicit holds passed.')
+`, 'internal-autoqueue-provenance');

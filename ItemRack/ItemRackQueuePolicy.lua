@@ -56,6 +56,40 @@ local function ResolveSetQueue(user,initialSetName,initialSet,slot)
 	return resolvedName, resolvedSet, isMirrored
 end
 
+local function CopyQueueValue(value,seen)
+	if type(value) ~= "table" then return value end
+	seen = seen or {}
+	if seen[value] then return seen[value] end
+	local copy = {}
+	seen[value] = copy
+	for key,entry in pairs(value) do copy[CopyQueueValue(key,seen)] = CopyQueueValue(entry,seen) end
+	return copy
+end
+
+-- Snapshot the resolved tuple, not a possibly stale intermediate mirror.
+-- This also works while per-set queues are disabled, for safe set deletion.
+function QueuePolicy.SnapshotSetSlot(user,setName,slot)
+	local set = user.Sets and user.Sets[setName]
+	if not set then return end
+	local _,resolved = ResolveSetQueue(user,setName,set,slot)
+	return { list=CopyQueueValue(resolved.Queues and resolved.Queues[slot]),
+		enabled=resolved.QueuesEnabled and resolved.QueuesEnabled[slot] }
+end
+
+function QueuePolicy.DetachSetSlot(user,setName,slot,snapshot)
+	local set = user.Sets and user.Sets[setName]
+	if not set or not set.QueueSync or not set.QueueSync[slot] then return false end
+	snapshot = snapshot or QueuePolicy.SnapshotSetSlot(user,setName,slot)
+	set.Queues = set.Queues or {}
+	set.QueuesEnabled = set.QueuesEnabled or {}
+	-- Retain an explicit empty boundary instead of falling through to an
+	-- unrelated event/global queue when the provider had no list.
+	set.Queues[slot] = CopyQueueValue(snapshot.list) or {}
+	set.QueuesEnabled[slot] = snapshot.enabled
+	set.QueueSync[slot] = nil
+	return true
+end
+
 local function FromGlobal(user,slot,reason)
 	local list = user.Queues and user.Queues[slot]
 	local enabled = user.QueuesEnabled and user.QueuesEnabled[slot]

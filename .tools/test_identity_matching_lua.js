@@ -51,6 +51,7 @@ ${extractFunction(core,'ItemRack.GetMenuFrameTooltipSide')}
 ${extractFunction(core,'ItemRack.AnchorTooltip')}
 ${extractFunction(core,'ItemRack.ApplyTooltipAnchor')}
 ${extractFunction(core,'ItemRack.PaperDollItemSlotButton_UpdateTooltip')}
+${extractFunction(core,'ItemRack.CallCharacterSlotOnEnter')}
 ${extractFunction(core,'PaperDollItemSlotButton_OnEnter')}
 ${extractFunction(core,'ItemRack.RegisterCharacterSlotOnEnterHandlers')}
 ${anchorHooks}
@@ -143,6 +144,58 @@ ItemRackSettings.CharacterSheetMenus='OFF'; ItemRack.pendingTooltipAnchor=nil; I
 PaperDollItemSlotButton_OnEnter(slot)
 assert(GameTooltip.nativeAnchor=='ANCHOR_RIGHT','disabled character menus must retain native tooltip behavior')
 `, 'reported-character-tooltip-anchor-hop');
+
+// November 12 SoD report: PaperDollFrame.xml's script forwards to the global
+// OnEnter, rather than retaining the native function object (beta6/beta7).
+runLua(String.raw`
+ItemRack={SlotInfo={},IsEquipmentManagerOpen=function() return false end}
+for i=0,19 do ItemRack.SlotInfo[i]={name='Slot'..i} end
+ItemRack.SlotInfo[7].name='LegsSlot'
+ItemRackSettings={CharacterSheetMenus='ON',MenuOnShift='OFF',RightSlotsGoLeft='OFF'}
+local nativeCalls,xmlCalls,addonCalls,docks=0,0,0,0
+local slot={GetName=function() return 'CharacterLegsSlot' end,scripts={}}
+function slot:GetScript(name) return self.scripts[name] end
+function slot:SetScript(name,handler) self.scripts[name]=handler end
+CharacterLegsSlot=slot
+ItemRackMenuFrame={IsVisible=function() return ItemRack.menuDockedTo~=nil end,Hide=function() end}
+ItemRack.DockMenuToCharacterSheet=function(self) docks=docks+1; ItemRack.menuDockedTo=self:GetName() end
+ItemRack.ApplyTooltipAnchor=function() end
+function IsShiftKeyDown() return false end
+ItemRack.oldPaperDollItemSlotButton_OnEnter=function(self) nativeCalls=nativeCalls+1 end
+${extractFunction(core,'ItemRack.CallCharacterSlotOnEnter')}
+${extractFunction(core,'ItemRack.PaperDollItemSlotButton_UpdateTooltip')}
+${extractFunction(core,'PaperDollItemSlotButton_OnEnter')}
+${extractFunction(core,'ItemRack.RegisterCharacterSlotOnEnterHandlers')}
+local function xmlForward(self)
+  xmlCalls=xmlCalls+1
+  assert(xmlCalls<10,'reported-sod-character-onenter-recursion: XML forwarding must not re-enter indefinitely')
+  PaperDollItemSlotButton_OnEnter(self)
+end
+slot.scripts.OnEnter=function(self) xmlForward(self); addonCalls=addonCalls+1 end
+ItemRack.RegisterCharacterSlotOnEnterHandlers()
+slot:GetScript('OnEnter')(slot)
+assert(nativeCalls==1 and xmlCalls==1 and addonCalls==1 and docks==1,
+  'SoD XML forwarding must execute native, addon and docking exactly once')
+assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==0,'registration must stay idempotent')
+-- A later addon may wrap the installed handler before another registration.
+local installed=slot:GetScript('OnEnter')
+slot.scripts.OnEnter=function(self) installed(self); addonCalls=addonCalls+1 end
+ItemRack.RegisterCharacterSlotOnEnterHandlers()
+slot:GetScript('OnEnter')(slot)
+assert(nativeCalls==2 and addonCalls==3,'late wrapping must retain both addon hooks without a recursion cycle')
+-- Disabled menus must still chain the captured addon/native handler.
+ItemRackSettings.CharacterSheetMenus='OFF'
+slot:GetScript('OnEnter')(slot)
+assert(nativeCalls==3 and addonCalls==5,'disabled menus must preserve native and addon hooks')
+-- Errors must remain visible and must not leave a sticky recursion guard.
+slot._ItemRackOriginalOnEnter=function() error('addon hover failure') end
+local ok,err=pcall(slot:GetScript('OnEnter'),slot)
+assert(not ok and tostring(err):find('addon hover failure'),'do not swallow third-party errors')
+slot._ItemRackOriginalOnEnter=xmlForward
+slot:GetScript('OnEnter')(slot)
+assert(nativeCalls==4,'a failed hook must not disable later tooltips')
+print('[SOD ONENTER LUA] XML forwarding, addon chaining and error cleanup passed.')
+`, 'reported-sod-character-onenter-recursion');
 // Forever user report, October 8, 2026: data-processed tooltips bypass legacy setters.
 runLua(String.raw`
 local lines,hooks,registrations={},0,0
