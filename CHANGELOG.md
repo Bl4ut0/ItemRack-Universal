@@ -3,6 +3,13 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+### Bug Fixes & Improvements
+- **Character Sheet Breakout Compatibility & Addon Load Chaining (GearQuest Forever / Forever 1.60.1)**:
+  - Fixed an issue where character sheet breakout menus failed to open on hover when addons loaded earlier in alphabetical order (such as `GearQuestForever`) had hooked `Character*Slot:HookScript("OnEnter")`.
+  - Updated `ItemRack.RegisterCharacterSlotOnEnterHandlers()` to wrap any existing handler rather than strictly checking for Blizzard's original handler, capturing and chaining third-party hooks in `button._ItemRackOriginalOnEnter`.
+  - Guarantees ItemRack's breakout menu docking and building executes reliably while preserving all third-party `OnEnter` hooks.
+- **Minimap Hybrid Icon Mouse Event Safety**:
+  - Protected `icon.UpdateCoord` on the LibDBIcon button during hybrid set display to prevent mouse clicks and drags from resetting half-split texture coordinates.
 
 
 ## [4.59-beta5] - 2026-11-11

@@ -3054,6 +3054,16 @@ function ItemRack.SetMinimapButtonVisual(currentSetName, hybridSetName)
 			if divider.Show then divider:Show() end
 		end
 
+		-- Prevent LibDBIcon mouse/drag events from resetting half-split texcoords
+		if not icon._ItemRackOrigUpdateCoord and icon.UpdateCoord then
+			icon._ItemRackOrigUpdateCoord = icon.UpdateCoord
+		end
+		icon.UpdateCoord = function(self)
+			if self.SetTexCoord then
+				self:SetTexCoord(0.05, 0.5, 0.05, 0.95)
+			end
+		end
+
 		-- Optional engine alpha mask for clients with CreateMaskTexture
 		if button.CreateMaskTexture and not button.CircleMask then
 			local mask = button:CreateMaskTexture()
@@ -3070,6 +3080,11 @@ function ItemRack.SetMinimapButtonVisual(currentSetName, hybridSetName)
 		-- Restore solid icon inside native LibDBIcon 17x17 circular inset
 		if button.SplitIcon and button.SplitIcon.Hide then button.SplitIcon:Hide() end
 		if button.Divider and button.Divider.Hide then button.Divider:Hide() end
+
+		if icon._ItemRackOrigUpdateCoord then
+			icon.UpdateCoord = icon._ItemRackOrigUpdateCoord
+			icon._ItemRackOrigUpdateCoord = nil
+		end
 
 		local solidTexture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
 		if currentSetName and currentSetName ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[currentSetName] then
@@ -6499,13 +6514,17 @@ function PaperDollItemSlotButton_OnEnter(self)
 		end
 	end
 	
-	-- Call the original Blizzard function FIRST, completely untouched.
+	-- Call the captured handler (or fallback to original) FIRST, completely untouched.
 	-- We MUST NOT modify GameTooltip.SetOwner or any other secure table — doing so
 	-- taints the GameTooltip table, which propagates to Blizzard action bar OnEnter
 	-- handlers and causes ADDON_ACTION_BLOCKED errors on protected calls like SetShown().
 	-- A previous flyout row must not offset this newly hovered character slot.
 	ItemRack.pendingTooltipVerticalOwner = nil
-	ItemRack.oldPaperDollItemSlotButton_OnEnter(self)
+	if self and self._ItemRackOriginalOnEnter then
+		self._ItemRackOriginalOnEnter(self)
+	elseif ItemRack.oldPaperDollItemSlotButton_OnEnter then
+		ItemRack.oldPaperDollItemSlotButton_OnEnter(self)
+	end
 	
 	-- Bind UpdateTooltip to our safe updater that refreshes cursor state without wiping the tooltip
 	-- or resetting the anchor back to the slot button every 0.2s (preventing tooltip flicker loops).
@@ -6546,9 +6565,11 @@ function PaperDollItemSlotButton_OnEnter(self)
 end
 
 -- Some clients bind the character-slot OnEnter script or UpdateTooltip field to
--- the function object that existed when Blizzard created the frame. Replacing the
--- global name does not update those stored references, so install ItemRack's wrapper
--- explicitly on both while preserving the captured native handler.
+-- the function object that existed when Blizzard created the frame. Furthermore,
+-- addons loaded earlier in alphabetical sequence (e.g. GearQuest) may have hooked
+-- the button's OnEnter script before ItemRack loaded.
+-- Replace the slot script with ItemRack's wrapper while capturing and chaining
+-- any existing handler (native or third-party) so all hooks execute safely.
 function ItemRack.RegisterCharacterSlotOnEnterHandlers()
 	local registered = 0
 	for i=0,19 do
@@ -6557,7 +6578,8 @@ function ItemRack.RegisterCharacterSlotOnEnterHandlers()
 		if button then
 			local updated = false
 			if button.GetScript and button.SetScript
-			and button:GetScript("OnEnter") == ItemRack.oldPaperDollItemSlotButton_OnEnter then
+			and button:GetScript("OnEnter") ~= PaperDollItemSlotButton_OnEnter then
+				button._ItemRackOriginalOnEnter = button:GetScript("OnEnter")
 				button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)
 				updated = true
 			end

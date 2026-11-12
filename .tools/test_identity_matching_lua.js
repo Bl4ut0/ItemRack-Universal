@@ -64,6 +64,21 @@ assert(slot.UpdateTooltip==ItemRack.PaperDollItemSlotButton_UpdateTooltip,'chara
 assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==0,'character handler registration must be idempotent')
 slot:GetScript('OnEnter')(slot)
 assert(nativeEnterCalls==1,'registered ItemRack wrapper must invoke the captured native handler exactly once')
+
+-- GearQuest load order: when another addon hooks OnEnter before ItemRack loads,
+-- ItemRack must wrap and chain that hook so both breakout menus and third-party hooks run.
+local gqHookCalls = 0
+local gqSlot = {scripts={}, GetName=function() return 'CharacterHeadSlot' end, GetTop=function() return 300 end}
+function gqSlot:GetScript(name) return self.scripts[name] end
+function gqSlot:SetScript(name,handler) self.scripts[name]=handler end
+gqSlot.scripts.OnEnter = function(s) gqHookCalls = gqHookCalls + 1; nativeEnterCalls = nativeEnterCalls + 1 end
+ItemRack.SlotInfo[1].name = 'HeadSlot'
+CharacterHeadSlot = gqSlot
+local prevReg = ItemRack.RegisterCharacterSlotOnEnterHandlers()
+assert(prevReg >= 1, 'Pre-hooked third-party character slot must be registered')
+assert(gqSlot:GetScript('OnEnter') == PaperDollItemSlotButton_OnEnter, 'Pre-hooked slot OnEnter must dispatch through ItemRack wrapper')
+gqSlot:GetScript('OnEnter')(gqSlot)
+assert(gqHookCalls == 1, 'Pre-hooked third-party handler must execute when ItemRack wrapper runs')
 for _,count in ipairs({1,2,40}) do
   ItemRack.Menu={}; for i=1,count do ItemRack.Menu[i]=i end
   ItemRack.menuDockedTo=nil

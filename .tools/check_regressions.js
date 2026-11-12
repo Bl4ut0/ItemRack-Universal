@@ -503,10 +503,11 @@ check(
 
 check(
   core.includes('function ItemRack.RegisterCharacterSlotOnEnterHandlers()') &&
-    core.includes('button:GetScript("OnEnter") == ItemRack.oldPaperDollItemSlotButton_OnEnter') &&
+    core.includes('button:GetScript("OnEnter") ~= PaperDollItemSlotButton_OnEnter') &&
+    core.includes('button._ItemRackOriginalOnEnter = button:GetScript("OnEnter")') &&
     core.includes('button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)') &&
     buttons.includes('ItemRack.RegisterCharacterSlotOnEnterHandlers()'),
-  'forever-character-onenter-binding: InitButtons must replace captured native slot handlers with the ItemRack wrapper.'
+  'forever-character-onenter-binding: InitButtons must replace captured native slot handlers and chain third-party hooks with the ItemRack wrapper.'
 );
 
 check(
