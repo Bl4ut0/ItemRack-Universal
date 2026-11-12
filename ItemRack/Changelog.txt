@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.59-beta6 - By Bl4ut0 __
 - Character Sheet Breakout Compatibility & Addon Load Chaining (GearQuest Forever / Forever 1.60.1):
   * Fixed an issue where character sheet breakout menus failed to open on hover when addons loaded earlier in alphabetical order (such as GearQuestForever) had hooked Character*Slot:HookScript("OnEnter").
   * Updated ItemRack.RegisterCharacterSlotOnEnterHandlers() to wrap any existing handler rather than strictly checking for Blizzard's original handler, capturing and chaining third-party hooks in button._ItemRackOriginalOnEnter.
