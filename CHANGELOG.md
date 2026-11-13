@@ -4,6 +4,8 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+
+## [4.59-beta11] - 2026-11-12
 - **Special-item rules and Arcanite Dragonling (#33)**: Added client-specific item/slot catalogs and shared use, cooldown and effect mechanics. Era/Forever Arcanite can release temporary protection on a matching successful activation despite delayed native cooldown, while remaining excluded from automatic reselection during that delay. TBC keeps native Arcanite handling and its mana-gem dependency. Other researched exceptions remain disabled. Only the matching client table is allocated, with late SoD detection supported.
 - **Reload recovery and diagnostics**: Confirmed special-item use is saved per character and restored before queue startup, including bagged items, without replaying swaps, burns, hold changes or notifications. Real cooldown publication/expiry and confirmed arena resets reconcile receipts; unresolved use remains inspectable. `/itemrack special status` reports recovery; `special reset <itemID>` clears only that receipt. `/itemrack debug specialitems` captures bounded event/cooldown evidence silently for 120 seconds, included in `/itemrack dump`. Production Lua is tested offline; community candidate testing covers the live item interaction. No fake items or in-game test harness is included.
 - **GitHub-only test candidates**: Added an immutable distribution policy and `prepare beta --github-only` option. GitHub-only builds skip CurseForge automation, and the upload verifier also refuses their archives during manual attempts. Normal beta/stable publication and historical releases keep their existing route. This candidate is intended for direct testing through GitHub, with no local-client installation.
