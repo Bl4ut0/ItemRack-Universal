@@ -1,5 +1,6 @@
 __ Development __
 
+__ New in 4.59-beta10 - By Bl4ut0 __
 - Fixed Protect Until Used interacting with custom Swap In (GitHub #33): verified use ends the matching temporary manual protection both in and out of combat, so a large Swap In value cannot block the prioritized replacement after the buff fades. Active buffs, Pause Queue, delays, persistent holds and candidate eligibility remain respected. Rejected equip/shared cooldowns and duplicate/stale use signals retain protection. Added permanent timing regressions and clarified the guide and Swap In tooltip; live reporter confirmation is pending.
 
 __ New in 4.59-beta9 - By Bl4ut0 __

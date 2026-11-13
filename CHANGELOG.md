@@ -4,6 +4,8 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+
+## [4.59-beta10] - 2026-11-12
 - **Protect Until Used with custom Swap In (GitHub #33)**: A verified item activation now ends the matching temporary manual choice, in and out of combat. Large Swap In windows no longer keep the used item protected against a higher-priority replacement after its buff ends. Active buffs, Pause Queue, delays, explicit persistent holds, and candidate cooldown thresholds retain their behavior. Rejected equip/shared cooldowns and duplicate or stale use receipts do not release protection. Added permanent production-Lua regressions for the reported timing boundaries and clarified the tooltip and guide; live reporter acceptance remains pending.
 
 ## [4.59-beta9] - 2026-11-12
