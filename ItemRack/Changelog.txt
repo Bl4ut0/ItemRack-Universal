@@ -1,6 +1,7 @@
 __ Development __
 
-- Expanded the complete reviewed client catalogs: 27 Era equipment entries plus five SoD variants, 31 TBC and 26 Forever entries, covering 36 distinct equipment IDs. Era Mechanical/Mithril Dragonlings now use the same deferred-use handler as Arcanite. Native cooldowns, exact channels, player/pet auras and the Braid dependency use shared policies; head, feet and off-hand entries use their proper slots. Bag-only items remain references. Per-build metrics and categories are checked against Wago data; random/charged/companion outcomes are not guessed from cast or timer alone.
+__ New in 4.59-beta12 - By Bl4ut0 __
+- Expanded the complete reviewed client catalogs: 27 Era equipment entries plus five SoD variants, 31 TBC and 26 Forever entries, covering 36 distinct equipment IDs. Era Mechanical/Mithril Dragonlings now use the same deferred-use handler as Arcanite. Native cooldowns, exact channels, player/pet auras and the Braid dependency use shared policies; head, feet and off-hand entries use their proper slots. Bag-only items remain references. Per-build metrics and categories are checked against Wago data; random/charged/companion outcomes are not guessed from cast or timer alone. Aura guards support modern spell-ID/indexed APIs and legacy globals.
 - /itemrack debug now includes the same silent 120-second special-item capture as /itemrack debug specialitems. Both paths stop correctly; the dedicated command can rearm after expiry. Debug chat includes capture when enabling all layers; status shows the actual window, and clearing diagnostics keeps pending use intact. Added permanent production-Lua command, source-catalog and multi-item queue regressions.
 
 __ New in 4.59-beta11 - By Bl4ut0 __
