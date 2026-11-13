@@ -4,6 +4,8 @@ Research date: 2026-11-12. Status: **research snapshot; owner subsequently appro
 
 This follows [GitHub #33, comment 6841005114](https://github.com/Bl4ut0/ItemRack-Universal/issues/33#issuecomment-6841005114), the owner's request for item-wide rules, and the supplied “Special-Use, Summon & Delayed-Swap Item Reference.” The supplied reference is a candidate list, not verified policy. Several of its numeric values and generalizations conflict with the sampled client data below.
 
+On 2026-11-13 the owner approved the collective catalog for beta12. Current runtime coverage, enabled policies and native-only/reference boundaries are documented in [SPECIAL_ITEM_RULES.md](SPECIAL_ITEM_RULES.md) and [special-item-catalog-coverage.json](research/special-item-catalog-coverage.json). The proposal and acceptance language below remains the original research snapshot, not the current catalog status.
+
 ## What is confirmed, and what is not
 
 The research confirms **static item/spell records in specific Blizzard client builds**. It does not confirm the timing of live Lua events, server hotfixes, availability on a realm, a summon surviving unequip, or a buff being tethered to gear. Those require client evidence. A missing row does not establish that an item was removed from the game.

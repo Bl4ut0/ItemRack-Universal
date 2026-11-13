@@ -167,14 +167,16 @@ Manual choices and holds:
 
 Special item usage:
 
-* ItemRack loads the item-rule table for the detected game version. Rules are
-  built-in item/slot data, not another per-character checkbox. Unverified
-  research entries are disabled.
-* For Arcanite Dragonling on Era and Forever, a matching successful summon
-  after an observed use attempt can end temporary protection before the native
-  cooldown starts. The used item stays ineligible for automatic reselection
-  while its cooldown is pending. Actual buffs, Pause/Delay, persistent holds
-  and combat restrictions still apply. TBC uses its normal native cooldown path.
+  * ItemRack loads the item-rule table for the detected game version. Rules are
+    built-in item/slot data, not another per-character checkbox. The collective
+    reviewed catalog includes 27 Era equipment entries plus five SoD variants,
+    31 TBC and 26 Forever entries. Bag-only references do not enter gear queues.
+  * For the three Dragonlings on Era and Arcanite Dragonling on Forever, a
+    matching successful summon after an observed use attempt can end temporary
+    protection before the native cooldown starts. The used item stays ineligible
+    for automatic reselection while its cooldown is pending. Actual buffs,
+    Pause/Delay, persistent holds and combat restrictions still apply. TBC uses
+    its normal native cooldown path.
   * Confirmed special-item use is saved per character and restored after normal
     reload/relog before queues resume, even if the item is now in a bag. Recovery
     does not repeat swaps, clear new manual holds, burn again or add notifications.
@@ -184,11 +186,22 @@ Special item usage:
     unresolved, /itemrack special reset <itemID> discards only that item's special
     receipt; normal cooldown checks then apply. It does not force a swap or clear
     your manual holds. The review timer alone never makes an item ready.
-  * /itemrack debug specialitems toggles a silent 120-second capture of relevant
-    player events, use hooks and cooldown observations. Collect /itemrack dump
+  * /itemrack debug includes special-item capture when enabling all debugging;
+    /itemrack debug specialitems can toggle that capture independently. Both
+    start the same silent 120-second window; run the dedicated command again
+    after expiry to start a fresh window. Other debug layers remain enabled
+    until toggled off. /itemrack debug status shows the actual capture window.
+  * The capture records relevant player events, use hooks and cooldown
+    observations. Collect /itemrack dump
     after the problem; capture a dump before and after reload when testing that
     boundary. Routine chat stays quiet unless debug chat is explicitly enabled.
     The addon contains no fake items or in-game test harness.
+  * Channel entries wait for their exact channel to end. Aura entries match the
+    configured player/pet aura; Mind Control Cap checks its specific charm on
+    the controlled pet, never merely the existence of any pet. Manual swaps
+    remain deliberate. Random effects and charged items use normal cooldown
+    and identity checks; Don Carlos' hat uses normal native handling without
+    an indefinite hold inferred from its always-equipped despawn aura.
 
 
 HYBRID SET STATE

@@ -1,0 +1,43 @@
+{
+  "date": "2026-11-13",
+  "sources": "SpellEffect tables in special-item-usage-sources.json",
+  "capCharm": [
+    {
+      "label": "era-11508",
+      "spell": 13181,
+      "effect": 6,
+      "aura": 6,
+      "target": 6
+    },
+    {
+      "label": "era-11509",
+      "spell": 13181,
+      "effect": 6,
+      "aura": 6,
+      "target": 6
+    },
+    {
+      "label": "tbc-255",
+      "spell": 13181,
+      "effect": 6,
+      "aura": 6,
+      "target": 6
+    },
+    {
+      "label": "tbc-256",
+      "spell": 13181,
+      "effect": 6,
+      "aura": 6,
+      "target": 6
+    },
+    {
+      "label": "forever-16001",
+      "spell": 13181,
+      "effect": 6,
+      "aura": 6,
+      "target": 6
+    }
+  ],
+  "aliasCorroboration": "https://github.com/cmangos/mangos-classic/blob/master/src/game/Spells/SpellEffects.cpp",
+  "boundary": "Emulator dummy-spell dispatch corroborates 13180 -> 13181; extracted client aura rows establish spell identity, not a live server capture."
+}

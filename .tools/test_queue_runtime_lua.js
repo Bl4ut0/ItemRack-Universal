@@ -28,12 +28,14 @@ for _,toc in ipairs({11508,11509,20505,20506,16001,11601,120100}) do
   check(s.Rules[34430]~=nil==tbc,'TBC-specific items must not appear in other catalogs')
   check(s.GetRule(16022,13) and s.GetRule(16022,14) and not s.GetRule(16022,17),
    'item slot maps must use runtime equipment slots, not inventory-type IDs')
-  check(not s.GetRule(10645) and s.GetRule(10645,nil,true),'unverified research rules must stay disabled')
+  check(s.GetRule(10645).effect.kind=='channel' and s.GetRule(10645).effect.hold,
+   'reviewed Death Ray channel policy must be enabled on every supported client')
   for id,rule in pairs(s.Rules) do
    check(type(id)=='number' and id>0 and type(rule.name)=='string' and type(rule.slots)=='table','catalog identity must be explicit')
    for slot,allowed in pairs(rule.slots) do check(slot>=0 and slot<=19 and slot==math.floor(slot) and allowed==true,'catalog slots must be valid') end
    if rule.enabled and rule.cooldown and rule.cooldown.start=='deferred' then
-    check(rule.activation.successSpells[19804] and not rule.activation.successSpells[19830],
+    local expectedSpell=({[23074]=19804,[23075]=12749,[23076]=4073,[19804]=19804})[rule.useSpell]
+    check(rule.activation.successSpells[expectedSpell] and not rule.activation.successSpells[19830],
      'summon proof must not accidentally match the crafting recipe')
    end
   end
@@ -1027,14 +1029,16 @@ end
 ${extractFunction(itemRackFile,'ItemRack.OnCastingStop')}
 ${resolveProxy}
 local nativeSpecialCooldown
+local specialItemID=16022
 local epochBase=1800000000
 function GetServerTime() return epochBase+now end
 function GetItemCooldown(id)
- if tonumber(id)==16022 then return nativeSpecialCooldown[1],nativeSpecialCooldown[2],nativeSpecialCooldown[3] end
+ if tonumber(id)==specialItemID then return nativeSpecialCooldown[1],nativeSpecialCooldown[2],nativeSpecialCooldown[3] end
  return 0,0,1
 end
-function GetItemSpell(id) if tonumber(ItemRack.GetIRString(id))==16022 then return 'Arcanite Dragonling',23074 end end
+function GetItemSpell(id) if tonumber(ItemRack.GetIRString(id))==specialItemID then return 'Special item',23074 end end
 local function resetSpecial(toc,inCombat,mode)
+ specialItemID=16022
  specialCatalog(toc)
  reset(mode or 'global',inCombat,30)
  equipment[13]='16022:1'; nativeSpecialCooldown={0,0,1}
@@ -1193,6 +1197,56 @@ verify(not ItemRack.SpecialItems.IsCooldownPending('16022:1') and equipment[13]=
  'closed-menu sampling must reconcile the bagged item while the equipped Priority item remains ready')
 advance(3761); nativeSpecialCooldown={0,0,1}; ItemRack.SpecialItems.Poll()
 verify(not ItemRack.SpecialItems.Used[16022],'background sampling must retire an expired real cooldown')
+-- The collective delayed-use list must execute the same production hook,
+-- queue selection and combat drain for every enabled Era Dragonling.
+for _,toc in ipairs({11508,11509}) do
+ for _,item in ipairs({4396,10576,16022}) do
+  for _,mode in ipairs({'global','per-set','mirrored'}) do
+   for _,inCombat in ipairs({false,true}) do
+    resetSpecial(toc,inCombat,mode); specialItemID=item
+    local exact=tostring(item)..':1'
+    equipment[13]=exact; ItemRack.GetQueues()[13][2].id=exact
+    ItemRack.EquipTimers[13].id=exact; ItemRack.SetManualQueueChoice(13,exact)
+    local rule=ItemRack.SpecialItems.GetRule(item,13)
+    local spell=next(rule.activation.successSpells)
+    ItemRack.newUseInventoryItem(13); success(spell,'Cast-'..item)
+    verify(ItemRack.SpecialItems.IsCooldownPending(exact) and not ItemRack.ManualQueueChoice[13],
+     'collective-dragonling-use: every enabled entry must release only its confirmed temporary choice')
+    ItemRack.ProcessAutoQueue(13)
+    if inCombat then
+     verify(equipment[13]==exact and ItemRack.CombatQueue[13]=='200','collective delayed items must retain combat deferral')
+     combat=false; ItemRack.ProcessCombatQueue()
+    end
+    verify(equipment[13]=='200' and not ItemRack.IsCandidateReady(13,exact,5000),
+     'collective delayed entries must finish with the replacement and prevent zero-CD reselection')
+    advance(160); nativeSpecialCooldown={160,rule.cooldown.seconds,1}; ItemRack.GetItemCooldownLeft(exact)
+    verify(not ItemRack.SpecialItems.IsCooldownPending(exact),'all deferred entries must reconcile their own native publication')
+   end
+  end
+ end
+end
+-- Real catalog channel guards protect both automatic selection entry points.
+for _,case in ipairs({{11509,10645,13278},{11509,10727,13183},{11509,11808,17447},
+ {11509,213347,435167},{11509,227973,462858},{20506,34430,45052},{16001,10645,13278}}) do
+ resetSpecial(case[1],false); specialItemID=case[2]
+ if case[2]>200000 then ItemRack.IsEngravingActive=function() return true end; ItemRack.SpecialItems.RefreshCatalog() end
+ local exact=tostring(case[2])..':1'; equipment[13]=exact
+ local slot=(case[2]==11808 or case[2]==227973) and 1 or 13
+ -- Process this policy in its actual equipment slot (head or trinket).
+ equipment[13]=nil; equipment[slot]=exact
+ ItemRack.GetQueues()[slot]={{id='200',priority=true},{id=exact}}
+ ItemRackUser.QueuesEnabled[slot]=true
+ cooldowns[slot]={100,300,1}; nativeSpecialCooldown={100,300,1}
+ UnitChannelInfo=function() return 'Channel',nil,nil,nil,nil,nil,nil,case[3] end
+ local before=#requests; ItemRack.ProcessAutoQueue(slot)
+ verify(equipment[slot]==exact and #requests==before,'actual channel entry must hold its current item')
+ local context=ItemRack.GetQueueContext(slot)
+ verify(not ItemRack.AutoQueueItemToEquip(slot,tostring(case[2]),1,false,nil,context),
+  'set recognition must share the same channel guard')
+ UnitChannelInfo=function() return nil end
+ ItemRack.ProcessAutoQueue(slot)
+ verify(equipment[slot]=='200','channel end must allow the normal replacement')
+end
 print(string.format('[SPECIAL ITEM RUNTIME LUA] %d delayed-use, slot, context, native cooldown and user-policy checks passed.',specialChecks))
 `, 'issue-33-swap-in-temporary-hold');
 
@@ -1368,3 +1422,158 @@ local rules=s.Rules; s.RefreshCatalog()
 check(s.Rules==rules,'unchanged catalog refresh must be idempotent')
 print(string.format('[SPECIAL RECOVERY LUA] %d isolated-environment recovery, validation, diagnostics and lifecycle checks passed.',checks))
 `, 'special-use-reload-before-native-cooldown');
+
+// Compare the entire live catalog with pinned extracted client records rather
+// than testing only an example row or treating the coverage manifest as truth.
+function parseMetrics(text) {
+  const rows=[]; let row=[],field='',quoted=false;
+  for(let i=0;i<text.length;i++) {
+    const c=text[i];
+    if(c==='"') { if(quoted && text[i+1]==='"') { field+='"'; i++; } else quoted=!quoted; }
+    else if(!quoted && (c===',' || c==='\n')) {
+      row.push(field); field='';
+      if(c==='\n') { rows.push(row); row=[]; }
+    } else if(c!=='\r' || quoted) field+=c;
+  }
+  if(field || row.length) { row.push(field); rows.push(row); }
+  const header=rows.shift(); return rows.map(r=>Object.fromEntries(header.map((h,i)=>[h,r[i]])));
+}
+function luaData(value) {
+  if(value===null || value===undefined) return 'nil';
+  if(typeof value!=='object') return JSON.stringify(value);
+  if(Array.isArray(value)) return `{${value.map(luaData).join(',')}}`;
+  return `{${Object.entries(value).map(([k,v])=>`[${/^\d+$/.test(k)?k:JSON.stringify(k)}]=${luaData(v)}`).join(',')}}`;
+}
+const metrics=parseMetrics(require('fs').readFileSync('docs/research/special-item-usage-metrics.csv','utf8'));
+const seasonalIDs=new Set([213347,213348,215461,227973,228955,233217]);
+const inventorySlots={1:[1],8:[8],12:[13,14],23:[17]};
+const fallbackSlots=new Map(metrics.filter(r=>r.label==='era-11509' && r.trigger==='0').map(r=>[r.item_id,Number(r.slot)]));
+const cases=[];
+for(const [toc,label] of [[11508,'era-11508'],[11509,'era-11509'],[20505,'tbc-255'],[20506,'tbc-256'],[16001,'forever-16001'],[11601,'forever-16001']]) {
+  for(const sod of toc<20000 && toc>=11508 && toc<=11509 ? [false,true] : [false]) {
+    const gear={},references={};
+    for(const r of metrics.filter(r=>r.label===label && (r.trigger==='0' || r.item_id==='30720'))) {
+      if(seasonalIDs.has(Number(r.item_id)) && !sod) continue;
+      const slotType=r.slot==='' ? fallbackSlots.get(r.item_id) : Number(r.slot);
+      if(!inventorySlots[slotType]) { references[r.item_id]=true; continue; }
+      const own=Number(r.item_cd_ms)>=0 ? Number(r.item_cd_ms) : Number(r.spell_cd_ms);
+      gear[r.item_id]={spell:Number(r.spell_id),slots:inventorySlots[slotType],seconds:own/1000,
+        channel:r.channel==='True',deferred:r.event_cooldown==='True'||r.alias_event==='True',
+        success:Number(r.legacy_alias||r.spell_id),category:Number(r.item_category),
+        categorySeconds:(Number(r.item_category_cd_ms)>=0 ? Number(r.item_category_cd_ms):Number(r.spell_category_cd_ms))/1000};
+    }
+    cases.push({toc,sod,gear,references});
+  }
+}
+runLua(String.raw`
+local now=100
+function GetTime() return now end
+local toc,sod
+function GetBuildInfo() return 'fixture','70938','fixture',toc end
+ItemRack={IsEngravingActive=function() return sod end}
+local activeSpell,activeUnit,channelSpell
+function GetSpellInfo(id) return 'spell:'..id end
+function UnitBuff(unit,index)
+ if activeUnit==unit and index==1 and not (unit=='pet' and activeSpell==13181) then return GetSpellInfo(activeSpell) end
+end
+function UnitDebuff(unit,index)
+ if activeUnit==unit and index==1 and unit=='pet' and activeSpell==13181 then return GetSpellInfo(activeSpell) end
+end
+function UnitChannelInfo() return nil,nil,nil,nil,nil,nil,nil,channelSpell end
+${extractFunction(itemRackFile,'ItemRack.FindPlayerAura')}
+${extractFunction(itemRackFile,'ItemRack.FindAuraByName')}
+local checks=0
+local function check(v,m) assert(v,m); checks=checks+1 end
+local function count(t) local n=0; for _ in pairs(t) do n=n+1 end; return n end
+for _,case in ipairs(${luaData(cases)}) do
+ toc,sod=case.toc,case.sod
+ ${loadSpecialCatalog}
+ local special=ItemRack.SpecialItems
+ check(count(special.Rules)==count(case.gear),'collective-catalog-source: every applicable equipped source item must appear exactly once')
+ check(count(special.ReferenceItems)==count(case.references),'every reviewed bag-only source item must remain reference-only')
+ check(not next(special.InvalidRules),'all enabled catalog entries must pass production validation')
+ for id,source in pairs(case.gear) do
+  local rule=special.GetRule(id)
+  check(rule and rule.enabled and rule.revision==1,'collective-catalog-source: every reviewed gear row must be enabled')
+  check(count(rule.slots)==#source.slots,'equipment slots must come from InventoryType mapping, never from spell target or category')
+  for _,slot in ipairs(source.slots) do check(special.GetRule(id,slot)==rule,'every source equipment slot must match') end
+  if id==30720 then check(rule.proxy.id==22044 and rule.proxy.buff==37445,'Braid must preserve its existing shared proxy')
+  else
+   check(rule.useSpell==source.spell and rule.cooldown.seconds==source.seconds,'spell/cooldown metrics must match the pinned client binding')
+   check(rule.cooldown.category==source.category and rule.cooldown.categorySeconds==source.categorySeconds,'shared cooldown metadata must match this client, not a universal guardian timer')
+   check((rule.cooldown.start=='deferred')==source.deferred,'deferred handling must follow this client effect/alias flags')
+   if source.deferred then check(rule.activation.successSpells[source.success],'matching activation evidence must use the client-specific summon identity') end
+   if source.channel then check(rule.effect.kind=='channel' and rule.effect.spells[source.spell] and rule.effect.hold,'source channels must use the reusable channel guard') end
+  end
+  local effect=rule.effect
+  if effect and effect.hold then
+   local spell=next(effect.spells); local slot=source.slots[1]
+   activeSpell,activeUnit,channelSpell=nil,nil,nil
+   if effect.kind=='channel' then channelSpell=spell else activeSpell,activeUnit=spell,effect.unit end
+   check(special.ShouldHoldEffect(slot,tostring(id)),'catalog-effect-flow: the actual configured channel/aura must hold its item')
+   if effect.kind=='channel' then channelSpell=999999 else activeSpell=999999 end
+   check(not special.ShouldHoldEffect(slot,tostring(id)),'unrelated channel/aura must not hold any catalog item')
+   if effect.kind=='aura' then
+    activeSpell=spell; activeUnit=effect.unit=='pet' and 'player' or 'pet'
+    check(not special.ShouldHoldEffect(slot,tostring(id)),'the same spell on the wrong unit must not satisfy the rule')
+   end
+  end
+ end
+ for id in pairs(case.references) do check(not special.GetRule(id) and special.ReferenceItems[id].scope=='bag','bag-only reference must never register as an equipment rule') end
+ activeSpell,activeUnit,channelSpell=nil,nil,nil
+ local report=special.GetDiagnostics()
+ check(report.catalog[4396].cooldown and report.catalogSource.label and report.referenceItems[3456],
+  'support dumps must include selected catalog mechanics, source and bag-reference boundary')
+end
+print(string.format('[COLLECTIVE CATALOG SOURCE LUA] %d pinned-build coverage, metrics and actual channel/aura checks passed.',checks))
+`, 'collective-catalog-source');
+
+runLua(String.raw`
+local now=100
+function GetTime() return now end
+function GetBuildInfo() return 'fixture','70938','fixture',16001 end
+function date() return 'clock' end
+local printed={}
+ItemRack={DebugAll=false,DebugChat=false,DebugTags={Events=false,Equip=false,Queue=false,CombatQueue=false,API=false,UI=false,Combat=false,SpecialItems=false},
+ IsEngravingActive=function() return false end,
+ GetEquippedSlotState=function(slot) return slot==13 and 'resolved' or 'empty',slot==13 and '16022:1' end,
+ Print=function(message) printed[#printed+1]=message end,
+ QueueDiagnostic=function() end,ClearQueueDiagnostics=function() end}
+${loadSpecialCatalog}
+${extractFunction(itemRackFile,'ItemRack.Debug')}
+${extractFunction(itemRackFile,'ItemRack.PrintDebugStatus')}
+${extractFunction(itemRackFile,'ItemRack.SlashHandler')}
+local special=ItemRack.SpecialItems
+local checks=0
+local function check(v,m) assert(v,m); checks=checks+1 end
+ItemRack.SlashHandler('debug')
+check(ItemRack.DebugAll and ItemRack.DebugTags.SpecialItems and special.TraceUntil==220 and special.IsTraceActive(),
+ 'core-debug-starts-special-capture: master debug must start the same 120-second capture as the dedicated command')
+check(special.TraceStop==nil,'active capture must not be reported as already disabled')
+local messages=#printed
+special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Unrelated',999999)
+check(#special.Trace==1 and #printed==messages and #ItemRack.LogBuffer==1,'master capture must record silently with debug chat off')
+now=221
+ItemRack.SlashHandler('debug status')
+check(not special.IsTraceActive() and printed[#printed]:find('OFF/expired',1,true),'status must report actual expired capture, not only its tag')
+ItemRack.SlashHandler('debug specialitems')
+check(special.IsTraceActive() and special.TraceUntil==341 and #special.Trace==0,'dedicated command must rearm in one invocation after expiry')
+ItemRack.SlashHandler('debug specialitems')
+check(not special.IsTraceActive(),'dedicated command must stop capture while master debugging remains enabled')
+ItemRack.SlashHandler('debug')
+check(not ItemRack.DebugAll and not ItemRack.DebugTags.SpecialItems and not special.IsTraceActive(),'master disable must stop the special capture too')
+ItemRack.SlashHandler('debug specialitems')
+check(not ItemRack.DebugAll and ItemRack.DebugTags.SpecialItems and special.IsTraceActive(),'dedicated capture must also work independently')
+ItemRack.SlashHandler('debug specialitems')
+ItemRack.SlashHandler('debug chat')
+check(ItemRack.DebugAll and ItemRack.DebugChat and special.IsTraceActive(),'enabling all layers through debug chat must include special-item capture')
+local deadline=special.TraceUntil
+ItemRack.SlashHandler('debug chat')
+check(not ItemRack.DebugChat and special.TraceUntil==deadline,'turning chat off must not stop or restart silent capture')
+special.Used[16022]={lastSample='old'}; special.History={{reason='test'}}
+special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Unrelated',999999)
+ItemRack.SlashHandler('debug clear')
+check(#special.Trace==0 and #special.History==0 and special.IsTraceActive() and special.Used[16022] and not special.Used[16022].lastSample,
+ 'clearing diagnostics must preserve confirmed use and active capture while allowing the next sample to be recorded')
+print(string.format('[SPECIAL DEBUG COMMAND LUA] %d actual SlashHandler start/stop/expiry/chat and clear checks passed.',checks))
+`, 'core-debug-starts-special-capture');

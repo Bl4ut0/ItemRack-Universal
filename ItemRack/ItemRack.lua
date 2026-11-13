@@ -94,6 +94,10 @@ function ItemRack.PrintDebugStatus()
 	end
 	ItemRack.Print("Debug Status: MasterAll=" .. (ItemRack.DebugAll and "|cff00ff00ON|r" or "|cffff0000OFF|r") .. ", Chat=" .. (ItemRack.DebugChat and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
 	ItemRack.Print("Layers: " .. table.concat(states, ", "))
+	if ItemRack.SpecialItems then
+		local active=ItemRack.SpecialItems.IsTraceActive()
+		ItemRack.Print("Special-item capture: "..(active and (math.ceil(ItemRack.SpecialItems.TraceUntil-GetTime()).." seconds remaining") or "OFF/expired"))
+	end
 end
 
 -- by Mikinho - Fix for latest update for Classic Era/SoD v11504 & Modern/Camelot 1.60+
@@ -7412,6 +7416,10 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.DebugTags.UI = true
 				ItemRack.DebugTags.Combat = true
 			end
+			if ItemRack.DebugChat and ItemRack.SpecialItems and not ItemRack.SpecialItems.IsTraceActive() then
+				ItemRack.DebugTags.SpecialItems=true
+				ItemRack.SpecialItems.StartTrace(true)
+			end
 			ItemRack.QueueDiagnostic("tracking_enabled", { source = "debug_chat" })
 			ItemRack.Print("Diagnostic debug printing to chat is now "..(ItemRack.DebugChat and "ON" or "OFF"))
 		elseif subcmd == "clear" then
@@ -7419,6 +7427,7 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.ClearQueueDiagnostics()
 			ItemRack.MenuDiagnostics = nil
 			ItemRack.ButtonInputDiagnostics = nil
+			if ItemRack.SpecialItems then ItemRack.SpecialItems.ClearDiagnostics() end
 			ItemRack.Print("Diagnostic log, AutoQueue and breakout recorders cleared.")
 		elseif subcmd == "status" then
 			ItemRack.PrintDebugStatus()
@@ -7429,7 +7438,7 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.AuditSavedVariables(true)
 		elseif subcmd == "help" then
 			ItemRack.Print("ItemRack Debug Subcommands:")
-			ItemRack.Print("  /itemrack debug : Toggles all debugging (Silent Mode)")
+			ItemRack.Print("  /itemrack debug : Toggles all debugging (Silent Mode), including 120-second special-item capture")
 			ItemRack.Print("  /itemrack debug chat : Toggles printing logs directly to chat")
 			ItemRack.Print("  /itemrack debug clear : Clears the diagnostic log and AutoQueue trace buffers")
 			ItemRack.Print("  /itemrack debug status : Shows current status of all debug tags")
@@ -7437,7 +7446,7 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.Print("  /itemrack debug specialitems : Captures special-item events for 120 seconds (silent by default)")
 			ItemRack.Print("  /itemrack special status : Shows saved special-item use/recovery; special reset <itemID> clears one receipt")
 			ItemRack.Print("  /itemrack debug audit : Scans and repairs SavedVariables issues")
-			ItemRack.Print("  /itemrack debug <tag> : Toggles specific tag (Available: events, equip, queue, combatqueue, api, ui, combat)")
+			ItemRack.Print("  /itemrack debug <tag> : Toggles specific tag (Available: events, equip, queue, combatqueue, api, ui, combat, specialitems)")
 			ItemRack.Print("  /itemrack dump : Opens a support dump; the AutoQueue recorder is populated only while Queue debug is enabled")
 			ItemRack.Print("  Breakout discovery records are collected automatically, even with debug disabled.")
 		elseif subcmd then
@@ -7455,7 +7464,10 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.PrintDebugStatus()
 			else
 				ItemRack.DebugTags[foundTag] = not ItemRack.DebugTags[foundTag]
-				if foundTag == "SpecialItems" and ItemRack.SpecialItems then ItemRack.SpecialItems.StartTrace(ItemRack.DebugTags[foundTag]) end
+				if foundTag == "SpecialItems" and ItemRack.SpecialItems then
+					ItemRack.DebugTags[foundTag]=not ItemRack.SpecialItems.IsTraceActive()
+					ItemRack.SpecialItems.StartTrace(ItemRack.DebugTags[foundTag])
+				end
 				if foundTag == "Queue" and ItemRack.DebugTags[foundTag] then
 					ItemRack.QueueDiagnostic("tracking_enabled", { source = "debug_queue" })
 				elseif foundTag == "Queue" then
@@ -7473,6 +7485,8 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.DebugTags.API = true
 				ItemRack.DebugTags.UI = true
 				ItemRack.DebugTags.Combat = true
+				ItemRack.DebugTags.SpecialItems = true
+				if ItemRack.SpecialItems then ItemRack.SpecialItems.StartTrace(true) end
 				ItemRack.QueueDiagnostic("tracking_enabled", { source = "debug_all" })
 				ItemRack.Print("Diagnostic debugging ENABLED for all layers (Silent Mode). Use '/itemrack debug chat' to see traces in chat.")
 			else
@@ -7483,6 +7497,8 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.DebugTags.API = false
 				ItemRack.DebugTags.UI = false
 				ItemRack.DebugTags.Combat = false
+				ItemRack.DebugTags.SpecialItems = false
+				if ItemRack.SpecialItems then ItemRack.SpecialItems.StartTrace(false) end
 				ItemRack.ClearQueueDiagnostics()
 				ItemRack.Print("Diagnostic debugging DISABLED.")
 			end

@@ -1,6 +1,6 @@
 -- Shared item-use mechanics. Client files return before allocating another
 -- client's catalog. Rules never equip gear or bypass user/secure swap policy.
-ItemRack.SpecialItems = { Rules={}, Mechanics={}, Intents={}, Used={}, History={}, SpellIndex={}, InvalidRules={}, Trace={}, Rejections={} }
+ItemRack.SpecialItems = { Rules={}, ReferenceItems={}, Mechanics={}, Intents={}, Used={}, History={}, SpellIndex={}, InvalidRules={}, Trace={}, Rejections={} }
 local Special = ItemRack.SpecialItems
 
 local function Public(value)
@@ -55,8 +55,19 @@ end
 
 function Special.StartTrace(enabled)
 	Special.TraceUntil=enabled and GetTime()+120 or nil
-	Special.TraceStop=enabled and nil or "disabled"
+	Special.TraceStop=not enabled and "disabled" or nil
 	if enabled then Special.Trace={}; Special.TraceDropped=0 end
+end
+
+function Special.IsTraceActive()
+	return Special.TraceUntil~=nil and GetTime()<=Special.TraceUntil
+end
+
+function Special.ClearDiagnostics()
+	Special.Trace,Special.History,Special.PreviousHistory,Special.Rejections={},{},{},{}
+	Special.TraceDropped=0
+	for _,state in pairs(Special.Used) do state.lastSample=nil end
+	Special.SaveHistory()
 end
 
 function Special.TraceHook(source,slot)
@@ -555,7 +566,8 @@ end
 function Special.GetDiagnostics()
 	local catalog = {}
 	for id,rule in pairs(Special.Rules) do
-		catalog[id]=type(rule)=="table" and {name=rule.name,enabled=rule.enabled,slots=rule.slots} or {enabled=false}
+		catalog[id]=type(rule)=="table" and {name=rule.name,enabled=rule.enabled,slots=rule.slots,
+			useSpell=rule.useSpell,cooldown=rule.cooldown,effect=rule.effect,proxy=rule.proxy,notes=rule.notes} or {enabled=false}
 	end
 	-- Do not serialize live context.list references from intent tokens.
 	local intents = {}
@@ -563,7 +575,8 @@ function Special.GetDiagnostics()
 		intents[slot]={item=token.baseID,exactID=token.exactID,owner=token.owner,
 			created=token.created,deadline=token.deadline,current=Current(token)}
 	end
-	return {client=Special.Client,catalog=catalog,invalidRules=Special.InvalidRules,intents=intents,used=Special.Used,history=Special.History,
+	return {client=Special.Client,catalog=catalog,catalogSource=Special.CatalogSource,referenceItems=Special.ReferenceItems,
+		invalidRules=Special.InvalidRules,intents=intents,used=Special.Used,history=Special.History,
 		previousHistory=Special.PreviousHistory,previousClient=Special.PreviousClient,rejections=Special.Rejections,persistenceBlocked=Special.PersistenceBlocked,
 		trace=Special.Trace,traceUntil=Special.TraceUntil,traceDropped=Special.TraceDropped,traceStop=Special.TraceStop}
 end

@@ -13,6 +13,12 @@ Use the same universal archive for every row; do not build or test separate Fore
 - On Forever 1.60.1, log in twice with a saved set key and verify no SaveBindings usage error, working set hotkeys, and persisted keys after relog (PR #28).
 - Test Auto/Up/Down/Left/Right minimap flyouts with the stock button and any minimap collector. Verify direction, item clicks, and dropdown layout. EllesmereUI 9.3 collector layering requires its upstream PR #2305 fix according to the contributor; ItemRack's dock tests do not verify that external fix (PR #26).
 
+## 4.59-beta12: collective catalog and unified debug (GitHub only)
+
+- `/itemrack debug` alone must start a silent 120-second special-item capture; the dedicated `/itemrack debug specialitems` must work independently. After expiry, one dedicated invocation starts a fresh window. Disabling master debugging stops capture; `debug status` reports the actual window. `debug clear` clears evidence without discarding pending use.
+- Try available entries from the selected client catalog: Era's three Dragonlings, native TBC/Forever controls, exact-channel items, head/feet/off-hand items and the cap's specific pet charm. Automatic holds must end with the matching channel/aura; unrelated pets and spells must not hold an item. Ordinary combat restrictions and explicit manual actions remain in effect.
+- Check `/itemrack dump` includes the selected catalog's rules, source and bag-only references. Only active SoD gets its five gear variants and seasonal reference. Bag-only references must never enter gear queues. No fake items or in-game harness are included; the maintainer need not own these items before candidate publication.
+
 ## 4.59-beta11: special-item community candidate (#33, GitHub only)
 
 This candidate is verified through the production-Lua gate and exact-ref archive checks. The owner does not have the special items; the following live checks are for community users who do. No fake item, in-game simulator or test-mode command is required.

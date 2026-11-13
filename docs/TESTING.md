@@ -46,6 +46,21 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 13, 2026: owner requested the collective reviewed catalog and reported
+that `/itemrack debug` did not include beta11's 120-second special capture.
+`core-debug-starts-special-capture` executes the production `SlashHandler`,
+debug logger and special-item module. It fails against beta11's actual core
+source and passes with master/dedicated/chat capture wiring, immediate rearm
+after expiry, accurate status, quiet collection and non-destructive log clear.
+The existing focused suite also checks `collective-catalog-source`: every
+applicable item/slot/spell/cooldown/category against all five pinned Wago build
+exports, seasonal isolation, and bag-only exclusion. It executes actual
+channel/aura lookups for the enabled rows and production use/queue/combat flow
+for all three Era Dragonlings, plus real catalog channel guards in both queue
+entry points. No test harness is packaged in the addon. These are source/code
+checks, not a claim that a community client capture has occurred. Beta11 is
+unchanged; the next authorized deployment is GitHub-only beta12.
+
 November 12 GitHub #33 / neferens, comment 6841005114: Arcanite Dragonling
 reportedly delays its cooldown by roughly its summon lifetime, so the ordinary
 fresh-cooldown verifier misses successful use. Exact client build, emitted

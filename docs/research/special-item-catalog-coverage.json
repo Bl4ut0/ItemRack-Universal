@@ -1,0 +1,147 @@
+{
+  "date": "2026-11-13",
+  "basis": "Pinned Wago client exports in special-item-usage-metrics.csv and special-item-usage-sources.json",
+  "clients": {
+    "era": {
+      "sourceLabel": "era-11509",
+      "gear": [
+        4396,
+        4984,
+        7189,
+        7734,
+        9394,
+        10576,
+        10577,
+        10588,
+        10645,
+        10716,
+        10720,
+        10724,
+        10725,
+        10726,
+        10727,
+        11808,
+        13353,
+        13382,
+        14022,
+        14023,
+        16022,
+        16768,
+        17067,
+        19337,
+        21326,
+        21579,
+        21647
+      ],
+      "seasonalGear": [
+        213347,
+        213348,
+        215461,
+        227973,
+        228955
+      ],
+      "referenceOnly": [
+        3456,
+        4384,
+        18232
+      ],
+      "seasonalReferenceOnly": [
+        233217
+      ],
+      "excludedOtherRulesets": []
+    },
+    "tbc": {
+      "sourceLabel": "tbc-256",
+      "gear": [
+        4396,
+        4984,
+        7189,
+        7734,
+        9394,
+        10576,
+        10577,
+        10588,
+        10645,
+        10716,
+        10720,
+        10724,
+        10725,
+        10726,
+        10727,
+        11808,
+        13353,
+        13382,
+        14022,
+        14023,
+        16022,
+        16768,
+        17067,
+        19337,
+        21326,
+        21579,
+        21647,
+        28727,
+        30720,
+        34430,
+        38506
+      ],
+      "seasonalGear": [],
+      "referenceOnly": [
+        3456,
+        4384,
+        18232
+      ],
+      "seasonalReferenceOnly": [],
+      "excludedOtherRulesets": []
+    },
+    "forever": {
+      "sourceLabel": "forever-16001",
+      "gear": [
+        4396,
+        4984,
+        7189,
+        7734,
+        9394,
+        10576,
+        10577,
+        10588,
+        10645,
+        10716,
+        10720,
+        10724,
+        10725,
+        10726,
+        10727,
+        13353,
+        13382,
+        14022,
+        14023,
+        16022,
+        16768,
+        17067,
+        19337,
+        21326,
+        21579,
+        21647
+      ],
+      "seasonalGear": [],
+      "referenceOnly": [
+        3456,
+        4384,
+        18232,
+        260800
+      ],
+      "seasonalReferenceOnly": [],
+      "excludedOtherRulesets": [
+        {
+          "id": 213348,
+          "reason": "Seasonal-only record; effect linkage does not establish this client ruleset"
+        },
+        {
+          "id": 228955,
+          "reason": "Seasonal-only record; effect linkage does not establish this client ruleset"
+        }
+      ]
+    }
+  }
+}
