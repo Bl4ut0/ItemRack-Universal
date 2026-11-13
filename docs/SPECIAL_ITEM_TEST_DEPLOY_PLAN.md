@@ -1,6 +1,6 @@
 # Special-item recovery and test-deployment plan
 
-Date: 2026-11-12. Status: **recovery/diagnostics implemented and standard gate passed; GitHub-only beta11 packaging pending**.
+Date: 2026-11-12. Status: **completed: GitHub-only beta11 published and linked to #33; community feedback pending**.
 Owner requested a plan to resolve the framework's remaining limits and prepare
 a build for users to test. The owner subsequently authorized finishing recovery and diagnostics, then a GitHub-only 4.59-beta11 dated 2026-11-12 for #33. No CurseForge submission or local installation is authorized for this candidate. This document is the resume point for that work.
 
@@ -11,7 +11,7 @@ The owner does not have these special items. Verify production Lua offline again
 The framework on `dev` is described in
 [SPECIAL_ITEM_RULES.md](SPECIAL_ITEM_RULES.md). Its last full `npm.cmd test` run
 passed, including 132 catalog checks, 279 special-item runtime checks and 139 isolated-environment recovery checks.
-Beta10 remains unchanged. No local framework installation is part of this candidate. Publication status is recorded below.
+Beta10 remains unchanged. No local framework installation was performed. Publication and delivery are recorded below.
 
 The next test candidate should retain confirmed use through reload/relog,
 recover without replaying a swap or changing queue ownership, and collect enough
@@ -33,8 +33,8 @@ that measurement but does not establish the result by itself.
 | 3 | Bounded evidence capture | Successful and failed uses can be compared, including unexpected spell IDs and hook order | Implemented; full gate passed |
 | 4 | Catalog lifecycle and execution policy | Late SoD detection works; other client tables stay unallocated; targeted Arcanite rule executes and unrelated research stays disabled | Implemented; full gate passed |
 | 5 | Integrated regressions and documentation | Named fail-before/pass-after cases, complete standard test gate, both changelogs and guide updated | Implemented; full gate passed |
-| 6 | Candidate artifact verification | Production-Lua gate and archive verification pass; document source-backed assumptions and community acceptance cases; no owner item testing required | Pending |
-| 7 | User test deployment | Approved version/channel, immutable source and archive, installation/publication receipts, specific tester instructions | Pending |
+| 6 | Candidate artifact verification | Production-Lua gate and archive verification pass; document source-backed assumptions and community acceptance cases; no owner item testing required | Completed; see delivery record |
+| 7 | User test deployment | Approved version/channel, immutable source and archive, installation/publication receipts, specific tester instructions | Completed; see delivery record |
 
 Implement steps 1–5 together before packaging. Verify the code and artifact offline; then one coordinated GitHub-only beta can collect client/item-specific community evidence. Do not publish a separate beta for each research
 row or enable all disabled rows just to enlarge coverage.
@@ -260,4 +260,16 @@ On resuming: read this tracker, `git status --short`, the framework guide and
 latest test evidence. Start with step 1. Update status and evidence per completed
 step; do not mark live-only cases complete from synthetic checks. Update the implementation status as work lands; planning text alone does not resolve runtime limits.
 
-Implementation evidence: standard gate passed on 2026-11-12. Source-backed Arcanite bindings and timings are recorded in SPECIAL_ITEM_USAGE_RESEARCH.md. No test-only production mode, fake item or in-game simulator was implemented. GitHub-only distribution is part of the immutable TOC; the workflow skips its CurseForge job and the verifier also refuses direct/manual upload. Exact beta commit/hash, URL and issue comment remain to be recorded after publication.
+Implementation evidence: standard gate passed on 2026-11-12. Source-backed Arcanite bindings and timings are recorded in SPECIAL_ITEM_USAGE_RESEARCH.md. No test-only production mode, fake item or in-game simulator was implemented. GitHub-only distribution is part of the immutable TOC; the workflow skips its CurseForge job and the verifier also refuses direct/manual upload. Exact beta commit/hash, URL and issue comment are recorded below.
+
+## Candidate delivery — completed
+
+- Candidate: [v4.59-beta11](https://github.com/Bl4ut0/ItemRack-Universal/releases/tag/v4.59-beta11), dated 2026-11-12; published as a GitHub prerelease, not Latest.
+- Source commit: `b01e6d301eb3c8c994ecd21a8f9e8866f0f20ab3`; implementation commit `90cc0a1bff37535e072d92ab355b4e6bc9b52d8f`. The accepted tag and archive are immutable.
+- Archive: `ItemRack-universal-4.59-beta11.zip`, 346412 bytes, 50 addon files. SHA-256: `f280e8c95ff932f217cae80b69c94ef7003898e53a4becff0e48b4d0cc1fc5bd`. GitHub's uploaded asset digest matches.
+- Code gate: `npm.cmd ci` then full `npm.cmd test` passed; release-metadata gate passed again for beta11. Includes 132 catalog, 279 use/queue runtime and 139 isolated-environment recovery checks (550 specific special-item checks), plus the existing full addon suite.
+- Artifact verification: exact tag/tree/blob checks passed, both addon folders and four new modules present, offline harness absent; the actual tagged ZIP is refused by the CurseForge verifier.
+- [Distribution workflow 43367542816](https://github.com/Bl4ut0/ItemRack-Universal/actions/runs/43367542816): `release-policy` succeeded; `verify-and-deploy` skipped. No CurseForge submission or file was created by this release.
+- [Reporter delivery on #33](https://github.com/Bl4ut0/ItemRack-Universal/issues/33#issuecomment-6844325646): direct ZIP, expected Arcanite behavior, debug/status/reset commands, optional reload report and explanation of software regression posted in the owner's voice.
+- Local client installs: none. Development TOCs restored to Dev after successful publication; future ordinary releases retain the normal distribution route.
+- Remaining work: await community results for the real item interaction and use those reports for any correction. Do not require special-item characters from the maintainer. Other catalog exceptions remain disabled pending their own source/rule validation.
