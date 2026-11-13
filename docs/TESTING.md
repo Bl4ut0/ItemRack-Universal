@@ -55,7 +55,7 @@ after expiry, accurate status, quiet collection and non-destructive log clear.
 The existing focused suite also checks `collective-catalog-source`: every
 applicable item/slot/spell/cooldown/category against all five pinned Wago build
 exports, seasonal isolation, and bag-only exclusion. It executes actual
-channel/aura lookups for the enabled rows and production use/queue/combat flow
+channel/aura lookups for the enabled rows (modern exact/indexed APIs and legacy globals, including failures/secrets) and production use/queue/combat flow
 for all three Era Dragonlings, plus real catalog channel guards in both queue
 entry points. No test harness is packaged in the addon. These are source/code
 checks, not a claim that a community client capture has occurred. Beta11 is

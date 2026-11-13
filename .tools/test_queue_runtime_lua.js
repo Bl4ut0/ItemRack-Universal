@@ -1516,6 +1516,28 @@ for _,case in ipairs(${luaData(cases)}) do
    if effect.kind=='aura' then
     activeSpell=spell; activeUnit=effect.unit=='pet' and 'player' or 'pet'
     check(not special.ShouldHoldEffect(slot,tostring(id)),'the same spell on the wrong unit must not satisfy the rule')
+    local oldBuff,oldDebuff=UnitBuff,UnitDebuff; UnitBuff,UnitDebuff=nil,nil
+    activeUnit=effect.unit
+    C_UnitAuras={GetUnitAuraBySpellID=function(unit,id)
+     if unit==activeUnit and id==activeSpell then return {spellId=id} end
+    end}
+    check(special.ShouldHoldEffect(slot,tostring(id)),'exact modern spell-ID lookup must work without legacy aura globals')
+    activeSpell=999999
+    check(not special.ShouldHoldEffect(slot,tostring(id)),'modern lookup must reject other spell IDs')
+    activeSpell=spell
+    C_UnitAuras={GetAuraDataByIndex=function(unit,index,filter)
+     if index==1 and unit==activeUnit and filter==(unit=='pet' and 'HARMFUL' or 'HELPFUL') then return {spellId=activeSpell} end
+    end}
+    check(special.ShouldHoldEffect(slot,tostring(id)),'indexed modern aura lookup must scan the correct helpful/harmful unit data')
+    activeSpell=999999
+    check(not special.ShouldHoldEffect(slot,tostring(id)),'indexed lookup must not hold for an unrelated aura')
+    C_UnitAuras={GetUnitAuraBySpellID=function() error('unavailable') end,GetAuraDataByIndex=function() error('restricted') end}
+    check(not special.ShouldHoldEffect(slot,tostring(id)),'modern API failure must remain contained')
+    local opaque={}; issecretvalue=function(value) return value==opaque end
+    C_UnitAuras={GetUnitAuraBySpellID=function() return opaque end,GetAuraDataByIndex=function() return opaque end}
+    check(not special.ShouldHoldEffect(slot,tostring(id)),'secret aura records must not establish a matching effect')
+    issecretvalue=nil
+    C_UnitAuras=nil; UnitBuff,UnitDebuff=oldBuff,oldDebuff
    end
   end
  end

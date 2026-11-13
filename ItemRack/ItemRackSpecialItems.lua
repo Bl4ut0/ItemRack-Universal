@@ -546,6 +546,26 @@ end
 
 -- Optional data-defined effect holds. No catalog entry may enable a tether
 -- merely because any pet exists. Manual swaps still use the normal engine.
+local function HasEffectAura(spellID,unit)
+	if C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID then
+		local ok,aura=pcall(C_UnitAuras.GetUnitAuraBySpellID,unit,spellID)
+		if ok and Public(aura) and type(aura)=="table" then return true end
+	end
+	if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+		for _,filter in ipairs({"HELPFUL","HARMFUL"}) do
+			for index=1,40 do
+				local ok,aura=pcall(C_UnitAuras.GetAuraDataByIndex,unit,index,filter)
+				if not ok or not Public(aura) then break end
+				if aura==nil then break end
+				if type(aura)=="table" and Number(aura.spellId)==spellID then return true end
+			end
+		end
+	end
+	local getter=GetSpellInfo or (C_Spell and C_Spell.GetSpellName)
+	local name=getter and getter(spellID)
+	return Public(name) and type(name)=="string" and ItemRack.FindAuraByName and ItemRack.FindAuraByName(name,unit) and true or false
+end
+
 function Special.ShouldHoldEffect(slot,id)
 	local rule = Special.GetRule(id,slot)
 	local effect = rule and rule.effect
@@ -555,9 +575,7 @@ function Special.ShouldHoldEffect(slot,id)
 		return effect.spells and effect.spells[Number(spellID)]==true or false
 	elseif effect.kind=="aura" and (effect.unit=="player" or effect.unit=="pet") then
 		for spellID in pairs(effect.spells or {}) do
-			local getter = GetSpellInfo or (C_Spell and C_Spell.GetSpellName)
-			local name = getter and getter(spellID)
-			if Public(name) and type(name)=="string" and ItemRack.FindAuraByName and ItemRack.FindAuraByName(name,effect.unit) then return true end
+			if HasEffectAura(spellID,effect.unit) then return true end
 		end
 	end
 	return false
