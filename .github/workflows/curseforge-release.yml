@@ -23,8 +23,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-policy:
+    runs-on: ubuntu-latest
+    outputs:
+      curseforge: ${{ steps.policy.outputs.curseforge }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - name: Read immutable release distribution
+        id: policy
+        run: |
+          if test -f .tools/release_distribution.js; then
+            node .tools/release_distribution.js
+          else
+            # Historical immutable tags predate the distribution helper.
+            # They may use the normal route only when no policy field exists.
+            node -e 'const fs=require("fs"); const toc=fs.readFileSync("ItemRack/ItemRack.toc","utf8"); if (/^## X-ItemRack-Distribution:/m.test(toc)) throw new Error("Unsupported tagged distribution policy"); fs.appendFileSync(process.env.GITHUB_OUTPUT,"curseforge=true\n");'
+          fi
   verify-and-deploy:
-    # Published stable releases AND prereleases submit the same verified ZIP.
+    needs: release-policy
+    if: needs.release-policy.outputs.curseforge == 'true'
+    # Normal stable releases AND prereleases submit the same verified ZIP.
+    # GitHub-only candidates skip this entire job, including secret access.
     # The exact tag determines CurseForge Release/Beta classification.
     runs-on: ubuntu-latest
     permissions:

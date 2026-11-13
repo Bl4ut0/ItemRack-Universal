@@ -56,7 +56,8 @@ ItemRack.DebugTags = { -- per-tag toggles; explicit defaults allow /itemrack deb
 	CombatQueue = false,
 	API = false,
 	UI = false,
-	Combat = false
+	Combat = false,
+	SpecialItems = false
 }
 ItemRack.DebugAll = false -- master override to enable all tags
 
@@ -86,7 +87,7 @@ end
 
 function ItemRack.PrintDebugStatus()
 	local states = {}
-	local sortedTags = { "Events", "Equip", "Queue", "CombatQueue", "API", "UI", "Combat" }
+	local sortedTags = { "Events", "Equip", "Queue", "CombatQueue", "API", "UI", "Combat", "SpecialItems" }
 	for _, tag in ipairs(sortedTags) do
 		local state = ItemRack.DebugTags[tag] and "|cff00ff00ON|r" or "|cffff0000OFF|r"
 		table.insert(states, tag .. "=" .. state)
@@ -565,9 +566,7 @@ ItemRack.NoTitansGrip = {
 -- here. Give buff as a spell ID so the name resolves in the client's own locale.
 -- Mana gem ranks share one cooldown category tracked independent of possession,
 -- so any single rank ID is a valid probe.
-ItemRack.CooldownProxies = {
-	[30720] = { id = 22044, buff = 37445 }, -- Serpent-Coil Braid <- mana gems (Mana Surge)
-}
+ItemRack.CooldownProxies = {} -- compatibility overrides; built-in rules are client-specific
 
 ItemRack.Menu = {}
 ItemRack.MenuSnapshots = {}
@@ -1065,6 +1064,7 @@ function ItemRack.OnPlayerLogin()
 
 	-- Audit SavedVariables on startup before subsystems initialize
 	ItemRack.AuditSavedVariables(false)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.RefreshCatalog(); ItemRack.SpecialItems.LoadSaved() end
 
 	-- Normally some of these methods cannot be called in combat without causing errors, but since we run these IMMEDIATELY
 	-- on PLAYER_LOGIN event we get a grace period where it allows us to run secure code in combat.
@@ -1084,6 +1084,7 @@ function ItemRack.OnPlayerLogin()
 end
 
 function ItemRack.OnPlayerLogout()
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.SaveHistory() end
 	-- SavedVariables are written after this event. Remove or roll back every
 	-- Script event that was neither saved through ItemRack's editor nor accepted
 	-- through its approval prompt so injected source cannot persist via ItemRack.
@@ -1613,6 +1614,7 @@ function ItemRack.TryInitializeQueueState(isLogin, isReload, inventoryEventTime)
 	ItemRack.EquippedSnapshot = tempSnapshot
 	ItemRack.UnresolvedEquippedSlots = tempUnresolvedSlots
 	ItemRack.QueueStateReady = true
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.RestoreSaved() end
 	ItemRack.QueueStateInitStarted = nil
 	ItemRack.PreReadyInventoryEventTime = nil
 	ItemRack.PreReadyEquippedObservations = nil
@@ -1949,6 +1951,10 @@ function ItemRack.ScheduleEquippedStateRetry(delay)
 end
 
 function ItemRack.OnEnterWorld(self,event,...)
+	if ItemRack.SpecialItems then
+		ItemRack.SpecialItems.Intents={}
+		ItemRack.SpecialItems.RefreshCatalog()
+	end
 	local isLogin,isReload = ...
 	ItemRack.WorldTransitioning = nil
 	ItemRack.SummonPending = nil
@@ -2037,7 +2043,8 @@ local loader = CreateFrame("Frame",nil, self, BackdropTemplateMixin and "Backdro
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", ItemRack.OnPlayerLogin)
 
-function ItemRack.OnCastingStart(self,event,unit,castID)
+function ItemRack.OnCastingStart(self,event,unit,castID,spellID)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.OnSpellEvent(event,unit,castID,spellID) end
 	if unit=="player" then
 		if CastingInfo() or ChannelInfo() then
 			ItemRack.NowCasting = castID or true
@@ -2055,7 +2062,8 @@ function ItemRack.OnCastingStart(self,event,unit,castID)
 	end
 end
 
-function ItemRack.OnCastingStop(self,event,unit,castID)
+function ItemRack.OnCastingStop(self,event,unit,castID,spellID)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.OnSpellEvent(event,unit,castID,spellID) end
 	if unit=="player" then
 		-- Use castID to ensure we only clear the current cast. 
 		-- If a new cast has already started, its castID will differ.
@@ -5485,6 +5493,7 @@ function ItemRack.ScheduleReflectItemUseRetry(slot, exactID, baseID)
 end
 
 function ItemRack.ReflectItemUse(id, isRetry)
+	if not isRetry and ItemRack.SpecialItems then ItemRack.SpecialItems.BeginUse(id) end
 	local retryToken = type(isRetry) == "table" and isRetry or nil
 	local slotState, exactID = ItemRack.GetEquippedSlotState(id)
 	if slotState ~= "resolved" then
@@ -5794,6 +5803,7 @@ function ItemRack.newPaperDollFrame_OnShow()
 end
 
 function ItemRack.newUseInventoryItem(slot)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.TraceHook("UseInventoryItem",slot) end
 	ItemRack.ReflectItemUse(slot)
 end
 
@@ -5803,6 +5813,7 @@ function ItemRack.newUseAction(slot,cursor,self)
 		if actionType=="item" then
 			for i=0,19 do
 				if tonumber(ItemRack.GetIRString(GetInventoryItemLink("player",i),true,true))==actionId then --compare baseID of given item (converted to number) to actionId
+					if ItemRack.SpecialItems then ItemRack.SpecialItems.TraceHook("UseAction",i) end
 					ItemRack.ReflectItemUse(i)
 					break
 				end
@@ -5814,6 +5825,7 @@ end
 function ItemRack.newUseItemByName(name)
 	for i=0,19 do
 		if name==GetItemInfo(GetInventoryItemLink("player",i) or 0) then
+			if ItemRack.SpecialItems then ItemRack.SpecialItems.TraceHook("UseItemByName",i) end
 			ItemRack.ReflectItemUse(i)
 			break
 		end
@@ -7336,6 +7348,10 @@ end
 --[[ Slash Handler ]]
 
 function ItemRack.SlashHandler(arg1)
+	if arg1 and (arg1=="special" or arg1:match("^special%s")) and ItemRack.SpecialItems then
+		ItemRack.SpecialItems.Command(arg1)
+		return
+	end
 
 	if arg1 and string.match(arg1,"equip") then
 		local set = string.match(arg1,"equip (.+)")
@@ -7418,6 +7434,8 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.Print("  /itemrack debug clear : Clears the diagnostic log and AutoQueue trace buffers")
 			ItemRack.Print("  /itemrack debug status : Shows current status of all debug tags")
 			ItemRack.Print("  /itemrack debug mouse : Captures mouse focus without changing any frame's mouse handling")
+			ItemRack.Print("  /itemrack debug specialitems : Captures special-item events for 120 seconds (silent by default)")
+			ItemRack.Print("  /itemrack special status : Shows saved special-item use/recovery; special reset <itemID> clears one receipt")
 			ItemRack.Print("  /itemrack debug audit : Scans and repairs SavedVariables issues")
 			ItemRack.Print("  /itemrack debug <tag> : Toggles specific tag (Available: events, equip, queue, combatqueue, api, ui, combat)")
 			ItemRack.Print("  /itemrack dump : Opens a support dump; the AutoQueue recorder is populated only while Queue debug is enabled")
@@ -7437,6 +7455,7 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.PrintDebugStatus()
 			else
 				ItemRack.DebugTags[foundTag] = not ItemRack.DebugTags[foundTag]
+				if foundTag == "SpecialItems" and ItemRack.SpecialItems then ItemRack.SpecialItems.StartTrace(ItemRack.DebugTags[foundTag]) end
 				if foundTag == "Queue" and ItemRack.DebugTags[foundTag] then
 					ItemRack.QueueDiagnostic("tracking_enabled", { source = "debug_queue" })
 				elseif foundTag == "Queue" then
@@ -7621,6 +7640,9 @@ function ItemRack.SlashHandler(arg1)
 			dumpText = dumpText .. "ItemRackUser.Queues = " .. ItemRackLogFrame.Serialize(ItemRackUser.Queues) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.QueuesEnabled = " .. ItemRackLogFrame.Serialize(ItemRackUser.QueuesEnabled) .. "\n"
 			dumpText = dumpText .. "\n=== AUTOQUEUE RUNTIME STATE ===\n"
+			if ItemRack.SpecialItems then
+				dumpText = dumpText .. "ItemRack.SpecialItems = " .. ItemRackLogFrame.Serialize(ItemRack.SpecialItems.GetDiagnostics()) .. "\n"
+			end
 			dumpText = dumpText .. "ItemRack.QueueStateReady = " .. tostring(ItemRack.QueueStateReady) .. "\n"
 			dumpText = dumpText .. "ItemRack.QueueLifecycleKnown = " .. tostring(ItemRack.QueueLifecycleKnown) .. "\n"
 			dumpText = dumpText .. "ItemRack.QueueStateGeneration = " .. tostring(ItemRack.QueueStateGeneration) .. "\n"

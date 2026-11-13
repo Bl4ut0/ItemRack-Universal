@@ -1,4 +1,49 @@
 const { extractFunction, runLua } = require('./lib/lua_harness');
+const specialFiles = ['ItemRack/ItemRackSpecialItems.lua','ItemRack/ItemRackSpecialItemsEra.lua',
+  'ItemRack/ItemRackSpecialItemsTBC.lua','ItemRack/ItemRackSpecialItemsForever.lua'];
+const loadSpecialCatalog = specialFiles.map(file =>
+  `assert((loadstring or load)([====[${require('fs').readFileSync(file,'utf8')}]====]))()`).join('\n');
+
+runLua(String.raw`
+ItemRack={IsEngravingActive=function() return seasonal end}
+function GetTime() return 100 end
+local interface
+function GetBuildInfo() return 'fixture','70938','fixture',interface end
+local function loadCatalog(toc,sod)
+ interface=toc; seasonal=sod
+ ${loadSpecialCatalog}
+end
+local checks=0
+local function check(value,message) assert(value,message);checks=checks+1 end
+for _,toc in ipairs({11508,11509,20505,20506,16001,11601,120100}) do
+ loadCatalog(toc,false)
+ local s=ItemRack.SpecialItems
+ if toc==120100 then
+  check(next(s.Rules)==nil and next(s.SpellIndex)==nil,'unsupported client must allocate no item rules')
+ else
+  local tbc=toc==20505 or toc==20506
+  check((s.Rules[30720]~=nil)==tbc,'special-client-data-isolation: only TBC loads the mana-gem rule')
+  check((s.GetRule(16022).cooldown.start=='native')==tbc,'TBC must retain native Dragonling use detection')
+  check(s.Rules[228955]==nil,'nonseasonal clients must not allocate SoD variant rows')
+  check(s.Rules[34430]~=nil==tbc,'TBC-specific items must not appear in other catalogs')
+  check(s.GetRule(16022,13) and s.GetRule(16022,14) and not s.GetRule(16022,17),
+   'item slot maps must use runtime equipment slots, not inventory-type IDs')
+  check(not s.GetRule(10645) and s.GetRule(10645,nil,true),'unverified research rules must stay disabled')
+  for id,rule in pairs(s.Rules) do
+   check(type(id)=='number' and id>0 and type(rule.name)=='string' and type(rule.slots)=='table','catalog identity must be explicit')
+   for slot,allowed in pairs(rule.slots) do check(slot>=0 and slot<=19 and slot==math.floor(slot) and allowed==true,'catalog slots must be valid') end
+   if rule.enabled and rule.cooldown and rule.cooldown.start=='deferred' then
+    check(rule.activation.successSpells[19804] and not rule.activation.successSpells[19830],
+     'summon proof must not accidentally match the crafting recipe')
+   end
+  end
+ end
+end
+loadCatalog(11509,true)
+check(ItemRack.SpecialItems.Rules[228955].cooldown.seconds==300 and ItemRack.SpecialItems.Rules[213347],
+ 'SoD variants must load only in their seasonal client, with independent metrics')
+print(string.format('[SPECIAL ITEM CATALOG LUA] %d client-isolation, item-ID, slot and disabled-rule checks passed.',checks))
+`, 'special-client-data-isolation');
 
 const queueFile = 'ItemRack/ItemRackQueue.lua';
 const equipFile = 'ItemRack/ItemRackEquip.lua';
@@ -971,4 +1016,355 @@ for _,kind in ipairs({'different-item','different-owner'}) do
   'accepted use must not erase a '..kind..' manual choice')
 end
 print(string.format('[SWAP IN HOLD LUA] %d verified-use, threshold, buff, scope and deferred-gear checks passed.',checks))
+
+-- #33 Dragonling follow-up: API cooldown stays zero during the summon. Feed
+-- the real item hook and UNIT_SPELLCAST_SUCCEEDED dispatch, not a guessed CD.
+local function specialCatalog(toc)
+ function GetBuildInfo() return 'fixture','70938','fixture',toc end
+ ItemRack.IsEngravingActive=function() return false end
+ ${loadSpecialCatalog}
+end
+${extractFunction(itemRackFile,'ItemRack.OnCastingStop')}
+${resolveProxy}
+local nativeSpecialCooldown
+local epochBase=1800000000
+function GetServerTime() return epochBase+now end
+function GetItemCooldown(id)
+ if tonumber(id)==16022 then return nativeSpecialCooldown[1],nativeSpecialCooldown[2],nativeSpecialCooldown[3] end
+ return 0,0,1
+end
+function GetItemSpell(id) if tonumber(ItemRack.GetIRString(id))==16022 then return 'Arcanite Dragonling',23074 end end
+local function resetSpecial(toc,inCombat,mode)
+ specialCatalog(toc)
+ reset(mode or 'global',inCombat,30)
+ equipment[13]='16022:1'; nativeSpecialCooldown={0,0,1}
+ ItemRack.GetQueues(mode=='per-set' and 'Active' or nil)[13]={{id='200',priority=true},{id='16022:1'}}
+ -- A mirrored list is owned by Master, but its activation token belongs to Active.
+ if mode=='mirrored' then ItemRackUser.Sets.Master.Queues[13]={{id='200',priority=true},{id='16022:1'}} end
+ ItemRack.EquipTimers[13]={id='16022:1',time=70,hasPenalty=true,used=false}
+ ItemRack.SetManualQueueChoice(13,'16022:1')
+ ItemRack.NowCasting=nil
+ buff=false
+end
+local function success(spellID,cast)
+ ItemRack.OnCastingStop(nil,'UNIT_SPELLCAST_SUCCEEDED','player',cast or 'Cast-Dragonling',spellID or 19804)
+end
+local specialChecks=0
+local function verify(value,message) assert(value,message);specialChecks=specialChecks+1 end
+for _,toc in ipairs({11508,11509,16001,11601}) do
+ for _,mode in ipairs({'global','per-set','mirrored'}) do
+  for _,inCombat in ipairs({false,true}) do
+   resetSpecial(toc,inCombat,mode)
+   ItemRack.newUseInventoryItem(13)
+   success()
+   verify(ItemRack.SpecialItems.IsCooldownPending('16022:1') and not ItemRack.ManualQueueChoice[13]
+    and ItemRack.EquipTimers[13].used,
+    'issue-33-dragonling-delayed-cooldown: confirmed summon must release temporary protection with native cooldown still zero')
+   ItemRack.ProcessAutoQueue(13)
+   if inCombat then
+    verify(equipment[13]=='16022:1' and ItemRack.CombatQueue[13]=='200','special use must retain combat deferral')
+    combat=false; ItemRack.ProcessCombatQueue()
+   end
+   verify(equipment[13]=='200' and not next(ItemRack.CombatQueue),'special use must finish with the preferred gear and no pending request')
+   verify(not ItemRack.IsCandidateReady(13,'16022:1',5000),'zero native cooldown must not make a used pending item eligible again')
+   verify(not ItemRackUser.ItemsUsed[16022],'pending use must not generate a false ready notification')
+   advance(101); nativeSpecialCooldown={101,60,1}
+   ItemRack.GetItemCooldownLeft('16022:1')
+   verify(ItemRack.SpecialItems.IsCooldownPending('16022:1'),'short shared cooldown must not be mistaken for the real item cooldown')
+   advance(160); nativeSpecialCooldown={160,3600,1}; ItemRack.GetItemCooldownLeft('16022:1')
+   verify(not ItemRack.SpecialItems.IsCooldownPending('16022:1') and not ItemRack.IsCandidateReady(13,'16022:1',30),
+    'late native cooldown must reconcile and retain normal candidate thresholds')
+   verify(ItemRackUser.ItemsUsed[16022]==1,'the real native cooldown must start normal notification tracking')
+   advance(3761); nativeSpecialCooldown={0,0,1}
+   verify(ItemRack.IsCandidateReady(13,'16022:1',30) and not ItemRack.SpecialItems.Used[16022],
+    'native cooldown completion must restore eligibility and clean the receipt')
+   verify(ItemRackUser.CurrentSet=='Active' and ItemRack.GetQueues()[13][2].id=='16022:1',
+    'item rules must not change selected set or saved queue contents')
+  end
+ end
+end
+resetSpecial(16001,false); success(); advance(100.05); ItemRack.newUseInventoryItem(13)
+verify(not ItemRack.SpecialItems.IsCooldownPending('16022:1') and ItemRack.ManualQueueChoice[13],
+ 'standalone success must not be reused by a later item hook')
+success(19804,'Cast-New')
+verify(ItemRack.SpecialItems.IsCooldownPending('16022:1'),'a fresh success after the compatible hook must be accepted')
+for _,kind in ipairs({'attempt-only','wrong-spell','recipe','failure','interrupted','changed-item','changed-owner','generation','new-choice','late','ambiguous'}) do
+ resetSpecial(16001,false,'per-set'); ItemRack.newUseInventoryItem(13)
+ if kind=='wrong-spell' then success(23074)
+ elseif kind=='recipe' then success(19830)
+ elseif kind=='failure' or kind=='interrupted' then
+  ItemRack.OnCastingStop(nil,kind=='failure' and 'UNIT_SPELLCAST_FAILED' or 'UNIT_SPELLCAST_INTERRUPTED','player','Cast-X',19804)
+ elseif kind=='changed-item' then equipment[13]='16022:2'; success()
+ elseif kind=='changed-owner' then ItemRackUser.CurrentSet='Master'; success()
+ elseif kind=='generation' then ItemRack.QueueStateGeneration=2; success()
+ elseif kind=='new-choice' then ItemRack.SetManualQueueChoice(13,'16022:1'); success()
+ elseif kind=='late' then advance(101); success()
+ elseif kind=='ambiguous' then
+  equipment[14]='16022:1'; ItemRack.SpecialItems.BeginUse(14); success()
+ end
+ advance(101.1)
+ verify(not ItemRack.SpecialItems.IsCooldownPending('16022:1') and ItemRack.ManualQueueChoice[13]=='16022:1',
+  'unverified '..kind..' must not release a manual choice')
+end
+resetSpecial(16001,false); ItemRack.ManualQueueHold[13]=true; ItemRack.newUseInventoryItem(13); success()
+ItemRack.ProcessAutoQueue(13)
+verify(equipment[13]=='16022:1' and ItemRack.ManualQueueHold[13] and ItemRack.ManualQueueChoice[13],
+ 'confirmed special use must preserve explicit persistent holds')
+for _,restriction in ipairs({'buff','keep','delay'}) do
+ resetSpecial(16001,false)
+ local entry=ItemRack.GetQueues()[13][2]
+ if restriction=='keep' then entry.keep=true
+ elseif restriction=='delay' then entry.delay=25; cooldowns[13]={100,60,1}
+ else buff=true end
+ ItemRack.newUseInventoryItem(13); success(); ItemRack.ProcessAutoQueue(13)
+ verify(equipment[13]=='16022:1' and not ItemRack.ManualQueueChoice[13],
+  'special verified use must release temporary choice while respecting '..restriction)
+ entry.keep=nil; entry.delay=nil; buff=false
+ ItemRack.ProcessAutoQueue(13)
+ verify(equipment[13]=='200','special rotation must resume after '..restriction..' is removed')
+end
+resetSpecial(16001,false); ItemRack.newUseInventoryItem(13); success()
+ItemRack.SetManualQueueChoice(13,'16022:1'); success()
+verify(ItemRack.ManualQueueChoice[13]=='16022:1','duplicate activation must not clear a later manual choice')
+advance(191)
+verify(ItemRack.SpecialItems.IsCooldownPending('16022:1') and ItemRack.SpecialItems.Used[16022].phase=='pending',
+ 'readiness queries must not mutate the pending review phase')
+ItemRack.SpecialItems.Poll()
+verify(ItemRack.SpecialItems.IsCooldownPending('16022:1') and ItemRack.SpecialItems.Used[16022].phase=='unresolved',
+ 'a missing cooldown must become diagnostic uncertainty rather than fabricated readiness')
+for _,toc in ipairs({20505,20506}) do
+ resetSpecial(toc,false); ItemRack.newUseInventoryItem(13); success()
+ verify(not ItemRack.SpecialItems.IsCooldownPending('16022:1') and ItemRack.ManualQueueChoice[13],
+  'TBC must not inherit the Era/Forever deferred exception')
+ verify(ItemRack.ResolveProxy(30720).id==22044 and ItemRack.ResolveProxy(30720).buff==37445,
+  'the TBC dependency rule must preserve mana-gem gating and localized buff semantics')
+end
+resetSpecial(16001,false)
+verify(not ItemRack.ResolveProxy(30720),'the TBC built-in proxy must not load on Forever')
+ItemRack.CooldownProxies={[30720]={id=9999,buff='Custom'}}
+verify(ItemRack.ResolveProxy(30720).id==9999,'explicit compatibility proxy overrides must retain precedence')
+ItemRack.CooldownProxies={}
+-- The same engine supports a data-only rule in another equipment slot.
+local s=ItemRack.SpecialItems
+s.Rules[999]={enabled=true,name='Synthetic off-hand',slots={[17]=true},
+ activation={successSpells={[123456]=true},windowSeconds=0.75},cooldown={start='deferred',minimumOwnSeconds=120}}
+s.BuildIndex(); equipment[17]='999'; s.BeginUse(17)
+s.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Cast-Offhand',123456)
+verify(s.IsCooldownPending('999') and not s.GetRule('999',13),'new slot/item assignments must not require queue-engine changes')
+-- Data-defined effect holds query the exact channel/aura, never any unrelated pet.
+s.Rules[999].effect={kind='channel',spells={[123456]=true},hold=true}
+UnitChannelInfo=function() return 'Channel',nil,nil,nil,nil,nil,nil,123456 end
+verify(s.ShouldHoldEffect(17,'999'),'channel mechanics must match the configured spell')
+UnitChannelInfo=function() return 'Other',nil,nil,nil,nil,nil,nil,777 end
+verify(not s.ShouldHoldEffect(17,'999'),'an unrelated channel must not match the item rule')
+s.Rules[999].effect={kind='aura',unit='pet',spells={[123456]=true},hold=true}
+GetSpellInfo=function(id) return id==123456 and 'Specific aura' end
+ItemRack.FindAuraByName=function(name,unit) return name=='Specific aura' and unit=='pet' end
+verify(s.ShouldHoldEffect(17,'999'),'aura mechanics must use the configured unit and spell')
+s.Rules[999].enabled=false
+verify(not s.ShouldHoldEffect(17,'999') and not s.GetRule('999'),'disabling a table row must disable the handler')
+local report=s.GetDiagnostics()
+verify(not report.intents[13] and #report.history<=24 and report.catalog[999].enabled==false,
+ 'diagnostics must stay bounded and reflect rule enablement without serializing queue tables')
+s.Rules[998]={name='Malformed rule',enabled=true,slots={[17]=true},cooldown={start='deferred'}}
+s.Rules[997]='Malformed record'
+s.BuildIndex()
+verify(not s.GetRule(998) and s.GetDiagnostics().invalidRules[998] and not s.GetRule(997),
+ 'incomplete enabled rules must fail closed with diagnostics rather than break queue processing')
+for _,bad in ipairs({
+ {cooldown=true}, {activation=true}, {effect=true}, {proxy=true},
+ {activation={successSpells=true}}, {activation={itemSpell='19804'}},
+ {cooldown={start='deferred',minimumOwnSeconds='120'},activation={successSpells={[19804]=true}}},
+ {cooldown={start='deferred',minimumOwnSeconds=120,reviewAfterSeconds='90'},activation={successSpells={[19804]=true}}},
+ {activation={windowSeconds='0.75'}}, {activation={windowSeconds=math.huge}},
+ {effect={kind='aura',hold=true,unit='target',spells={[123456]=true}}},
+ {effect={kind='channel',hold=true,spells=true}}, {proxy={id=22044,buff=true}},
+}) do
+ bad.name='Malformed nested rule'; bad.enabled=true; bad.slots={[17]=true}; s.Rules[996]=bad
+ s.BuildIndex()
+ verify(not s.GetRule(996) and s.GetDiagnostics().invalidRules[996],
+  'malformed nested item data must be rejected without crashing the selected catalog')
+end
+-- Native CD sampling cannot depend on whether candidate selection reaches the item.
+resetSpecial(16001,false); ItemRack.newUseInventoryItem(13); success(); ItemRack.ProcessAutoQueue(13)
+advance(160); nativeSpecialCooldown={160,3600,1}
+ItemRack.SpecialItems.Poll()
+verify(not ItemRack.SpecialItems.IsCooldownPending('16022:1') and equipment[13]=='200',
+ 'closed-menu sampling must reconcile the bagged item while the equipped Priority item remains ready')
+advance(3761); nativeSpecialCooldown={0,0,1}; ItemRack.SpecialItems.Poll()
+verify(not ItemRack.SpecialItems.Used[16022],'background sampling must retire an expired real cooldown')
+print(string.format('[SPECIAL ITEM RUNTIME LUA] %d delayed-use, slot, context, native cooldown and user-policy checks passed.',specialChecks))
 `, 'issue-33-swap-in-temporary-hold');
+
+// Offline only: each sandbox loads the actual addon modules/functions into
+// independent globals. None of this harness is packaged in the addon ZIP.
+const specialRecoverySource = [
+  require('fs').readFileSync('ItemRack/ItemRackCooldownState.lua', 'utf8'),
+  ...['ItemRack.GetItemCooldownLeft', 'ItemRack.IsCandidateReady', 'ItemRack.ClearManualQueueChoice',
+    'ItemRack.MarkEquippedItemUsed'].map(n => extractFunction(queueFile, n)),
+  extractFunction(itemRackFile, 'ItemRack.TryInitializeQueueState'),
+  ...specialFiles.map(file => `;(function()\n${require('fs').readFileSync(file,'utf8')}\nend)();`),
+].join('\n');
+runLua(String.raw`
+local checks=0
+local function check(value,message) assert(value,message); checks=checks+1 end
+local function serialize(value)
+ if type(value)=='table' then
+  local parts={}
+  for key,v in pairs(value) do parts[#parts+1]='['..serialize(key)..']='..serialize(v) end
+  return '{'..table.concat(parts,',')..'}'
+ elseif type(value)=='string' then return string.format('%q',value)
+ elseif type(value)=='number' or type(value)=='boolean' then return tostring(value)
+ elseif value==nil then return 'nil' end
+ error('non-SavedVariables value in production receipt: '..type(value))
+end
+local function transport(value) return assert(load('return '..serialize(value)))() end
+local function fresh(saved,toc,uptime,epoch,scope)
+ local world={time=uptime or 100,epoch=epoch or 1800000100,sample={0,0,1},equipment={[13]='16022:1'},notifications=0,seasonal=false,chat=0}
+ local env=setmetatable({}, {__index=_G}); env._G=env
+ env.GetTime=function() return world.time end
+ env.GetServerTime=function() return world.epoch end
+ env.GetBuildInfo=function() return 'fixture','70938','fixture',toc or 16001 end
+ env.GetItemCooldown=function() return table.unpack(world.sample) end
+ env.C_Timer={After=function() end}
+ env.ItemRackUser={SpecialItemUsage=saved,EquipTimers={},ItemsUsed={},Sets={Active={Queues={}}}}
+ env.ItemRack={QueueStateReady=false,QueueStateGeneration=1,PendingEquipTransitionTimes={},ManualQueueChoice={[13]='16022:1'},
+  ManualQueueChoiceOwner={[13]=scope or 'Active'},ManualQueueHold={},
+  GetEquippedSlotState=function(slot) return world.equipment[slot] and 'resolved' or 'empty',world.equipment[slot] end,
+  GetID=function(slot) return world.equipment[slot] end,
+  GetQueueContext=function() return {owner=scope or 'Active',list=env.ItemRackUser.Sets.Active.Queues} end,
+  SameExactID=function(a,b) return a==b end,
+  IsManualQueueChoice=function(slot,id) return env.ItemRack.ManualQueueChoice[slot]==id end,
+  GetQueuesEnabled=function() return {} end,
+  GetDefaultSwapIn=function() return 30 end,
+  IsEngravingActive=function() return world.seasonal end,
+  Print=function() world.chat=world.chat+1 end,
+  Debug=function() end,QueueDiagnostic=function() end,
+  NotifyQueueStateReady=function()
+   world.notifications=world.notifications+1
+   if world.expectReceipt then assert(env.ItemRack.SpecialItems.IsCooldownPending(16022),'restore must precede queue-ready notification') end
+  end}
+ assert(load([====[${specialRecoverySource}]====], 'production-special-recovery','t',env))()
+ return env,world,env.ItemRack.SpecialItems
+end
+local function initialize(env,world,special)
+ special.LoadSaved()
+ assert(not next(special.Used),'loading transport must not prematurely activate automation')
+ assert(env.ItemRack.TryInitializeQueueState(false,true))
+end
+local function use(env,special,cast)
+ special.BeginUse(13)
+ special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player',cast or 'Cast-1',19804)
+end
+for _,toc in ipairs({11508,11509,16001,11601}) do
+ for _,scope in ipairs({'Global','Active','Mirror'}) do
+  local env,w,s=fresh(nil,toc,100,1800000100,scope)
+  initialize(env,w,s); use(env,s)
+  local store=transport(env.ItemRackUser.SpecialItemUsage)
+  check(store.records[16022].confirmedAt==w.epoch and store.records[16022].phase=='pending',
+   'special-use-reload-before-native-cooldown: confirmation must persist before native cooldown')
+  check(not store.records[16022].list and not store.records[16022].owner and not store.records[16022].time,
+   'receipt transport must not persist queue references or uptime')
+  local re,rw,rs=fresh(store,toc,7,1800000110,scope)
+  rw.expectReceipt=true; re.ItemRack.ManualQueueHold[13]=true
+  initialize(re,rw,rs)
+  check(rs.Used[16022].restored and rs.IsCooldownPending(16022) and not re.ItemRack.IsCandidateReady(13,16022,5000),
+   'special-use-reload-before-native-cooldown: a fresh Lua environment must retain exclusion despite zero API cooldown')
+  check(re.ItemRack.ManualQueueChoice[13]=='16022:1' and re.ItemRack.ManualQueueHold[13] and not next(re.ItemRackUser.ItemsUsed),
+   'special-use-recovery-no-replay: restoration must not release a new hold or create use notifications')
+  rw.sample={7,60,1}; rs.Poll()
+  check(rs.IsCooldownPending(16022),'shared penalty after reload cannot end pending state')
+  rw.time=70; rw.epoch=1800000173; rw.sample={70,3600,1}; rs.Poll()
+  check(rs.Used[16022].phase=='cooldown' and not rs.IsCooldownPending(16022) and re.ItemRackUser.ItemsUsed[16022]==1,
+   'first real native publication after reload must register normal notifications once')
+  re.ItemRackUser.ItemsUsed[16022]=5; rs.Poll()
+  check(re.ItemRackUser.ItemsUsed[16022]==5,'repeated observation must not replay notification registration')
+  local observed=transport(re.ItemRackUser.SpecialItemUsage)
+  local off,ow,os=fresh(observed,toc,2,1800004000,scope)
+  initialize(off,ow,os)
+  check(os.IsCooldownPending(16022),'offline expiry needs stable readable authority, not saved time alone')
+  ow.time=3.1; os.Poll()
+  check(not os.Used[16022] and not off.ItemRackUser.SpecialItemUsage.records[16022],
+   'special-use-relog-native-expiry: stable post-login zero must retire an observed expired cooldown')
+ end
+end
+local env,w,s=fresh(); initialize(env,w,s); use(env,s)
+local seed=transport(env.ItemRackUser.SpecialItemUsage)
+w.time=191; w.epoch=w.epoch+91
+check(s.IsCooldownPending(16022) and s.Used[16022].phase=='pending','special-use-unresolved-recovery: queries are pure')
+s.Poll(); check(s.Used[16022].phase=='unresolved','poll must enter unresolved state explicitly')
+use(env,s,'Cast-New'); check(s.Used[16022].phase=='pending','a new independently confirmed use must replace old uncertainty')
+env.ItemRack.ManualQueueHold[13]=true
+check(s.ResetReceipt(16022) and not s.Used[16022] and not env.ItemRackUser.SpecialItemUsage.records[16022]
+ and env.ItemRack.ManualQueueHold[13], 'explicit receipt reset must leave manual policy unchanged')
+local first,fw,fs=fresh(); initialize(first,fw,fs); use(first,fs)
+fw.time=160; fw.sample={160,3600,1}; fs.Poll()
+local hot,hw,hs=fresh(transport(first.ItemRackUser.SpecialItemUsage),16001,2,1800000200)
+hw.sample={1,3500,1}; initialize(hot,hw,hs)
+check(hs.Used[16022].phase=='cooldown' and not next(hot.ItemRackUser.ItemsUsed),
+ 'restoring an already observed cooldown must not register its notification a second time')
+for _,kind in ipairs({'schema','wrong-family','wrong-ruleset','revision','disabled','scalar','time','identity','slot'}) do
+ local saved=transport(seed)
+ if kind=='schema' then saved.schema=9
+ elseif kind=='wrong-family' then saved.family='tbc'
+ elseif kind=='wrong-ruleset' then saved.ruleset='sod'
+ elseif kind=='revision' then saved.records[16022].revision=9
+ elseif kind=='scalar' then saved.records[16022]=true
+ elseif kind=='time' then saved.records[16022].confirmedAt='bad'
+ elseif kind=='identity' then saved.records[16022].exactID='19830:1'
+ elseif kind=='slot' then saved.records[16022].slot=17 end
+ local re,rw,rs=fresh(saved)
+ if kind=='disabled' then rs.Rules[16022].enabled=false; rs.BuildIndex() end
+ initialize(re,rw,rs)
+ check(not next(rs.Used) and #rs.Rejections>0,'special-use-store-validation: reject '..kind)
+ if kind=='schema' then
+  check(re.ItemRackUser.SpecialItemUsage==saved and saved.schema==9,'future schema must remain unchanged')
+  use(re,rs); check(not next(rs.Used),'unsupported future schema must not execute new exceptions')
+ end
+end
+for _,epoch in ipairs({1800000000,false}) do
+ local re,rw,rs=fresh(transport(seed),16001,5,epoch)
+ if epoch==false then rw.epoch=nil end
+ initialize(re,rw,rs)
+ check(rs.Used[16022].clockUncertain and rs.IsCooldownPending(16022),'backward/unavailable clocks cannot manufacture readiness')
+ rw.sample={5,3600,1}; rs.Poll()
+ check(rs.Used[16022].phase=='cooldown','fresh authoritative cooldown can reconcile an uncertain clock')
+end
+local oversized=transport(seed)
+for id=900000,900200 do oversized.records[id]={bad=true} end
+local big,bw,bs=fresh(oversized); initialize(big,bw,bs)
+check(bs.IsCooldownPending(16022) and #bs.Rejections<=24,
+ 'oversized extraneous records must not crowd out a legitimate pending item; diagnostics stay bounded')
+env,w,s=fresh(); initialize(env,w,s); use(env,s)
+env.ItemRack.CooldownState.BeginArena(env.ItemRack.EnsureCooldownState(),w.time+1)
+w.time=w.time+1; s.Poll()
+check(not s.Used[16022] and not env.ItemRackUser.SpecialItemUsage.records[16022],
+ 'special-use-reset-generation: authority-confirmed arena reset must clear pending receipt')
+env,w,s=fresh(); initialize(env,w,s); use(env,s)
+w.time=160; w.sample={160,3600,1}; s.Poll()
+env.ItemRack.CooldownState.BeginArena(env.ItemRack.EnsureCooldownState(),170)
+w.time=170; s.Poll()
+check(s.Used[16022]~=nil,'stale pre-arena active sample cannot masquerade as a confirmed reset')
+w.sample={0,0,1}; s.Poll()
+check(not s.Used[16022],'readable reset after stale arena data must retire receipt')
+env,w,s=fresh(); initialize(env,w,s)
+s.StartTrace(true)
+for i=1,300 do s.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Unrelated',900000+i) end
+check(#s.Trace==256 and s.TraceDropped==44 and not next(s.Used),'unexpected spell IDs must be diagnostic only and bounded')
+w.time=221; s.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Late',19804)
+check(#s.Trace==256 and s.TraceStop=='expired' and not next(s.Used),'detailed capture must expire without enabling use')
+check(w.chat==0,'diagnostic collection must be quiet by default')
+env,w,s=fresh(); initialize(env,w,s); s.StartTrace(true)
+env.issecretvalue=function(value) return type(value)=='table' end
+s.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player',{}, {})
+check(not next(s.Used) and s.Trace[#s.Trace].spell==nil,'secret/unavailable spell evidence must remain diagnostic and cannot activate an item')
+env,w,s=fresh(transport(seed),11509)
+w.seasonal=nil; s.CatalogLoaded=nil; s.RefreshCatalog(); s.LoadSaved()
+check(not s.PersistenceLoaded,'unknown seasonal detection must defer receipt validation')
+w.seasonal=true; s.RefreshCatalog(); s.LoadSaved()
+check(s.Client.ruleset=='sod' and s.Rules[228955] and not s.Rules[30720],
+ 'special-client-late-seasonal-detection: refresh must allocate only the selected seasonal table')
+local rules=s.Rules; s.RefreshCatalog()
+check(s.Rules==rules,'unchanged catalog refresh must be idempotent')
+print(string.format('[SPECIAL RECOVERY LUA] %d isolated-environment recovery, validation, diagnostics and lifecycle checks passed.',checks))
+`, 'special-use-reload-before-native-cooldown');

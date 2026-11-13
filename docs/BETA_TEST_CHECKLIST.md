@@ -13,6 +13,16 @@ Use the same universal archive for every row; do not build or test separate Fore
 - On Forever 1.60.1, log in twice with a saved set key and verify no SaveBindings usage error, working set hotkeys, and persisted keys after relog (PR #28).
 - Test Auto/Up/Down/Left/Right minimap flyouts with the stock button and any minimap collector. Verify direction, item clicks, and dropdown layout. EllesmereUI 9.3 collector layering requires its upstream PR #2305 fix according to the contributor; ItemRack's dock tests do not verify that external fix (PR #26).
 
+## 4.59-beta11: special-item community candidate (#33, GitHub only)
+
+This candidate is verified through the production-Lua gate and exact-ref archive checks. The owner does not have the special items; the following live checks are for community users who do. No fake item, in-game simulator or test-mode command is required.
+
+- On Era/Forever, enable `/itemrack debug specialitems`, manually equip Arcanite Dragonling in slot 13 or 14, use it and let a ready Priority replacement take over. Check the actual summon and queue result while the native cooldown is delayed. Buffs, Pause/Delay and persistent holds still apply; restricted gear changes wait for combat to end.
+- Try a failed use during equip/existing cooldown. It must retain temporary protection. Repeat a successful use OOC and in combat; the other trinket's shared cooldown must not be treated as its successful use.
+- Collect `/itemrack dump` before reload while native cooldown is still pending, then reload and collect another dump. Check the receipt survives without replayed actions or early reselection. Repeat during a published cooldown and after its expiration where practical. `/itemrack special status` shows the receipt phase; unresolved evidence can be discarded with `/itemrack special reset 16022` if necessary.
+- Capture a full lifetime and early summon death where available; report the action sequence, installed version, client build and actual summon behavior. TBC Arcanite remains on its native path; its Braid proxy is a control. No owner character/item inventory is a release prerequisite.
+- Verify the GitHub release says GitHub-only, its source TOC carries the immutable distribution field, the archive matches the tag, and the CurseForge upload job is skipped. No local installs are part of this deployment.
+
 ## 4.59-beta10: Protect Until Used and Swap In (#33)
 
 - Put Priority Kiss of the Spider above Slayer's Crest in slot 13, enable Crest's Swap In at 120 seconds, reset the set through button 20, manually equip Crest and use it. After the 20-second buff expires, the ready Kiss should take over OOC or queue until combat ends. Repeat with 119, 100 and 99 seconds and with 115 seconds while clicking the buff off before/at/after five seconds.

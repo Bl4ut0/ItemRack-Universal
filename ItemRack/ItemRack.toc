@@ -13,6 +13,10 @@
 Libs\Libs.xml
 
 ItemRack.lua
+ItemRackSpecialItems.lua
+ItemRackSpecialItemsEra.lua
+ItemRackSpecialItemsTBC.lua
+ItemRackSpecialItemsForever.lua
 ItemRackTransaction.lua
 ItemRackEventState.lua
 ItemRackQueuePolicy.lua

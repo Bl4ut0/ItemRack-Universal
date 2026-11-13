@@ -46,6 +46,50 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 12 GitHub #33 / neferens, comment 6841005114: Arcanite Dragonling
+reportedly delays its cooldown by roughly its summon lifetime, so the ordinary
+fresh-cooldown verifier misses successful use. Exact client build, emitted
+spell IDs, event order and persistence after unequip were not supplied. The
+research and source hashes are in `SPECIAL_ITEM_USAGE_RESEARCH.md` and
+`research/`. Static data differs across clients; it is not live acceptance.
+`special-client-data-isolation` and the named `issue-33-dragonling-delayed-cooldown`
+assertion in `.tools/test_queue_runtime_lua.js` extend the existing standard-gate
+suite. The latter fails with beta10's production item-use/event functions and
+passes with the framework. It executes real use hooks, instant-cast dispatch,
+manual-choice/proxy functions, cooldown authority, queue selection and combat
+drain against modeled APIs/equipment endpoints. Checks cover all supported
+Interfaces plus an unsupported client, conditional SoD allocation, independent
+slot maps, native TBC behavior, disabled/malformed entries, absent native CD,
+short shared CD, later real CD and expiration, closed menus, notification
+tracking, global/per-set/mirrored ownership, persistent holds, new manual
+choices, generation/identity changes, ambiguity, failures, late/unrelated/recipe
+spells, bounded diagnostics and reusable channel/aura mechanics. Standalone
+success events are deliberately not reused by a later item hook.
+Community acceptance for the GitHub-only candidate: capture the actual player summon spell
+and hook ordering on each enabled client; success must follow a compatible
+pending use, and spell 19830 (crafting) or an unrelated dummy success is not
+accepted. Repeat early guardian death, unequip, full lifetime, failed use,
+paired trinkets, data loading, queues, locks/cursor/combat and tooltips. Pending
+usage receipts now persist through normal reload/relog. The existing focused
+suite adds `special-use-reload-before-native-cooldown`: independent Lua globals
+execute the actual addon modules and `TryInitializeQueueState` with serialized
+production receipts and different uptimes. Its 139 recovery checks cover startup
+order, new holds/no replay, delayed native publication, offline expiry, invalid/
+future schemas, wrong client/ruleset/revision/identity, uncertain clocks, fresh
+use after uncertainty, explicit receipt reset, stale/confirmed arena reset,
+bounded silent unexpected-event capture and late seasonal allocation. These
+extend 132 catalog and 279 use/queue runtime checks. No in-game fake items or
+simulator is added. The maintainer need not own the items or perform these live
+community checks before candidate publication. Local clients are not installed
+for the GitHub-only candidate.
+
+GitHub-only beta publication uses an immutable TOC distribution field, tested
+by `github-only-candidate` in `.tools/check_release_flow.js`. A real tagged ZIP
+fixture is refused by the CurseForge verifier before preflight/network, even
+when its editable release notes are changed. The workflow policy gates both
+published and manual jobs before secret access; ordinary beta/stable fixtures
+still follow the normal upload route.
+
 November 12 GitHub #33 / neferens, comment 6840015661: manually equipped
 Slayer's Crest below Priority Kiss of the Spider remains equipped after use
 and its 20-second buff when custom Swap In overlaps the remaining cooldown.

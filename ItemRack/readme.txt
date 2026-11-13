@@ -165,6 +165,31 @@ Manual choices and holds:
 * Holds are runtime choices, not saved policies; they do not survive /reload.
   Pause Queue is the separately saved per-item policy.
 
+Special item usage:
+
+* ItemRack loads the item-rule table for the detected game version. Rules are
+  built-in item/slot data, not another per-character checkbox. Unverified
+  research entries are disabled.
+* For Arcanite Dragonling on Era and Forever, a matching successful summon
+  after an observed use attempt can end temporary protection before the native
+  cooldown starts. The used item stays ineligible for automatic reselection
+  while its cooldown is pending. Actual buffs, Pause/Delay, persistent holds
+  and combat restrictions still apply. TBC uses its normal native cooldown path.
+  * Confirmed special-item use is saved per character and restored after normal
+    reload/relog before queues resume, even if the item is now in a bag. Recovery
+    does not repeat swaps, clear new manual holds, burn again or add notifications.
+    A real cooldown observation reconciles pending use; a confirmed arena reset
+    clears it. ItemRack does not invent readiness from the summon's duration.
+  * /itemrack special status shows pending/recovered use. If evidence remains
+    unresolved, /itemrack special reset <itemID> discards only that item's special
+    receipt; normal cooldown checks then apply. It does not force a swap or clear
+    your manual holds. The review timer alone never makes an item ready.
+  * /itemrack debug specialitems toggles a silent 120-second capture of relevant
+    player events, use hooks and cooldown observations. Collect /itemrack dump
+    after the problem; capture a dump before and after reload when testing that
+    boundary. Routine chat stays quiet unless debug chat is explicitly enabled.
+    The addon contains no fake items or in-game test harness.
+
 
 HYBRID SET STATE
 ----------------

@@ -25,6 +25,7 @@ function ItemRack.PeriodicQueueCheck()
 	if ItemRack.QueueStateReady ~= true then
 		return
 	end
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.Poll() end
 	if ItemRack.IsAutomaticSwapBlocked and ItemRack.IsAutomaticSwapBlocked() then
 		if ItemRack.QueueDiagnostic then ItemRack.QueueDiagnostic("autoqueue_skipped", { reason = "automatic_swap_suspended" }) end
 		return
@@ -52,6 +53,7 @@ function ItemRack.PeriodicQueueCheck()
 end
 
 function ItemRack.ClearManualQueueChoice(slot)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.CancelIntent(slot) end
 	if ItemRack.ManualQueueChoice then
 		ItemRack.ManualQueueChoice[slot] = nil
 	end
@@ -130,6 +132,7 @@ function ItemRack.IsManualQueueChoice(slot, exactID, baseID, setname, list, owne
 end
 
 function ItemRack.SetManualQueueChoice(slot, id, setname)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.CancelIntent(slot) end
 	if not slot or not id or id == 0 then
 		ItemRack.ClearManualQueueChoice(slot)
 		return
@@ -568,7 +571,8 @@ end
 
 function ItemRack.ResolveProxy(itemID)
 	local numericID = tonumber(ItemRack.GetIRString and ItemRack.GetIRString(itemID,true) or itemID)
-	return numericID and ItemRack.CooldownProxies and ItemRack.CooldownProxies[numericID]
+	return (numericID and ItemRack.CooldownProxies and ItemRack.CooldownProxies[numericID])
+		or (ItemRack.SpecialItems and ItemRack.SpecialItems.GetProxy(itemID))
 end
 local ResolveProxy = ItemRack.ResolveProxy
 
@@ -651,11 +655,16 @@ function ItemRack.IsCandidateReady(slot, candidateID, customReadyTime)
 	local threshold = tonumber(customReadyTime)
 	if threshold == nil then threshold = ItemRack.GetDefaultSwapIn(slot) end
 	local timeLeft = ItemRack.GetItemCooldownLeft(candidateID)
+	if ItemRack.SpecialItems and ItemRack.SpecialItems.IsCooldownPending(candidateID) then return false end
 	if timeLeft == nil then return false end -- nil-safe: unknown cooldown state -> retry later (not ready)
 	return timeLeft <= threshold
 end
 
 function ItemRack.ShouldHoldEquippedItem(slot, exactID, baseID, customReadyTime)
+	if ItemRack.SpecialItems then
+		if ItemRack.SpecialItems.ShouldHoldEffect(slot,exactID) then return true end
+		if ItemRack.SpecialItems.IsCooldownPending(exactID) then return false end
+	end
 	if ItemRack.IsQueueItemBurnt(slot, exactID, baseID) then
 		if ItemRack.QueueDiagnostic then ItemRack.QueueDiagnostic("hold_decision", { hold = false, reason = "burnt", slot = slot }) end
 		return false
@@ -718,6 +727,7 @@ function ItemRack.ProcessAutoQueue(slot)
 	local queueContext = ItemRack.GetQueueContext(slot)
 	local list = queueContext.list
 	if not queueContext.enabled then return end
+	if ItemRack.SpecialItems and ItemRack.SpecialItems.ShouldHoldEffect(slot,exactID) then return end
 	local keepValue, delayValue, priorityValue
 	
 	-- Find the equipped item in the queue to get its priority/keep/delay settings
@@ -812,6 +822,7 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 	-- whenever a kept/delayed item is worn, causing movement events to re-equip the set
 	-- and the set display to flip to "Custom".
 	local exactID = ItemRack.GetID(slot)
+	if ItemRack.SpecialItems and ItemRack.SpecialItems.ShouldHoldEffect(slot,exactID) then return nil end
 	local currentBurnt = ItemRack.IsQueueItemBurnt(slot, exactID, baseID)
 	local manualHold = ItemRack.IsManualQueueChoice(slot, exactID, baseID,
 		setname,list,queueContext.owner)

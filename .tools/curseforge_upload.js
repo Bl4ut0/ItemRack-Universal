@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const { execFileSync } = require('child_process');
+const { distributionFromToc } = require('./release_distribution');
 
 const endpoint = 'https://wow.curseforge.com/api';
 const projectId = 1441253;
@@ -76,6 +77,7 @@ function verifyRelease({ tag, archive, checksum, notes, repo = process.cwd() }) 
       .test(files.get(name)?.toString('utf8') || ''), 'Both addon TOCs must match the release tag.');
   }
   const toc = files.get('ItemRack/ItemRack.toc').toString('utf8');
+  requireValue(distributionFromToc(toc) !== 'github-only', 'GitHub-only candidate: CurseForge submission is forbidden for this immutable tag.');
   requireValue(/^## X-Curse-Project-ID: 1441253\s*$/m.test(toc), 'Wrong CurseForge project.');
   const interfaces = /^## Interface:\s*([^\r\n]+)/m.exec(toc)?.[1].split(',').map((value) => Number(value.trim())) || [];
   // 11601 is the legacy Camelot load alias; CurseForge lists this family as 1.60.1.

@@ -109,6 +109,9 @@ All 20 ItemRack equipment slots can be bound directly via the native WoW interfa
 | `/itemrack opt` or `/itemrack options` | Opens the Options window |
 | `/itemrack debug` | Toggles the diagnostic logging framework (Silent mode by default) |
 | `/itemrack debug mouse` | Captures public mouse-focus details without changing any frame's mouse handling |
+| `/itemrack debug specialitems` | Toggles a silent, bounded 120-second special-item event/cooldown capture for `/itemrack dump` |
+| `/itemrack special status` | Shows selected client rules and pending/recovered special-item use |
+| `/itemrack special reset <itemID>` | Discards that item's special receipt; preserves equipment and manual holds, then uses normal cooldown checks |
 | `/itemrack debug chat` | Toggles printing the diagnostic traces to the main chat window |
 | `/itemrack dump` | Retrieves the session Event logs & active SV data into a copyable UI |
 | `/itemrack equip <set name>` | Equips the specified set |
