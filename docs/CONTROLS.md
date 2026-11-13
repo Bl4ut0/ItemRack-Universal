@@ -20,7 +20,7 @@ A comprehensive guide to all mouse, keyboard, and command controls available in 
 | Action | Effect |
 |--------|--------|
 | **Left-Click** | Uses the item (activates on-use trinkets, equippables, etc.) |
-| **Right-Click** | Opens the flyout when **Menu on Right-Click** is enabled; otherwise uses the equipped item when **Use on Right-Click** is enabled; otherwise advances to the next valid queue item and temporarily holds it until used in combat |
+| **Right-Click** | Opens the flyout when **Menu on Right-Click** is enabled; otherwise uses the equipped item when **Use on Right-Click** is enabled; otherwise advances to the next valid queue item with temporary protection that ends on verified use, in or out of combat |
 | **Hover** | Opens the item selection flyout menu (immediate without hover delay) |
 | **Shift+Left-Click** | Links the equipped item to chat (if chat edit box is open) |
 | **Alt+Left-Click** | Toggles Auto-Queue ON/OFF for that slot |
@@ -58,7 +58,7 @@ hover it and run `/itemrack debug mouse`, try the click, then collect a dump.
 ### Standard Mode
 | Action | Effect |
 |--------|--------|
-| **Left-Click** item | Equips item as a **Manual Swap** (protected while ready; queue automatically resumes once used in combat) |
+| **Left-Click** item | Equips item as a **Manual Swap** (protected while ready; verified use ends temporary protection in or out of combat, with buffs, Pause Queue and delays still respected) |
 | **Right-Click** item | Equips item with a **Persistent Hold** (locks the slot against AutoQueue until manually unheld or set switched) |
 | **Shift+Click** item | Links the item to chat (if chat edit box is open) |
 | **Alt+Click** item | Toggles the item as "Hidden" from the breakout list (if "Allow hidden items" is enabled in Options) |
@@ -153,7 +153,7 @@ The Auto-Queue system automatically swaps items based on cooldown availability:
 1. **Enable Queue**: Alt+Left-Click a docked slot button, or use the Queue tab in Options
 2. **Configure Priority**: In the Queue tab, rank items from highest to lowest priority
 3. **Automatic Rotation**: When an equipped item goes on cooldown, ItemRack swaps to the next ready item in the queue
-4. **Manual Swap Protection ("Protect Until Used")**: If you manually equip an item via Left-Click in the breakout, TrinketMenu, an `/equipslot` macro, or dragging from your bags, AutoQueue protects it while it is ready. Once you use it in combat and put it on cooldown, AutoQueue automatically resumes its normal rotation.
+4. **Manual Swap Protection ("Protect Until Used")**: If you manually equip an item via Left-Click in the breakout, TrinketMenu, an `/equipslot` macro, or dragging from your bags, AutoQueue protects it while it is ready. Verified use ends temporary protection both in and out of combat. Active buffs, Pause Queue and delays still apply; afterward a ready Priority candidate may replace it even inside the used item's Swap In window. Swap In controls cooldown eligibility, independently of whether a manual choice has been used. Explicit persistent holds remain active after use, and restricted equipment swaps wait until combat ends.
 5. **Persistent Hold**: Right-Clicking an item in the breakout (or Ctrl+Click in TrinketMenu mode, or `/itemrack hold`) permanently locks the slot so AutoQueue will not swap it out even on cooldown, until manually unheld.
 6. **Pause Queue**: Check "Pause Queue" on items in Options to prevent them from being swapped out during use
 7. **Per-Set Queues**: Gear Sets automatically save and recall which slot queues are currently enabled when you equip them

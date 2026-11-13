@@ -46,6 +46,32 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 12 GitHub #33 / neferens, comment 6840015661: manually equipped
+Slayer's Crest below Priority Kiss of the Spider remains equipped after use
+and its 20-second buff when custom Swap In overlaps the remaining cooldown.
+Reported values are 120/119/100/99 seconds, plus early buff removal around the
+115-second threshold at five seconds. Exact installed addon/client versions,
+saved item identities and full profile were not supplied in this follow-up.
+`issue-33-swap-in-temporary-hold` extends `.tools/test_queue_runtime_lua.js`
+in the standard gate. Before correction it fails after real use verification,
+showing no Priority replacement after the buff ends. After correction it runs
+the production secure-use callback, settled retry, ReflectItemUse, cooldown
+authority, manual-choice functions, ProcessAutoQueue and combat-queue drain.
+Synthetic item identities with the reported 120-second cooldown and 20-second
+buff exercise all thresholds in global/per-set/mirrored scopes and combat/OOC,
+including terminal gear, pending-request cleanup, unchanged queue policy/set,
+early buff removal, active buff, Pause/Delay, persistent holds, candidate
+eligibility, owner/item mismatch, duplicate/new choices, replaced-item retries,
+equip-penalty, stale/no-cooldown and shared-follower rejection. Client APIs,
+timers, aura state and equipment endpoints are modeled; this does not verify
+the reporter's exact client, protected actions or real aura/event ordering.
+Live acceptance for beta10: repeat the supplied Kiss/Crest procedure and early
+buff removal across each threshold both OOC and in combat; confirm the buff
+and configured Pause/Delay still hold, the ready Priority replacement equips
+when permitted, and persistent holds need explicit clearing. Verify failed
+uses and paired /use 13 + /use 14 do not release the unused follower's hold.
+Capture `/itemrack dump`, the installed version and client build if it differs.
+
 November 12 beta9 mirrored-queue clarification: **Use per-set queues** is the
 feature gate. With it OFF, global list editing and enablement remain unchanged.
 With it ON, the selected/event set owns enablement and runtime context while

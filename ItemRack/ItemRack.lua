@@ -633,7 +633,7 @@ ItemRack.TooltipInfo = {
 	{"ItemRackOptItemStatsPriority","Priority","Check this to make this item auto equip when it comes off cooldown even if the equipped item is off cooldown and waiting to be used."},
 	{"ItemRackOptItemStatsKeepEquipped","Pause Queue","Check this to suspend the auto queue for this slot until the item is unequipped. (For instance if you have another mod handling the auto equip of a riding crop."},
 	{"ItemRackOptItemStatsSwapOnUse","Burn on Use","Check this to permanently ignore this item in the queue for the rest of the play session once its cooldown is triggered. It will not be equipped again until you manually re-equip the set."},
-	{"ItemRackOptItemStatsSwapInEnable","Custom Swap In","Check this to override the default aggressive swap-in cooldown (30s for trinkets, 0s for others) and specify exactly how many seconds remaining on this item's cooldown it should be aggressively swapped back into the slot."},
+	{"ItemRackOptItemStatsSwapInEnable","Custom Swap In","Override the default remaining-cooldown threshold (30s for trinkets, 0s for others) at which this item becomes eligible to swap back in. Larger values allow earlier eligibility. This does not extend temporary manual protection after verified use; active buffs, Pause Queue and delay settings still apply."},
 	{"ItemRackOptQueueEnable","Auto Queue This Slot","Check this to allow this slot to auto queue.  When an item goes on cooldown, it will swap for an item higher on the list that's off cooldown."},
 	{"ItemRackOptSetsHideCheckButton","Hide","Hide this set in menus. (Equivalent of Alt+clicking the set in the menu)"},
 	{"ItemRackOptSetsSaveButton","Save Set","Save this set. Some settings like key binding, cloak/helm visibility and whether it's hidden can only be changed to a saved set."},
@@ -5737,6 +5737,14 @@ function ItemRack.ReflectItemUse(id, isRetry)
 		ItemRack.ItemsUsedCooldownGeneration[baseID] = ItemRack.EnsureCooldownState().generation
 		if ItemRack.MarkEquippedItemUsed then
 			ItemRack.MarkEquippedItemUsed(id)
+		end
+		-- Successful use ends temporary manual protection. Swap In describes
+		-- cooldown eligibility, not whether this manual choice is still unused.
+		-- Keep explicit persistent holds and choices belonging to another item/context.
+		if ItemRack.IsManualQueueChoice and ItemRack.ClearManualQueueChoice
+		and not (ItemRack.ManualQueueHold and ItemRack.ManualQueueHold[id])
+		and ItemRack.IsManualQueueChoice(id,exactID,baseID) then
+			ItemRack.ClearManualQueueChoice(id)
 		end
 		-- Burn on use for genuine active use cooldowns (> 1.5s duration)
 		if duration > 1.5 and ItemRack.MarkEquippedQueueItemBurnt and ItemRack.GetQueuesEnabled()[id] then

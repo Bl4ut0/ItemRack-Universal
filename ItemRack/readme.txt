@@ -151,8 +151,13 @@ Master / mirrored queues [Character-specific; per-set queues required]:
 Manual choices and holds:
 
 * Manual swaps from ItemRack, macros, bags or TrinketMenu are protected while
-  ready, including the equip cooldown. After an on-use item is used in combat,
-  normal queue rotation resumes, subject to the queue's Pause/Delay policies.
+  ready, including the equip cooldown. A verified item use ends temporary manual
+  protection both in and out of combat. Active buffs, Pause Queue and delays
+  still keep the item equipped as configured. Once those restrictions end, a
+  ready Priority replacement can take over even if the used item's cooldown
+  falls inside its own Swap In window. Swap In controls cooldown eligibility;
+  larger values allow an item to become eligible earlier, rather than extending
+  temporary protection after use. Restricted swaps wait until combat ends.
 * A persistent hold also blocks replacement while the item is on cooldown.
   Clear it with /itemrack unhold <slot>, a normal manual item selection, or a
   set change affecting that slot. Replacing the item externally starts a new

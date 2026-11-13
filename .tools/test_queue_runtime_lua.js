@@ -773,3 +773,202 @@ UnitBuff=function(_,i) return i==1 and 'TestAura' or nil end
 assert(ItemRack.FindPlayerAura('TestAura')=='TestAura','legacy aura presence must remain supported')
 print('[AURA CALLER LUA] Guarded caller failures and nonrecursive legacy lookup passed.')
 `, 'issue-32-aura-caller-containment');
+
+// #33 / neferens: genuine use must end temporary protection independently of
+// the item's Swap In threshold. Exercise real use hooks, retry, cooldown
+// authority and queue processing; only client APIs/equipment endpoints are modeled.
+runLua(String.raw`
+local now,combat,buff,timers,equipment,cooldowns,requests,events
+ItemRack={}
+ItemRackSettings={}
+function GetTime() return now end
+function InCombatLockdown() return combat end
+function UnitAffectingCombat() return combat end
+function CursorHasItem() return false end
+function IsInventoryItemLocked() return false end
+function GetInventoryItemCooldown(_,slot)
+ local cd=cooldowns[slot] or {0,0,1}; return cd[1],cd[2],cd[3]
+end
+function GetItemCooldown(id)
+ if tonumber(id)==100 then return GetInventoryItemCooldown('player',13) end
+ if tonumber(id)==300 then return GetInventoryItemCooldown('player',14) end
+ return 0,0,1
+end
+function GetItemSpell(id) if tonumber(id)==100 then return 'ReportedBuff' end end
+C_Timer={After=function(delay,callback) timers[#timers+1]={at=now+delay,callback=callback} end}
+local function advance(target)
+ while true do
+  local earliest
+  for i,timer in ipairs(timers) do
+   if timer.at<=target and (not earliest or timer.at<timers[earliest].at) then earliest=i end
+  end
+  if not earliest then break end
+  local timer=table.remove(timers,earliest); now=timer.at; timer.callback()
+ end
+ now=target
+end
+ItemRack.GetID=function(slot) return equipment[slot] or 0 end
+ItemRack.GetEquippedSlotState=function(slot)
+ return equipment[slot] and 'resolved' or 'empty',equipment[slot]
+end
+ItemRack.GetIRString=function(id) return tostring(id):match('^(%d+)') end
+ItemRack.IsEquippedSlotStateReady=function() return true end
+ItemRack.MatchesStoredItemFields=function(a,b) return a==b end
+ItemRack.MatchesStoredItemID=ItemRack.MatchesStoredItemFields
+ItemRack.SameExactID=ItemRack.MatchesStoredItemFields
+ItemRack.IsBareItemID=function() return false end
+ItemRack.IsQueueEntryUnambiguous=function() return true end
+ItemRack.IsQueueItemBurnt=function() return false end
+ItemRack.GetProxyBuff=function() return nil end
+ItemRack.GetProxyCooldownLeft=function() return nil end
+ItemRack.ResolveProxy=function() return nil end
+ItemRack.GetDefaultSwapIn=function() return 30 end
+ItemRack.FindPlayerAura=function() return buff end
+ItemRack.FindItemInBags=function(id) if id=='200' then return 0,1 end end
+ItemRack.IsOffhandBlocked=function() return false end
+ItemRack.IsPlayerReallyDead=function() return false end
+ItemRack.GetInfoByID=function(id) return id end
+ItemRack.Debug=function() end
+ItemRack.UpdateCombatQueue=function() end
+ItemRack.QueueDiagnostic=function(event) events[event]=(events[event] or 0)+1 end
+ItemRack.ClearEquipTimer=function(slot) ItemRack.EquipTimers[slot]=nil end
+${require('fs').readFileSync('ItemRack/ItemRackCooldownState.lua','utf8')}
+${require('fs').readFileSync('ItemRack/ItemRackQueuePolicy.lua','utf8')}
+${['ItemRack.GetQueueContext','QueueFieldProxy','ItemRack.GetQueues','ItemRack.GetQueuesEnabled',
+ 'ItemRack.GetActiveQueueOwner','ItemRack.ScheduleReflectItemUseRetry','ItemRack.ReflectItemUse',
+ 'ItemRack.newUseInventoryItem','ItemRack.ClearCombatQueueMetadata','ItemRack.AddToCombatQueue',
+ 'ItemRack.RemoveFromCombatQueue','ItemRack.ProcessCombatQueue'].map(n=>extractFunction(itemRackFile,n)).join('\n')}
+${clearManual}
+${findQueueEntry}
+${isManual}
+${setManual}
+${isRecentEquip}
+${extractFunction(queueFile,'ItemRack.MarkEquippedItemUsed')}
+${extractFunction(queueFile,'ItemRack.GetItemCooldownLeft')}
+${extractFunction(queueFile,'ItemRack.IsCandidateReady')}
+${shouldHold}
+${autoQueue}
+${extractFunction(queueFile,'ItemRack.ProcessAutoQueue')}
+ItemRack.EquipItemByID=function(id,slot,isAutoQueue)
+ requests[#requests+1]=id
+ if combat then ItemRack.AddToCombatQueue(slot,id,isAutoQueue) else equipment[slot]=id end
+end
+ItemRack.EquipSet=function(name)
+ assert(not combat,'ordinary gear must not equip in combat')
+ for slot,id in pairs(ItemRackUser.Sets[name].equip) do equipment[slot]=id end
+end
+local function reset(mode,inCombat,threshold)
+ now,combat,buff,timers,requests,events=100,inCombat,false,{},{},{}
+ equipment={[13]='100',[14]='300'}; cooldowns={[13]={0,0,1}}
+ local list={{id='200',priority=true},{id='100',swapInEnabled=true,swapIn=threshold}}
+ ItemRackUser={EnableQueues='ON',EnablePerSetQueues=mode=='global' and 'OFF' or 'ON',
+  CurrentSet='Active',Buttons={},ItemsUsed={},EquipTimers={[13]={id='100',time=70,hasPenalty=true,used=false}},
+  Queues={[13]=list},QueuesEnabled={[13]=true},Sets={
+   Active={equip={},Queues={[13]=list},QueuesEnabled={[13]=true}},
+   Master={equip={},Queues={[13]=list},QueuesEnabled={[13]=true}},['~CombatQueue']={equip={}}}}
+ if mode=='mirrored' then
+  ItemRackUser.Sets.Active.QueueSync={[13]='Master'}
+  ItemRackUser.Sets.Active.QueueSyncInitialized={[13]=true}
+  ItemRackUser.Sets.Active.Queues=nil
+ end
+ ItemRack.EquipTimers=ItemRackUser.EquipTimers
+ ItemRack.QueueStateReady=true; ItemRack.QueueStateGeneration=1
+ ItemRack.CooldownObservations=nil; ItemRack.PendingReflectItemUse=nil
+ ItemRack.LastProcessedItemUse=nil; ItemRack.LastActivation=nil
+ ItemRack.ManualQueueChoice={}; ItemRack.ManualQueueChoiceOwner={}; ItemRack.ManualQueueHold={}
+ ItemRack.CombatQueue={}; ItemRack.AutoQueueFlag={}; ItemRack.AutoQueueOwner={}; ItemRack.AutoQueueList={}
+ ItemRack.RunAfterCombat={}; ItemRack.ItemsUsedCooldownGeneration={}
+ ItemRack.SetManualQueueChoice(13,'100')
+ return list
+end
+local checks=0
+local function check(value,message) assert(value,message); checks=checks+1 end
+local function use()
+ cooldowns[13]={100,120,1}; buff=true
+ ItemRack.newUseInventoryItem(13); advance(100.06)
+end
+for _,mode in ipairs({'global','per-set','mirrored'}) do
+ for _,inCombat in ipairs({false,true}) do
+  for _,threshold in ipairs({120,119,100,99,115}) do
+   local list=reset(mode,inCombat,threshold)
+   ItemRack.ProcessAutoQueue(13)
+   check(#requests==0 and equipment[13]=='100','unused manual choice must remain protected against Priority')
+   use()
+   check(events.use_accepted==1 and ItemRack.EquipTimers[13].used,
+    'fixture must pass real verified-use detection before testing hold release')
+   ItemRack.ProcessAutoQueue(13)
+   check(#requests==0 and equipment[13]=='100','active buff must still protect the used item')
+   advance(120); buff=false; ItemRack.ProcessAutoQueue(13)
+   if inCombat then
+    check(equipment[13]=='100' and ItemRack.CombatQueue[13]=='200','combat must queue the prioritized replacement')
+    combat=false; ItemRack.ProcessCombatQueue()
+   end
+   check(equipment[13]=='200' and #requests==1,
+    'issue-33-swap-in-temporary-hold: verified use plus expired buff must yield to Priority regardless of Swap In')
+   check(not ItemRack.ManualQueueChoice[13] and not ItemRack.ManualQueueChoiceOwner[13],
+    'verified use must retire temporary choice identity and owner')
+   check(list[2].swapIn==threshold and not next(ItemRack.CombatQueue) and ItemRackUser.CurrentSet=='Active',
+    'retain saved policy/context and finish without pending gear requests')
+  end
+ end
+end
+-- Premature buff removal on each side of the reporter's 115-second boundary.
+for _,elapsed in ipairs({4,5,6}) do
+ reset('global',false,115); use(); advance(100+elapsed); buff=false
+ ItemRack.ProcessAutoQueue(13)
+ check(equipment[13]=='200','early buff removal must release on either side of the Swap In boundary')
+end
+reset('global',false,120); use(); advance(120); buff=false
+check(not ItemRack.IsCandidateReady(13,'100',99) and ItemRack.IsCandidateReady(13,'100',100),
+ 'Swap In must still gate candidate eligibility at its inclusive remaining-cooldown boundary')
+-- A duplicate hook cannot release a fresh choice created after the accepted use.
+reset('global',false,120); use(); ItemRack.SetManualQueueChoice(13,'100')
+ItemRack.newUseInventoryItem(13); advance(100.12)
+check(events.use_accepted==1 and events.use_ignored_duplicate==1 and ItemRack.ManualQueueChoice[13]=='100',
+ 'duplicate use evidence must not release a newer manual choice')
+-- Identity changes while the settled trinket sample is pending cancel that receipt.
+reset('global',false,120); cooldowns[13]={100,120,1}; ItemRack.newUseInventoryItem(13)
+equipment[13]='999'; ItemRack.SetManualQueueChoice(13,'999'); advance(100.8)
+check(not events.use_accepted and ItemRack.ManualQueueChoice[13]=='999',
+ 'a delayed receipt must not release the replacement item manual choice')
+-- The explicit persistent hold remains distinct, including after accepted use.
+reset('per-set',false,120); ItemRack.ManualQueueHold[13]=true; use(); advance(120); buff=false
+ItemRack.ProcessAutoQueue(13)
+check(events.use_accepted==1 and equipment[13]=='100' and #requests==0 and ItemRack.ManualQueueHold[13]
+ and ItemRack.ManualQueueChoice[13]=='100','verified use must retain explicit persistent holds')
+for _,policy in ipairs({'keep','delay'}) do
+ local list=reset('global',false,120)
+ if policy=='keep' then list[2].keep=true else list[2].delay=25 end
+ use(); advance(120); buff=false; ItemRack.ProcessAutoQueue(13)
+ check(equipment[13]=='100' and #requests==0 and not ItemRack.ManualQueueChoice[13],
+  'use must release temporary protection while retaining '..policy..' policy')
+ if policy=='keep' then list[2].keep=false else advance(126) end
+ ItemRack.ProcessAutoQueue(13)
+ check(equipment[13]=='200','rotation must resume after '..policy..' restriction ends')
+end
+-- Rejected signals must never clear the temporary choice.
+for _,kind in ipairs({'equip-penalty','no-cooldown','stale-cooldown','shared-follower'}) do
+ reset('global',false,120)
+ if kind=='equip-penalty' then
+  ItemRack.EquipTimers[13].time=100; cooldowns[13]={100,30,1}
+ elseif kind=='stale-cooldown' then cooldowns[13]={90,120,1}
+ elseif kind=='shared-follower' then
+  cooldowns[13]={100,20,1}; cooldowns[14]={100,120,1}
+  ItemRack.LastActivation={time=100,primarySlot=14,primaryExactID='300',primaryStart=100,primaryDuration=120,
+   followerSlot=13,followerExactID='100',followerStart=100,followerDuration=20}
+ end
+ ItemRack.newUseInventoryItem(13); advance(100.8)
+ check(not events.use_accepted and ItemRack.ManualQueueChoice[13]=='100' and not ItemRack.EquipTimers[13].used,
+  'rejected '..kind..' must preserve temporary protection')
+end
+-- A newer choice or another set's hold is not the activation being accepted.
+for _,kind in ipairs({'different-item','different-owner'}) do
+ reset('per-set',false,120)
+ if kind=='different-item' then ItemRack.ManualQueueChoice[13]='999'
+ else ItemRack.ManualQueueChoiceOwner[13]='Other' end
+ use()
+ check(events.use_accepted==1 and ItemRack.ManualQueueChoice[13]~=nil,
+  'accepted use must not erase a '..kind..' manual choice')
+end
+print(string.format('[SWAP IN HOLD LUA] %d verified-use, threshold, buff, scope and deferred-gear checks passed.',checks))
+`, 'issue-33-swap-in-temporary-hold');

@@ -1,5 +1,7 @@
 __ Development __
 
+- Fixed Protect Until Used interacting with custom Swap In (GitHub #33): verified use ends the matching temporary manual protection both in and out of combat, so a large Swap In value cannot block the prioritized replacement after the buff fades. Active buffs, Pause Queue, delays, persistent holds and candidate eligibility remain respected. Rejected equip/shared cooldowns and duplicate/stale use signals retain protection. Added permanent timing regressions and clarified the guide and Swap In tooltip; live reporter confirmation is pending.
+
 __ New in 4.59-beta9 - By Bl4ut0 __
 - With Use per-set queues enabled, mirrored slots share the master's queue order, stop marker, item policies and icons, but save Auto Queue ON/OFF independently per set. First linking copies the chosen master's current state once; existing mirrors initialize once from their previously effective state on upgrade. Later master changes and retargeting preserve the local choice. Alt-click and the Queue checkbox edit the follower's switch, including inactive sets in Options. Unsync preserves that choice; automatic requests and manual holds stay scoped to each follower. With per-set queues disabled, global queues remain normally editable and mirror links are dormant.
 - Routine AutoQueue ON/OFF messages now appear only through Queue debug chat, not normal chat. Enable /itemrack debug chat for visible diagnostics; silent debug still records them. Input capture is unchanged.

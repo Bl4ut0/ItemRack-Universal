@@ -4,6 +4,7 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **Protect Until Used with custom Swap In (GitHub #33)**: A verified item activation now ends the matching temporary manual choice, in and out of combat. Large Swap In windows no longer keep the used item protected against a higher-priority replacement after its buff ends. Active buffs, Pause Queue, delays, explicit persistent holds, and candidate cooldown thresholds retain their behavior. Rejected equip/shared cooldowns and duplicate or stale use receipts do not release protection. Added permanent production-Lua regressions for the reported timing boundaries and clarified the tooltip and guide; live reporter acceptance remains pending.
 
 ## [4.59-beta9] - 2026-11-12
 - **Independent mirrored queue switches**: With Use per-set queues enabled, mirrored slots share the master's item order, stop marker, item policies and icons while saving Auto Queue ON/OFF independently for each set. First linking copies the chosen master's current switch once; existing mirrors initialize once from their previously effective state on upgrade. Later master changes and retargeting do not overwrite the local choice. Alt-click and the Queue checkbox now edit the follower's own switch; unsyncing retains it. Automatic requests and manual holds remain scoped to the selected follower. With per-set queues disabled, normal editable global queues remain in control and mirror links are dormant.

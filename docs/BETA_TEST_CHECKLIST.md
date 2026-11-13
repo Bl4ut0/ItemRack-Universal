@@ -13,6 +13,12 @@ Use the same universal archive for every row; do not build or test separate Fore
 - On Forever 1.60.1, log in twice with a saved set key and verify no SaveBindings usage error, working set hotkeys, and persisted keys after relog (PR #28).
 - Test Auto/Up/Down/Left/Right minimap flyouts with the stock button and any minimap collector. Verify direction, item clicks, and dropdown layout. EllesmereUI 9.3 collector layering requires its upstream PR #2305 fix according to the contributor; ItemRack's dock tests do not verify that external fix (PR #26).
 
+## 4.59-beta10: Protect Until Used and Swap In (#33)
+
+- Put Priority Kiss of the Spider above Slayer's Crest in slot 13, enable Crest's Swap In at 120 seconds, reset the set through button 20, manually equip Crest and use it. After the 20-second buff expires, the ready Kiss should take over OOC or queue until combat ends. Repeat with 119, 100 and 99 seconds and with 115 seconds while clicking the buff off before/at/after five seconds.
+- Repeat with global, per-set and mirrored queues. Preserve each set's saved switch and item policies. Check active buffs, Pause Queue and delay settings still retain the used item; clearing/expiring them should allow the Priority replacement. Explicit persistent holds should remain after use until cleared.
+- Attempt use during equip cooldown, against an existing cooldown, and through paired /use 13 + /use 14. Failed use/shared cooldown on the other trinket must not release that item's protection. Repeat an actual OOC use to confirm combat is not required. These remain live-client acceptance checks; collect fresh version/build and `/itemrack dump` if behavior differs.
+
 ## 4.59-beta9: mirrored queue switches and quiet toggles
 
 - With **Use per-set queues** ON, link followers to masters whose Auto Queue state is ON and OFF. Verify the initial checkbox matches the chosen master, then toggle each follower independently through Alt-click and Options (including an inactive edited set). Changing the master switch must leave follower choices intact; master item order, stop markers, policies and icons must still propagate.
