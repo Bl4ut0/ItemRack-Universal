@@ -46,6 +46,21 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 13 owner request: optional `/itemrack dump full`, preserving the normal
+size after previous oversized-copy-window problems. Existing focused suite
+`.tools/test_queue_runtime_lua.js` adds `dump-full-retained-diagnostics`: actual
+SlashHandler, serializer, special capture reader and native-widget callbacks
+with modeled UI endpoints. Named assertions cover exact normal 500-line export,
+all 5,000 retained lines in full mode, 2,048 retained / 256 normal special entries,
+overwrite/omission metadata, ordered page navigation, bounded 400-newline/24,000-
+byte pages, UTF-8 and long-line reconstruction, empty buffers, full-to-normal
+switch, non-destructive snapshot, close cleanup and existing combat focus guard.
+The capture still expires at 120 seconds. Historical captures with 256 retained
+entries are unchanged. Live scrolling/wrapping, CTRL+C and reconstructing a full
+file in Era/TBC/Forever remain acceptance; modeled widgets cannot establish
+native rendering behavior. Accepted beta13 is unchanged; this is dev work.
+Validation: full `npm.cmd test` passed, including 113 new full-export assertions.
+
 Latest #33 feedback (6863125913 / 6863214814 / 6864333843): **fixed at
 code level; shipped in GitHub-only beta13; community acceptance pending.** Revised hold attachment
 34822084 retains the numeric-snapshot/text-quarantine evidence. The dedicated

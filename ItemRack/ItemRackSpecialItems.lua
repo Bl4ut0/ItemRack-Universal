@@ -2,6 +2,7 @@
 -- client's catalog. Rules never equip gear or bypass user/secure swap policy.
 ItemRack.SpecialItems = { Rules={}, Mechanics={}, Intents={}, Used={}, History={}, SpellIndex={}, InvalidRules={}, Trace={}, Rejections={} }
 local Special = ItemRack.SpecialItems
+local traceCapacity = 2048
 
 local function Public(value)
 	return not issecretvalue or not issecretvalue(value)
@@ -49,7 +50,7 @@ local function Trace(kind,data)
 	end
 	local trace = Special.Trace
 	trace[#trace+1]=entry
-	if #trace>256 then table.remove(trace,1); Special.TraceDropped=(Special.TraceDropped or 0)+1 end
+	if #trace>traceCapacity then table.remove(trace,1); Special.TraceDropped=(Special.TraceDropped or 0)+1 end
 	if ItemRack.Debug then ItemRack.Debug("SpecialItems",kind,entry.item or "",entry.spell or "",entry.status or "") end
 end
 
@@ -582,7 +583,7 @@ function Special.ShouldHoldEffect(slot,id)
 	return false
 end
 
-function Special.GetDiagnostics()
+function Special.GetDiagnostics(full)
 	local catalog = {}
 	for id,rule in pairs(Special.Rules) do
 		catalog[id]=type(rule)=="table" and {name=rule.name,enabled=rule.enabled,slots=rule.slots,
@@ -594,8 +595,11 @@ function Special.GetDiagnostics()
 		intents[slot]={item=token.baseID,exactID=token.exactID,owner=token.owner,
 			created=token.created,deadline=token.deadline,current=Current(token)}
 	end
+	local trace={}
+	local first=full and 1 or math.max(1,#Special.Trace-255)
+	for i=first,#Special.Trace do trace[#trace+1]=Special.Trace[i] end
 	return {client=Special.Client,catalog=catalog,catalogSource=Special.CatalogSource,
 		invalidRules=Special.InvalidRules,intents=intents,used=Special.Used,history=Special.History,
 		previousHistory=Special.PreviousHistory,previousClient=Special.PreviousClient,rejections=Special.Rejections,persistenceBlocked=Special.PersistenceBlocked,
-		trace=Special.Trace,traceUntil=Special.TraceUntil,traceDropped=Special.TraceDropped,traceStop=Special.TraceStop}
+		trace=trace,traceRetained=#Special.Trace,traceExported=#trace,traceOmitted=#Special.Trace-#trace,traceCapacity=traceCapacity,traceUntil=Special.TraceUntil,traceDropped=Special.TraceDropped,traceStop=Special.TraceStop}
 end

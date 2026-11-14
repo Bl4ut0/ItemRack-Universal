@@ -7420,6 +7420,50 @@ end
 
 --[[ Slash Handler ]]
 
+-- Full exports are snapshots split for the copy window, not one enormous
+-- EditBox. Concatenating pages restores the original text byte for byte.
+function ItemRack.SplitDiagnosticPages(text)
+	local pages = {}
+	local first = 1
+	while first<=#text do
+		local last = math.min(first+23999,#text)
+		-- Do not split a UTF-8 codepoint when a single line exceeds the budget.
+		for continuation=1,3 do
+			if last<=first or last==#text then break end
+			local nextByte = string.byte(text,last+1)
+			if nextByte<128 or nextByte>191 then break end
+			last=last-1
+		end
+		local position,lastNewline = first,nil
+		for line=1,400 do
+			local newline=string.find(text,"\n",position,true)
+			if not newline or newline>last then break end
+			lastNewline=newline
+			position=newline+1
+			if line==400 then last=newline end
+		end
+		if last<#text and lastNewline then last=lastNewline end
+		pages[#pages+1]=string.sub(text,first,last)
+		first=last+1
+	end
+	if #pages==0 then pages[1]="" end
+	return pages
+end
+
+function ItemRack.ShowDiagnosticPage(page)
+	local frame=ItemRackLogFrame
+	if not frame or not frame.DumpPages then return end
+	page=math.max(1,math.min(tonumber(page) or 1,#frame.DumpPages))
+	frame.DumpPage=page
+	ItemRackLogEditBox:SetText(frame.DumpPages[page])
+	ItemRackLogEditBox:HighlightText()
+	ItemRackLogScrollFrame:SetVerticalScroll(0)
+	if page>1 then frame.PreviousPage:Enable() else frame.PreviousPage:Disable() end
+	if page<#frame.DumpPages then frame.NextPage:Enable() else frame.NextPage:Disable() end
+	frame.PageLabel:SetText("Full dump - page "..page.." / "..#frame.DumpPages..". Copy each page in order.")
+	if not InCombatLockdown() then ItemRackLogEditBox:SetFocus() end
+end
+
 function ItemRack.SlashHandler(arg1)
 	if arg1 and (arg1=="special" or arg1:match("^special%s")) and ItemRack.SpecialItems then
 		ItemRack.SpecialItems.Command(arg1)
@@ -7572,7 +7616,8 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.Print("Diagnostic debugging DISABLED.")
 			end
 		end
-	elseif arg1=="dump" then
+	elseif arg1=="dump" or arg1=="dump full" then
+		local fullDump = arg1=="dump full"
 		if not ItemRack.LogBuffer then ItemRack.LogBuffer = {} end
 		if not ItemRackLogFrame then
 			local f = CreateFrame("Frame", "ItemRackLogFrame", UIParent, "BackdropTemplate")
@@ -7623,6 +7668,26 @@ function ItemRack.SlashHandler(arg1)
 				scrollFrame:UpdateScrollChildRect()
 			end)
 			sf:SetScrollChild(eb)
+
+			local previous=CreateFrame("Button",nil,f,"UIPanelButtonTemplate")
+			previous:SetSize(80,22)
+			previous:SetPoint("BOTTOMLEFT",15,12)
+			previous:SetText("Previous")
+			previous:SetScript("OnClick",function() ItemRack.ShowDiagnosticPage(f.DumpPage-1) end)
+			local nextPage=CreateFrame("Button",nil,f,"UIPanelButtonTemplate")
+			nextPage:SetSize(80,22)
+			nextPage:SetPoint("BOTTOMRIGHT",-35,12)
+			nextPage:SetText("Next")
+			nextPage:SetScript("OnClick",function() ItemRack.ShowDiagnosticPage(f.DumpPage+1) end)
+			local pageLabel=f:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+			pageLabel:SetPoint("BOTTOM",0,16)
+			f.PreviousPage,f.NextPage,f.PageLabel=previous,nextPage,pageLabel
+			previous:Hide(); nextPage:Hide(); pageLabel:Hide()
+			f:SetScript("OnHide",function()
+				f.DumpPages=nil
+				f.DumpPage=nil
+				ItemRackLogEditBox:SetText("")
+			end)
 			
 			-- Helper function to serialize WoW tables to string
 			function f.Serialize(val, indent)
@@ -7632,7 +7697,7 @@ function ItemRack.SlashHandler(arg1)
 				elseif type(val) == "number" or type(val) == "boolean" then
 					return tostring(val)
 				elseif type(val) == "table" then
-					local res = "{\n"
+					local parts = {"{\n"}
 					local nextIndent = indent .. "  "
 					for k, v in pairs(val) do
 						local keyStr
@@ -7643,10 +7708,10 @@ function ItemRack.SlashHandler(arg1)
 						else
 							keyStr = "[" .. tostring(k) .. "]"
 						end
-						res = res .. nextIndent .. keyStr .. " = " .. f.Serialize(v, nextIndent) .. ",\n"
+						parts[#parts+1] = nextIndent .. keyStr .. " = " .. f.Serialize(v, nextIndent) .. ",\n"
 					end
-					res = res .. indent .. "}"
-					return res
+					parts[#parts+1] = indent .. "}"
+					return table.concat(parts)
 				else
 					return '"' .. tostring(val) .. '"'
 				end
@@ -7656,18 +7721,20 @@ function ItemRack.SlashHandler(arg1)
 		local success, result = pcall(function()
 			local logCount = #ItemRack.LogBuffer
 			local tempLog = {}
-			local startIdx = math.max(1, logCount - 500)
+			local startIdx = fullDump and 1 or math.max(1, logCount - 499)
 			for i = startIdx, logCount do
 				table.insert(tempLog, ItemRack.LogBuffer[i])
 			end
-			local dumpText = "=== ITEMRACK LOG BUFFER (Last 500 lines) ===\n" .. table.concat(tempLog, "\n")
+			local logHeading=fullDump and ("All "..logCount.." retained lines") or "Last 500 lines"
+			local dumpText = "=== ITEMRACK LOG BUFFER ("..logHeading..") ===\n" .. table.concat(tempLog, "\n")
 			local queueTrace = ItemRack.QueueDiagnosticBuffer or {}
-			local traceStart = math.max(1, #queueTrace - 249)
+			local traceStart = fullDump and 1 or math.max(1, #queueTrace - 249)
 			local tempQueueTrace = {}
 			for i = traceStart, #queueTrace do
 				table.insert(tempQueueTrace, queueTrace[i])
 			end
-			dumpText = dumpText .. "\n\n=== AUTOQUEUE FLIGHT RECORDER (Last 250 entries) ===\n" .. table.concat(tempQueueTrace, "\n")
+			local queueHeading=fullDump and ("All "..#queueTrace.." retained entries") or "Last 250 entries"
+			dumpText = dumpText .. "\n\n=== AUTOQUEUE FLIGHT RECORDER ("..queueHeading..") ===\n" .. table.concat(tempQueueTrace, "\n")
 			-- Failure in optional evidence collection must not suppress the support dump.
 			local menuOK,menuReport = pcall(ItemRack.GetMenuDiagnosticReport)
 			dumpText = dumpText .. "\n\n=== BREAKOUT DISCOVERY DIAGNOSTICS ===\n"
@@ -7726,7 +7793,7 @@ function ItemRack.SlashHandler(arg1)
 			dumpText = dumpText .. "ItemRackUser.QueuesEnabled = " .. ItemRackLogFrame.Serialize(ItemRackUser.QueuesEnabled) .. "\n"
 			dumpText = dumpText .. "\n=== AUTOQUEUE RUNTIME STATE ===\n"
 			if ItemRack.SpecialItems then
-				dumpText = dumpText .. "ItemRack.SpecialItems = " .. ItemRackLogFrame.Serialize(ItemRack.SpecialItems.GetDiagnostics()) .. "\n"
+				dumpText = dumpText .. "ItemRack.SpecialItems = " .. ItemRackLogFrame.Serialize(ItemRack.SpecialItems.GetDiagnostics(fullDump)) .. "\n"
 			end
 			dumpText = dumpText .. "ItemRack.QueueStateReady = " .. tostring(ItemRack.QueueStateReady) .. "\n"
 			dumpText = dumpText .. "ItemRack.QueueLifecycleKnown = " .. tostring(ItemRack.QueueLifecycleKnown) .. "\n"
@@ -7875,12 +7942,16 @@ function ItemRack.SlashHandler(arg1)
 		dumpText = string.gsub(dumpText, "%c", " ")
 		dumpText = string.gsub(dumpText, "_TAB_PLACEHOLDER_", "\t")
 		dumpText = string.gsub(dumpText, "_NL_PLACEHOLDER_", "\n")
-		ItemRackLogFrame:Show()
-		ItemRackLogEditBox:SetText(dumpText)
-		ItemRackLogEditBox:HighlightText()
-		if not InCombatLockdown() then
-			ItemRackLogEditBox:SetFocus()
+		ItemRackLogFrame.DumpPages=fullDump and ItemRack.SplitDiagnosticPages(dumpText) or {dumpText}
+		if fullDump then
+			ItemRackLogFrame.PreviousPage:Show(); ItemRackLogFrame.NextPage:Show(); ItemRackLogFrame.PageLabel:Show()
+			ItemRackLogScrollFrame:SetPoint("BOTTOMRIGHT",-35,48)
+		else
+			ItemRackLogFrame.PreviousPage:Hide(); ItemRackLogFrame.NextPage:Hide(); ItemRackLogFrame.PageLabel:Hide()
+			ItemRackLogScrollFrame:SetPoint("BOTTOMRIGHT",-35,15)
 		end
+		ItemRackLogFrame:Show()
+		ItemRack.ShowDiagnosticPage(1)
 	elseif arg1=="opt" or arg1=="options" or arg1=="config" then
 		ItemRack.ToggleOptions()
 	elseif arg1 and string.match(arg1, "^hold%s*") then
@@ -7898,6 +7969,7 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.Print("Usage: /itemrack unhold <slot 0-19>")
 		end
 	else
+		ItemRack.Print("/itemrack dump [full] : copy recent diagnostics, or all retained entries in pages.")
 		ItemRack.Print("/itemrack opt : summons options window.")
 		ItemRack.Print("/itemrack equip set name : equip set 'set name'.")
 		ItemRack.Print("/itemrack toggle set name[, second set] : toggles set 'set name'.")

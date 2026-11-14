@@ -2,6 +2,13 @@
 
 Use the packaged build from `.versions/Release/v{Version}`. Reload the UI after installation and test with Lua errors enabled. Capture `/itemrack dump` output whenever a failure occurs.
 
+## Dev: optional full diagnostic window
+
+- With enough recorded data, regular `/itemrack dump` should keep its one-view recent report. `/itemrack dump full` should show Previous/Next and a page counter; CTRL+C each selected page in order into one text file. Check first/last retained entries, UTF-8 text, scrollability and no blank/oversized page on Era/TBC/Forever.
+- Move forward/backward, close/reopen and switch full to normal. Normal report controls/scroll area must return; closing the window must preserve the underlying logs/trace.
+- Confirm special capture still lasts 120 seconds. Normal exports show at most 256 special records; full exports show all retained records, up to 2,048, plus accurate omitted/dropped counts. Previously evicted data cannot be recovered.
+- In combat, opening/navigating must retain the existing restriction on automatically focusing the copy box. No new release or installation is part of this dev change.
+
 ## Supported-client smoke matrix
 
 Use the same universal archive for every row; do not build or test separate Forever and TBC packages.

@@ -350,8 +350,23 @@ SLASH COMMANDS
 /itemrack dump
   Open a copyable support report containing version/build information, client
   state, event ownership, equipment transactions, queue state, locks, and
-  recent diagnostics. Review the report before sharing because it can include
-  set names and item information.
+  recent diagnostics: exactly the latest 500 activity lines and up to 256
+  special-item trace entries, alongside the state sections. Review before
+  sharing because reports can include set names and item information.
+
+/itemrack dump full
+  Export every retained activity line (up to 5,000), queue-recorder entry and
+  special-item trace entry with the same state sections. Full reports have
+  Previous/Next buttons and a page counter. Copy each page in order into the
+  same text file; each page is selected for CTRL+C. Pagination keeps one large
+  report from becoming one oversized EditBox. Normal dump remains one view.
+
+  Special capture retains up to 2,048 detailed entries for its usual 120-second
+  window. Normal dumps include only the latest 256; full dumps include all
+  retained entries. Omitted/exported/retained and overwritten counts explain
+  any gaps. Full means all currently retained data, not discarded older data.
+  Run the capture before reproducing the issue and dump before reload/relog.
+  Closing the report releases its page snapshot without clearing diagnostics.
 
   Breakout discovery is recorded automatically, even with debug off. For a
   combat-only empty menu, hover the same button before and during combat, then

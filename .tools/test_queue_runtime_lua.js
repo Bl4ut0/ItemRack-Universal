@@ -1617,10 +1617,10 @@ w.sample={0,0,1}; s.Poll()
 check(not s.Used[16022],'readable reset after stale arena data must retire receipt')
 env,w,s=fresh(); initialize(env,w,s)
 s.StartTrace(true)
-for i=1,300 do s.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Unrelated',900000+i) end
-check(#s.Trace==256 and s.TraceDropped==44 and not next(s.Used),'unexpected spell IDs must be diagnostic only and bounded')
+for i=1,2200 do s.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Unrelated',900000+i) end
+check(#s.Trace==2048 and s.TraceDropped==152 and not next(s.Used),'unexpected spell IDs must be diagnostic only and bounded')
 w.time=221; s.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Late',19804)
-check(#s.Trace==256 and s.TraceStop=='expired' and not next(s.Used),'detailed capture must expire without enabling use')
+check(#s.Trace==2048 and s.TraceStop=='expired' and not next(s.Used),'detailed capture must expire without enabling use')
 check(w.chat==0,'diagnostic collection must be quiet by default')
 env,w,s=fresh(); initialize(env,w,s); s.StartTrace(true)
 env.issecretvalue=function(value) return type(value)=='table' end
@@ -1817,3 +1817,125 @@ check(#special.Trace==0 and #special.History==0 and special.IsTraceActive() and 
  'clearing diagnostics must preserve confirmed use and active capture while allowing the next sample to be recorded')
 print(string.format('[SPECIAL DEBUG COMMAND LUA] %d actual SlashHandler start/stop/expiry/chat and clear checks passed.',checks))
 `, 'core-debug-starts-special-capture');
+
+// Full dumps use the real command, serializer, trace reader and page callbacks.
+// Native widgets are modeled; client rendering/clipboard acceptance stays manual.
+runLua(String.raw`
+local now,combat=100,false
+function GetTime() return now end
+function GetBuildInfo() return 'fixture','70576','fixture',11509 end
+function InCombatLockdown() return combat end
+function date() return 'clock' end
+UIParent={}
+ItemRackSettings={}
+ItemRackUser={Buttons={},Queues={},QueuesEnabled={},Sets={},Events={Enabled={},Set={}}}
+ItemRack={Version='Dev',BuildID='Dev',DebugTags={Queue=true},
+ IsEngravingActive=function() return false end,Print=function() end,
+ GetEquippedSlotState=function(slot) return slot==13 and 'resolved' or 'empty',slot==13 and '16022:1' end,
+ GetMenuDiagnosticReport=function() return {retained='menu-report'} end}
+local methods={}
+function methods:SetScript(event,callback) self.scripts[event]=callback end
+function methods:SetText(text)
+ self.text=text
+ if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end
+end
+function methods:GetText() return self.text end
+function methods:GetParent() return self.parent end
+function methods:GetHeight() return self.height or 420 end
+function methods:SetHeight(value) self.height=value end
+function methods:SetPoint(point,...) self.points[point]={...} end
+function methods:Enable() self.enabled=true end
+function methods:Disable() self.enabled=false end
+function methods:Show() self.shown=true end
+function methods:Hide() self.shown=false;if self.scripts.OnHide then self.scripts.OnHide(self) end end
+function methods:SetFocus() self.focusCount=(self.focusCount or 0)+1 end
+function methods:HighlightText() self.highlighted=true end
+function methods:SetVerticalScroll(value) self.scroll=value end
+function methods:CreateFontString() return CreateFrame('FontString',nil,self) end
+for _,name in ipairs({'SetSize','SetFrameStrata','EnableMouse','SetMovable','RegisterForDrag','SetBackdrop',
+ 'SetBackdropColor','SetMultiLine','SetFontObject','SetWidth','SetAutoFocus','SetMaxLetters',
+ 'UpdateScrollChildRect','SetScrollChild','StartMoving','StopMovingOrSizing'}) do methods[name]=function() end end
+function CreateFrame(kind,name,parent)
+ local frame=setmetatable({kind=kind,name=name,parent=parent,scripts={},points={}},{__index=methods})
+ if name then _G[name]=frame end
+ return frame
+end
+${loadSpecialCatalog}
+${extractFunction(itemRackFile,'ItemRack.Debug')}
+${extractFunction(itemRackFile,'ItemRack.SplitDiagnosticPages')}
+${extractFunction(itemRackFile,'ItemRack.ShowDiagnosticPage')}
+${extractFunction(itemRackFile,'ItemRack.SlashHandler')}
+local checks=0
+local function check(value,message) assert(value,message);checks=checks+1 end
+local special=ItemRack.SpecialItems
+special.StartTrace(true)
+for i=1,2200 do special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Unused',900000+i) end
+local normal=special.GetDiagnostics()
+local full=special.GetDiagnostics(true)
+check(#special.Trace==2048 and full.traceDropped==152 and full.traceCapacity==2048,
+ 'expanded-special-trace: retention must be bounded at 2048 and record overwritten entries')
+check(#normal.trace==256 and normal.traceRetained==2048 and normal.traceOmitted==1792 and normal.traceExported==256,
+ 'normal export must remain at 256 special entries after increasing runtime retention')
+check(#full.trace==2048 and full.traceOmitted==0 and full.traceExported==2048,
+ 'dump-full-special-trace: opt-in export must include every retained special entry')
+check(normal.trace[1].spell==901945 and full.trace[1].spell==900153 and normal.trace[256].spell==902200,
+ 'normal/full trace windows must select the correct ordered boundaries')
+for i=1,5500 do ItemRack.Debug('Queue',string.format('ACTIVITY_%04d_END',i)) end
+check(#ItemRack.LogBuffer==5000,'ordinary retention must remain bounded at 5000')
+local function activityCount(text) local _,n=text:gsub('ACTIVITY_%d+_END','');return n end
+ItemRack.SlashHandler('dump')
+local regular=ItemRackLogEditBox:GetText()
+check(activityCount(regular)==500 and regular:find('ACTIVITY_5001_END',1,true) and not regular:find('ACTIVITY_5000_END',1,true),
+ 'normal-dump-exact-500: ordinary dump must export exactly the latest 500 log entries')
+check(regular:find('retained',1,true) and regular:find('AUTOQUEUE RUNTIME STATE',1,true) and not ItemRackLogFrame.NextPage.shown,
+ 'normal dump must retain state sections and hide full-export controls')
+local originalCount,originalFirst=#ItemRack.LogBuffer,ItemRack.LogBuffer[1]
+ItemRack.SlashHandler('dump full')
+local frame=ItemRackLogFrame
+local joined=table.concat(frame.DumpPages)
+check(activityCount(joined)==5000 and joined:find('ACTIVITY_0501_END',1,true) and joined:find('ACTIVITY_5500_END',1,true),
+ 'dump-full-all-retained-logs: full command must export all retained log entries in order')
+check(joined:find('All 5000 retained lines',1,true) and joined:find('900153',1,true) and joined:find('902200',1,true),
+ 'dump full must include original trace endpoints and label its retained log count')
+check(#frame.DumpPages>1 and frame.NextPage.shown and frame.PageLabel.shown and frame.DumpPage==1
+ and not frame.PreviousPage.enabled and frame.NextPage.enabled,'full export must open at its first copyable page')
+local collected={}
+for i=1,#frame.DumpPages do
+ check(frame.DumpPage==i and ItemRackLogEditBox:GetText()==frame.DumpPages[i] and ItemRackLogEditBox.highlighted,
+  'dump-full-page-copy-order: actual navigation must select every page in order')
+ local page=ItemRackLogEditBox:GetText();local _,lines=page:gsub('\n','')
+ check(#page<=24000 and lines<=400 and ItemRackLogEditBox.height<=6480,
+  'full export must never hand the native EditBox an unbounded page/height')
+ collected[#collected+1]=page
+ if i<#frame.DumpPages then frame.NextPage.scripts.OnClick() end
+end
+check(table.concat(collected)==joined and not frame.NextPage.enabled,'copying every page must reconstruct the full snapshot without missing or duplicating bytes')
+frame.PreviousPage.scripts.OnClick()
+check(frame.DumpPage==#frame.DumpPages-1 and frame.NextPage.enabled,'Previous must preserve the original full snapshot')
+check(#ItemRack.LogBuffer==originalCount and ItemRack.LogBuffer[1]==originalFirst and #special.Trace==2048,
+ 'exporting/navigation must not consume or alter retained diagnostic evidence')
+local focuses=ItemRackLogEditBox.focusCount
+combat=true;frame.NextPage.scripts.OnClick()
+check(ItemRackLogEditBox.focusCount==focuses,'page navigation must preserve the existing combat focus restriction')
+combat=false
+ItemRack.SlashHandler('dump')
+check(activityCount(ItemRackLogEditBox:GetText())==500 and #frame.DumpPages==1 and not frame.NextPage.shown
+ and not frame.PageLabel.shown,'normal-after-full must discard old pages and restore the standard view')
+frame:Hide();check(not frame.DumpPages and ItemRackLogEditBox:GetText()=='','closing must release the large export snapshot')
+-- Long single lines and UTF-8 across byte boundaries still reconstruct exactly.
+local long=string.rep('x',23999)..'é'..string.rep('y',60000)..'\nTAIL\n'
+local pages=ItemRack.SplitDiagnosticPages(long)
+check(table.concat(pages)==long,'long-line/UTF-8 splitting must preserve every byte')
+for _,page in ipairs(pages) do
+ check(#page<=24000 and utf8.len(page)~=nil,'page boundaries must not split UTF-8 characters')
+end
+local malformed=string.rep(string.char(128),25000)
+local malformedPages=ItemRack.SplitDiagnosticPages(malformed)
+check(#malformedPages==2 and table.concat(malformedPages)==malformed,'malformed byte runs must make bounded progress without dropping data')
+check(#ItemRack.SplitDiagnosticPages('')==1,'empty full export must still have one copyable page')
+ItemRack.LogBuffer={};special.ClearDiagnostics();ItemRack.SlashHandler('dump full')
+check(ItemRackLogEditBox:GetText():find('All 0 retained lines',1,true),'empty log buffers must still produce the full state report')
+now=221;special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Expired',999999)
+check(not special.IsTraceActive() and #special.Trace==0,'expanded capacity must not extend the 120-second capture')
+print(string.format('[FULL DIAGNOSTIC DUMP LUA] %d actual-command, retention, summary/full, navigation and byte-preservation checks passed.',checks))
+`, 'dump-full-retained-diagnostics');
