@@ -6,11 +6,17 @@
       "sourceLabel": "era-11509",
       "gear": [
         4396,
+        10576,
+        10726,
+        16022
+      ],
+      "seasonalGear": [],
+      "excludedOtherRulesets": [],
+      "defaultHandled": [
         4984,
         7189,
         7734,
         9394,
-        10576,
         10577,
         10588,
         10645,
@@ -18,14 +24,12 @@
         10720,
         10724,
         10725,
-        10726,
         10727,
         11808,
         13353,
         13382,
         14022,
         14023,
-        16022,
         16768,
         17067,
         19337,
@@ -33,26 +37,31 @@
         21579,
         21647
       ],
-      "seasonalGear": [
+      "defaultSeasonalGear": [
         213347,
         213348,
         215461,
         227973,
         228955
       ],
-      "referenceOnly": [
+      "researchBagReferences": [
         3456,
         4384,
         18232
       ],
-      "seasonalReferenceOnly": [
+      "researchSeasonalBagReferences": [
         233217
-      ],
-      "excludedOtherRulesets": []
+      ]
     },
     "tbc": {
       "sourceLabel": "tbc-256",
       "gear": [
+        10726,
+        30720
+      ],
+      "seasonalGear": [],
+      "excludedOtherRulesets": [],
+      "defaultHandled": [
         4396,
         4984,
         7189,
@@ -66,7 +75,6 @@
         10720,
         10724,
         10725,
-        10726,
         10727,
         11808,
         13353,
@@ -81,22 +89,35 @@
         21579,
         21647,
         28727,
-        30720,
         34430,
         38506
       ],
-      "seasonalGear": [],
-      "referenceOnly": [
+      "defaultSeasonalGear": [],
+      "researchBagReferences": [
         3456,
         4384,
         18232
       ],
-      "seasonalReferenceOnly": [],
-      "excludedOtherRulesets": []
+      "researchSeasonalBagReferences": []
     },
     "forever": {
       "sourceLabel": "forever-16001",
       "gear": [
+        10726,
+        16022
+      ],
+      "seasonalGear": [],
+      "excludedOtherRulesets": [
+        {
+          "id": 213348,
+          "reason": "Seasonal-only record; effect linkage does not establish this client ruleset"
+        },
+        {
+          "id": 228955,
+          "reason": "Seasonal-only record; effect linkage does not establish this client ruleset"
+        }
+      ],
+      "defaultHandled": [
         4396,
         4984,
         7189,
@@ -110,13 +131,11 @@
         10720,
         10724,
         10725,
-        10726,
         10727,
         13353,
         13382,
         14022,
         14023,
-        16022,
         16768,
         17067,
         19337,
@@ -124,24 +143,22 @@
         21579,
         21647
       ],
-      "seasonalGear": [],
-      "referenceOnly": [
+      "defaultSeasonalGear": [],
+      "researchBagReferences": [
         3456,
         4384,
         18232,
         260800
       ],
-      "seasonalReferenceOnly": [],
-      "excludedOtherRulesets": [
-        {
-          "id": 213348,
-          "reason": "Seasonal-only record; effect linkage does not establish this client ruleset"
-        },
-        {
-          "id": 228955,
-          "reason": "Seasonal-only record; effect linkage does not establish this client ruleset"
-        }
-      ]
+      "researchSeasonalBagReferences": []
     }
+  },
+  "scope": "Active exceptions only. Full reviewed metrics remain research data; ordinary items and bag references are not loaded into runtime exception tables.",
+  "exceptions": {
+    "4396": "Era deferred cooldown",
+    "10576": "Era deferred cooldown",
+    "16022": "Era/Forever deferred cooldown; TBC uses standard handling",
+    "10726": "Specific charm on controlled pet instead of player buff",
+    "30720": "TBC mana-gem cooldown/buff dependency instead of item activation"
   }
 }

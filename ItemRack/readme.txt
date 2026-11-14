@@ -168,15 +168,23 @@ Manual choices and holds:
 Special item usage:
 
   * ItemRack loads the item-rule table for the detected game version. Rules are
-    built-in item/slot data, not another per-character checkbox. The collective
-    reviewed catalog includes 27 Era equipment entries plus five SoD variants,
-    31 TBC and 26 Forever entries. Bag-only references do not enter gear queues.
+    built-in item/slot data, not another per-character checkbox. Only actual
+    exceptions have entries: four on Era/Hardcore/SoD, two on TBC and two on
+    Forever (five distinct item IDs across clients). Ordinary on-use items use
+    normal cooldown/effect handling; research and bag-only lists are not loaded.
   * For the three Dragonlings on Era and Arcanite Dragonling on Forever, a
     matching successful summon after an observed use attempt can end temporary
     protection before the native cooldown starts. The used item stays ineligible
     for automatic reselection while its cooldown is pending. Actual buffs,
     Pause/Delay, persistent holds and combat restrictions still apply. TBC uses
     its normal native cooldown path.
+  * A shared game cooldown is a lockout, not proof that every affected item
+    was used. Different item IDs keep separate full cooldowns and confirmed-use
+    receipts. A rejected Dragonling attempt during another guardian's short
+    lockout does not release protection or burn it. The game lockout still
+    affects readiness. Explicit dependency proxies keep their intended behavior.
+  * Equipment-use hooks accept numeric slot text as well as numbers. Dump
+    diagnostics include manual choice/persistent holds and spell event types.
   * Confirmed special-item use is saved per character and restored after normal
     reload/relog before queues resume, even if the item is now in a bag. Recovery
     does not repeat swaps, clear new manual holds, burn again or add notifications.
@@ -196,12 +204,14 @@ Special item usage:
     after the problem; capture a dump before and after reload when testing that
     boundary. Routine chat stays quiet unless debug chat is explicitly enabled.
     The addon contains no fake items or in-game test harness.
-  * Channel entries wait for their exact channel to end. Aura entries match the
-    configured player/pet aura; Mind Control Cap checks its specific charm on
-    the controlled pet, never merely the existence of any pet. Manual swaps
-    remain deliberate. Random effects and charged items use normal cooldown
-    and identity checks; Don Carlos' hat uses normal native handling without
-    an indefinite hold inferred from its always-equipped despawn aura.
+  * Ordinary player effects stay protected through the shared aura checks;
+    casting/channeling blocks automatic selection through shared casting state.
+    Boots, Mortar and other normal on-use items need no special rule.
+    Mind Control Cap (10726) checks charm 13181 on the controlled pet, never
+    merely the existence of any pet. TBC Serpent-Coil Braid (30720) uses its
+    mana-gem cooldown/buff dependency. Manual swaps remain deliberate.
+    Charges, random outcomes and cosmetic companions do not by themselves
+    require special handling or create an indefinite hold.
 
 
 HYBRID SET STATE

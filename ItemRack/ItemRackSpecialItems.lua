@@ -1,6 +1,6 @@
 -- Shared item-use mechanics. Client files return before allocating another
 -- client's catalog. Rules never equip gear or bypass user/secure swap policy.
-ItemRack.SpecialItems = { Rules={}, ReferenceItems={}, Mechanics={}, Intents={}, Used={}, History={}, SpellIndex={}, InvalidRules={}, Trace={}, Rejections={} }
+ItemRack.SpecialItems = { Rules={}, Mechanics={}, Intents={}, Used={}, History={}, SpellIndex={}, InvalidRules={}, Trace={}, Rejections={} }
 local Special = ItemRack.SpecialItems
 
 local function Public(value)
@@ -26,9 +26,9 @@ if interface==11508 or interface==11509 then Special.Client.family="era"
 elseif interface==20505 or interface==20506 then Special.Client.family="tbc"
 elseif interface==16001 or interface==11601 then Special.Client.family="forever" end
 
-local function Record(reason,slot,id,spellID)
+local function Record(reason,slot,id,spellID,event)
 	local history = Special.History
-	history[#history+1] = {time=GetTime(),reason=reason,slot=slot,item=BaseID(id),spell=Number(spellID)}
+	history[#history+1] = {time=GetTime(),reason=reason,slot=slot,item=BaseID(id),spell=Number(spellID),event=event}
 	if #history>24 then table.remove(history,1) end
 	if Special.SaveHistory then Special.SaveHistory() end
 end
@@ -71,7 +71,7 @@ function Special.ClearDiagnostics()
 end
 
 function Special.TraceHook(source,slot)
-	Trace("use_hook",{source=source,slot=Number(slot)})
+	Trace("use_hook",{source=source,slot=Number(slot),slotType=type(slot)})
 end
 
 function Special.GetRule(id,slot,includeDisabled)
@@ -185,7 +185,7 @@ function Special.SaveHistory()
 	if Special.PersistenceLoaded and not Special.PersistenceBlocked and store and store.schema==1 then
 		local summaries={}
 		for _,entry in ipairs(Special.History) do
-			summaries[#summaries+1]={reason=entry.reason,item=entry.item,slot=entry.slot,spell=entry.spell}
+			summaries[#summaries+1]={reason=entry.reason,item=entry.item,slot=entry.slot,spell=entry.spell,event=entry.event}
 		end
 		store.history=summaries
 	end
@@ -246,7 +246,8 @@ function Special.LoadSaved()
 			for i=math.max(1,#saved.history-23),#saved.history do
 				local entry=saved.history[i]
 				if type(entry)=="table" and type(entry.reason)=="string" then
-					Special.PreviousHistory[#Special.PreviousHistory+1]={reason=entry.reason:sub(1,100),item=BaseID(entry.item),slot=Number(entry.slot),spell=Number(entry.spell)}
+					Special.PreviousHistory[#Special.PreviousHistory+1]={reason=entry.reason:sub(1,100),item=BaseID(entry.item),slot=Number(entry.slot),spell=Number(entry.spell),
+                        event=type(entry.event)=="string" and (entry.event=="UNIT_SPELLCAST_SUCCEEDED" or entry.event=="UNIT_SPELLCAST_FAILED" or entry.event=="UNIT_SPELLCAST_INTERRUPTED") and entry.event or nil}
 				end
 			end
 		end
@@ -425,7 +426,7 @@ local function Confirm(token,receipt)
 	if native then
 		Special.ObserveCooldown(token.exactID,token.baseID,{active=true,known=true,start=native.start,duration=native.duration})
 	end
-	Record("activation_confirmed",token.slot,token.baseID,receipt.spellID)
+	Record("activation_confirmed",token.slot,token.baseID,receipt.spellID,receipt.event)
 	return true
 end
 
@@ -527,19 +528,19 @@ function Special.OnSpellEvent(event,unit,castGUID,spellID)
 			if token and Current(token) and GetTime()<=token.deadline then waiting[#waiting+1]=token end
 		end
 	end
-	if #candidates==0 then Record("related_spell_unconfirmed",nil,nil,spellID); return end
+	if #candidates==0 then Record("related_spell_unconfirmed",nil,nil,spellID,event); return end
 	if failed then
-		for _,token in ipairs(waiting) do Special.CancelIntent(token.slot); Record("use_failed",token.slot,token.baseID,spellID) end
+		for _,token in ipairs(waiting) do Special.CancelIntent(token.slot); Record("use_failed",token.slot,token.baseID,spellID,event) end
 		return
 	end
 	-- Require an existing compatible intent. A standalone or late success cannot
 	-- be reused by a later hook/manual choice, even when the item is unchanged.
 	local slot,id
 	if #waiting==1 then slot,id=waiting[1].slot,waiting[1].exactID
-	else Record(#waiting==0 and "success_without_intent" or "ambiguous_success",nil,nil,spellID); return end
+	else Record(#waiting==0 and "success_without_intent" or "ambiguous_success",nil,nil,spellID,event); return end
 	local owner,list = Context(slot)
 	local cast = Public(castGUID) and type(castGUID)=="string" and castGUID or nil
-	local receipt = {slot=slot,exactID=id,owner=owner,list=list,spellID=spellID,
+	local receipt = {slot=slot,exactID=id,owner=owner,list=list,spellID=spellID,event=event,
 		generation=ItemRack.QueueStateGeneration,time=GetTime(),cast=cast}
 	Confirm(waiting[1],receipt)
 end
@@ -593,7 +594,7 @@ function Special.GetDiagnostics()
 		intents[slot]={item=token.baseID,exactID=token.exactID,owner=token.owner,
 			created=token.created,deadline=token.deadline,current=Current(token)}
 	end
-	return {client=Special.Client,catalog=catalog,catalogSource=Special.CatalogSource,referenceItems=Special.ReferenceItems,
+	return {client=Special.Client,catalog=catalog,catalogSource=Special.CatalogSource,
 		invalidRules=Special.InvalidRules,intents=intents,used=Special.Used,history=Special.History,
 		previousHistory=Special.PreviousHistory,previousClient=Special.PreviousClient,rejections=Special.Rejections,persistenceBlocked=Special.PersistenceBlocked,
 		trace=Special.Trace,traceUntil=Special.TraceUntil,traceDropped=Special.TraceDropped,traceStop=Special.TraceStop}

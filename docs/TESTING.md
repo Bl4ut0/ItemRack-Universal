@@ -46,13 +46,68 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+Latest #33 feedback (6863125913 / 6863214814 / 6864333843): **fixed at
+code level on dev; community acceptance pending.** Revised hold attachment
+34822084 retains the numeric-snapshot/text-quarantine evidence. The dedicated
+exception capture 34822062 confirms Era 1.15.9 / build 70576 actually emits
+`UNIT_SPELLCAST_SUCCEEDED` 23074 at uptime 6414.828, 52 ms after the Arcanite
+hook; Chicken 23133 succeeded immediately before it. The original historical
+alias uncertainty is now resolved for Arcanite on that client.
+
+Named permanent cases in `.tools/test_queue_runtime_lua.js`:
+- `issue-33-text-slot-use-receipt`: production equipped-state/readiness,
+  reconciliation, retry and verified use with numeric/text hooks, real numeric
+  snapshot keys, stale string quarantines, invalid slots, global/per-set/mirrored
+  queues and OOC/combat. Original beta12 readiness/use/retry functions fail this
+  case; current functions pass without weakening numeric quarantine checks.
+- `issue-33-era-wrapper-success`: the captured Era wrapper success confirms its
+  bounded item intent, releases temporary choice and queues restricted gear.
+  Restoring the pre-fix Era success maps fails it; current maps pass.
+- `issue-33-shared-guardian-not-own-use`: Chicken own cooldown plus Dragonling
+  60-second shared lockout, with both hooks invoked. The rejected Dragonling
+  attempt cannot mark it used/burnt/confirmed, but game lockout still affects
+  readiness. Removing the new guard fails this case; current code passes.
+- `issue-33-distinct-special-receipts`: separate Dragonling intents and native
+  publication; one item's success/full cooldown must not confirm/reconcile
+  another's. Failure/interruption and late success retain protection. History
+  preserves the outcome event across independent-global reload checks.
+
+Full `npm.cmd test` passed, including 798 ordinary-use scenarios and 151 special
+recovery checks. These tests execute production functions with modeled game APIs
+and equipment endpoints, supported by the actual event capture. They do not
+constitute community confirmation of the patched build, nor establish every
+client's emitted summon event or lifetime. No in-game tester is packaged.
+Beta12 and local clients are unchanged. See `SPECIAL_ITEM_TEST_DEPLOY_PLAN.md`.
+
+November 13, 2026, owner correction to #33's item list: ordinary cooldown,
+charges, player effects and channels were incorrectly registered as exceptions
+in beta12. `ordinary-on-use-not-special` rejects those tables;
+`curated-exception-source` checks the five retained IDs and default exclusions
+against all five pinned exports / six Interfaces. `ordinary-on-use-default-flow`
+executes actual use hooks, cooldown proof, aura lookup, both queue entry points
+and combat drain with source-backed Mortar, Boots, Skull, Pouch, Fetish and
+Pendant IDs/spells/slots. Its 798 scenarios cover global/per-set/mirrored queues,
+OOC/combat and legacy/modern exact/name/indexed APIs, including helpful/harmful
+self-effect variants. These are modeled API responses, not assertions of a live
+client's aura-filter choice. Name-only event lookups remain helpful-only;
+errors/secrets/unrelated effects cannot invent a match. Normal channels and an
+unlisted spell exercise real casting start/stop, selection and recognition.
+Live effect timing, backfires and server-specific behavior remain community
+acceptance in `BETA_TEST_CHECKLIST.md`. No in-game harness is added. Beta12 is
+immutable; this cleanup is on dev for a future candidate.
+Fail-before checks substituted beta12's actual production files without editing
+the tag: original catalogs fail `ordinary-on-use-not-special`; its generic aura
+reader fails the ordinary active-effect check with legacy globals absent; its
+queue functions fail ordinary channel protection after removing the override.
+Current production files pass all three and the complete `npm.cmd test` gate.
+
 November 13, 2026: owner requested the collective reviewed catalog and reported
 that `/itemrack debug` did not include beta11's 120-second special capture.
 `core-debug-starts-special-capture` executes the production `SlashHandler`,
 debug logger and special-item module. It fails against beta11's actual core
 source and passes with master/dedicated/chat capture wiring, immediate rearm
 after expiry, accurate status, quiet collection and non-destructive log clear.
-The existing focused suite also checks `collective-catalog-source`: every
+At beta12 publication the suite also checked `collective-catalog-source` (now superseded by `curated-exception-source`): every
 applicable item/slot/spell/cooldown/category against all five pinned Wago build
 exports, seasonal isolation, and bag-only exclusion. It executes actual
 channel/aura lookups for the enabled rows (modern exact/indexed APIs and legacy globals, including failures/secrets) and production use/queue/combat flow

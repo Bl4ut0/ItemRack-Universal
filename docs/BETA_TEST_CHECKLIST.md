@@ -13,6 +13,22 @@ Use the same universal archive for every row; do not build or test separate Fore
 - On Forever 1.60.1, log in twice with a saved set key and verify no SaveBindings usage error, working set hotkeys, and persisted keys after relog (PR #28).
 - Test Auto/Up/Down/Left/Right minimap flyouts with the stock button and any minimap collector. Verify direction, item clicks, and dropdown layout. EllesmereUI 9.3 collector layering requires its upstream PR #2305 fix according to the contributor; ItemRack's dock tests do not verify that external fix (PR #26).
 
+## Next candidate: reporter #33 use/cooldown fixes (dev, not deployed)
+
+- Repeat the original Slayer's Crest / Priority queue / Swap In 120 macro without `/unhold`. Text and numeric equipment-slot inputs must follow the same receipt; buff end permits replacement OOC or queues until combat ends. Deliberate persistent holds remain held.
+- With a basic Dragonling already owned, verify its own successful use permits replacement while native cooldown is pending. Arcanite wrapper 23074 is confirmed in the Era reporter capture; Mechanical/Mithril wrapper capture remains community acceptance.
+- Use an existing book or Chicken to trigger a legitimate shared lockout. A rejected Dragonling click during it must not mark/burn/confirm the Dragonling. Each item keeps its own full cooldown/receipt; native game lockout still affects readiness. Do not buy items just to exhaust the matrix.
+- Capture with `/itemrack debug specialitems` and dump within 120 seconds. Read the dedicated special trace even if the ordinary 500-line logs rolled over. Include actual macro and hold settings if behavior differs.
+
+## Next candidate: ordinary on-use defaults (dev, not deployed)
+
+- Confirm only four Era/Hardcore/SoD, two TBC or two Forever exceptions load, with no runtime bag-only records. Ordinary SoD variants need no entry.
+- Try Mortar and ordinary native cooldown items: verified use should release temporary protection without a catalog row. Charges alone must not add a hold.
+- Try available Boots, Skull, Pouch, Fetish or Pendant: a matching active player effect protects the item, then permits a ready Priority replacement. Repeat OOC/combat and with global/per-set/mirrored queues where available.
+- Try normal channels: automatic selection and set recognition must wait for channel end. Deliberate manual actions and Pause/Delay/persistent-hold policies remain in effect.
+- Collect `/itemrack dump` with client/build, item and event/effect timing on failure. Automated checks model API responses; live checks remain community acceptance. The maintainer need not own these items.
+- No new build or local install is requested for this cleanup. The beta12 section below describes the published, unchanged build.
+
 ## 4.59-beta12: collective catalog and unified debug (GitHub only)
 
 - `/itemrack debug` alone must start a silent 120-second special-item capture; the dedicated `/itemrack debug specialitems` must work independently. After expiry, one dedicated invocation starts a fresh window. Disabling master debugging stops capture; `debug status` reports the actual window. `debug clear` clears evidence without discarding pending use.

@@ -23,13 +23,13 @@ for _,toc in ipairs({11508,11509,20505,20506,16001,11601,120100}) do
  else
   local tbc=toc==20505 or toc==20506
   check((s.Rules[30720]~=nil)==tbc,'special-client-data-isolation: only TBC loads the mana-gem rule')
-  check((s.GetRule(16022).cooldown.start=='native')==tbc,'TBC must retain native Dragonling use detection')
+  check((s.GetRule(16022)==nil)==tbc,'TBC Dragonling must use ordinary native handling without an exception')
   check(s.Rules[228955]==nil,'nonseasonal clients must not allocate SoD variant rows')
-  check(s.Rules[34430]~=nil==tbc,'TBC-specific items must not appear in other catalogs')
-  check(s.GetRule(16022,13) and s.GetRule(16022,14) and not s.GetRule(16022,17),
+  check(s.Rules[34430]==nil,'ordinary TBC channels must not need item-specific entries')
+  check(tbc or (s.GetRule(16022,13) and s.GetRule(16022,14) and not s.GetRule(16022,17)),
    'item slot maps must use runtime equipment slots, not inventory-type IDs')
-  check(s.GetRule(10645).effect.kind=='channel' and s.GetRule(10645).effect.hold,
-   'reviewed Death Ray channel policy must be enabled on every supported client')
+  check(not s.GetRule(10645) and not s.GetRule(10577) and not s.GetRule(7189) and not s.GetRule(10724),
+   'ordinary-on-use-not-special: channels, Mortar and Rocket Boots must use default handling')
   for id,rule in pairs(s.Rules) do
    check(type(id)=='number' and id>0 and type(rule.name)=='string' and type(rule.slots)=='table','catalog identity must be explicit')
    for slot,allowed in pairs(rule.slots) do check(slot>=0 and slot<=19 and slot==math.floor(slot) and allowed==true,'catalog slots must be valid') end
@@ -42,8 +42,9 @@ for _,toc in ipairs({11508,11509,20505,20506,16001,11601,120100}) do
  end
 end
 loadCatalog(11509,true)
-check(ItemRack.SpecialItems.Rules[228955].cooldown.seconds==300 and ItemRack.SpecialItems.Rules[213347],
- 'SoD variants must load only in their seasonal client, with independent metrics')
+check(not ItemRack.SpecialItems.Rules[228955] and not ItemRack.SpecialItems.Rules[213347]
+ and ItemRack.SpecialItems.Rules[10726],
+ 'SoD ordinary variants must use default handling while true Era exceptions remain loaded')
 print(string.format('[SPECIAL ITEM CATALOG LUA] %d client-isolation, item-ID, slot and disabled-rule checks passed.',checks))
 `, 'special-client-data-isolation');
 
@@ -821,6 +822,19 @@ assert(ItemRack.FindPlayerAura('TestAura')=='TestAura','legacy aura presence mus
 print('[AURA CALLER LUA] Guarded caller failures and nonrecursive legacy lookup passed.')
 `, 'issue-32-aura-caller-containment');
 
+// Source-backed ordinary on-use examples exercise the default path after pruning.
+const ordinaryMetrics=parseMetrics(require('fs').readFileSync('docs/research/special-item-usage-metrics.csv','utf8'));
+const ordinaryUseCases=[];
+for(const [toc,label] of [[11509,'era-11509'],[20506,'tbc-256'],[16001,'forever-16001']]) {
+  for(const id of [10577,7189,10724,4984,16768,21647,28727]) {
+    const row=ordinaryMetrics.find(r=>r.label===label && Number(r.item_id)===id && r.trigger==='0');
+    if(!row) continue;
+    const own=Number(row.item_cd_ms)>=0 ? Number(row.item_cd_ms):Number(row.spell_cd_ms);
+    ordinaryUseCases.push({toc,id,slot:({8:8,12:13,23:17})[row.slot],spell:Number(row.spell_id),name:row.spell_name,
+      seconds:own/1000,hasAura:id!==10577});
+  }
+}
+
 // #33 / neferens: genuine use must end temporary protection independently of
 // the item's Swap In threshold. Exercise real use hooks, retry, cooldown
 // authority and queue processing; only client APIs/equipment endpoints are modeled.
@@ -1018,6 +1032,51 @@ for _,kind in ipairs({'different-item','different-owner'}) do
   'accepted use must not erase a '..kind..' manual choice')
 end
 print(string.format('[SWAP IN HOLD LUA] %d verified-use, threshold, buff, scope and deferred-gear checks passed.',checks))
+
+-- Reporter dump: use hooks receive text slots; snapshots/reconciliation use
+-- numbers. Exercise production readiness and retry, not the always-ready stub.
+local fixtureReady,fixtureState,fixtureID=ItemRack.IsEquippedSlotStateReady,ItemRack.GetEquippedSlotState,ItemRack.GetID
+ItemRack.GetID=function(slot) return fixtureID(tonumber(slot) or slot) end
+function GetInventoryItemID(_,slot) local id=equipment[tonumber(slot)]; return id and tonumber(ItemRack.GetIRString(id)) end
+function GetInventoryItemTexture(_,slot) return equipment[tonumber(slot)] and 'texture' end
+${extractFunction(itemRackFile,'ItemRack.GetEquippedSlotState')}
+${extractFunction(itemRackFile,'ItemRack.IsEquippedSlotStateReady')}
+${extractFunction(itemRackFile,'ItemRack.ReconcileEquippedSnapshot')}
+for _,mode in ipairs({'global','per-set','mirrored'}) do
+ for _,inCombat in ipairs({false,true}) do
+  for _,hookSlot in ipairs({'13',13}) do
+   reset(mode,inCombat,120)
+   ItemRack.EquippedSnapshot={[13]='100',[14]='300'}
+   for slot=0,19 do if not ItemRack.EquippedSnapshot[slot] then ItemRack.EquippedSnapshot[slot]=0 end end
+   ItemRack.UnresolvedEquippedSlots={['13']=true,['14']=true,['17']=true}
+   ItemRack.PendingEquipTransitionTimes={['13']=90,['14']=90,['17']=90}
+   cooldowns[13]={100,120,1};buff=true
+   ItemRack.newUseInventoryItem(hookSlot);advance(100.06)
+   check(events.use_accepted==1 and ItemRack.EquipTimers[13].used and not ItemRack.ManualQueueChoice[13],
+    'issue-33-text-slot-use-receipt: actual readiness and settled use must accept numeric/text hook slots identically')
+   ItemRack.ReconcileEquippedSnapshot(false)
+   for _,slot in ipairs({13,14,17}) do
+    check(ItemRack.IsEquippedSlotStateReady(tostring(slot)) and not ItemRack.UnresolvedEquippedSlots[tostring(slot)]
+     and not ItemRack.PendingEquipTransitionTimes[tostring(slot)],'stale text-slot quarantines must recover without losing numeric identity authority')
+   end
+   check(not ItemRack.PendingReflectItemUse['13'] and not ItemRack.EquipTimers['13'],
+    'text hooks must not allocate separate retry/timer records')
+   ItemRack.ProcessAutoQueue(13);check(equipment[13]=='100','real readiness must retain an active buff')
+   advance(120);buff=false;ItemRack.ProcessAutoQueue(13)
+   if inCombat then combat=false;ItemRack.ProcessCombatQueue() end
+   check(equipment[13]=='200','reported text-hook use must yield after buff end despite Swap In 120')
+  end
+ end
+end
+reset('global',false,120);ItemRack.EquippedSnapshot={[13]='100'};ItemRack.UnresolvedEquippedSlots={[13]=true,['13']=true}
+check(not ItemRack.IsEquippedSlotStateReady('13'),'canonicalization must retain a genuine numeric quarantine')
+for _,slot in ipairs({false,{},-1,20,13.5,'bag:13','nan'}) do
+ check(not ItemRack.IsEquippedSlotStateReady(slot),'invalid equipment slots must not become ready')
+ ItemRack.newUseInventoryItem(slot)
+end
+ItemRack.IsEquippedSlotStateReady,ItemRack.GetEquippedSlotState,ItemRack.GetID=fixtureReady,fixtureState,fixtureID
+GetInventoryItemID,GetInventoryItemTexture=nil,nil
+print('[REPORTER TEXT SLOT LUA] Actual readiness/reconciliation/use/retry and scope/combat flow passed.')
 
 -- #33 Dragonling follow-up: API cooldown stays zero during the summon. Feed
 -- the real item hook and UNIT_SPELLCAST_SUCCEEDED dispatch, not a guessed CD.
@@ -1225,9 +1284,81 @@ for _,toc in ipairs({11508,11509}) do
   end
  end
 end
--- Real catalog channel guards protect both automatic selection entry points.
+-- Exact live Era capture: Chicken 23133 succeeds, then Arcanite wrapper
+-- 23074 succeeds 52ms after its hook. Each receipt belongs only to its item.
+local standardItemCooldown=GetItemCooldown
+for _,mode in ipairs({'global','per-set','mirrored'}) do
+ for _,inCombat in ipairs({false,true}) do
+  resetSpecial(11509,inCombat,mode)
+  equipment[14]='10725:1';ItemRack.EquipTimers[14]={id='10725:1',time=70,hasPenalty=true,used=false}
+  ItemRack.GetQueues()[14]={{id='200',priority=true},{id='10725:1'}}
+  ItemRack.SetManualQueueChoice(14,'10725:1')
+  local cds={[16022]={100,60,1},[10725]={100,1800,1},[4396]={0,0,1}}
+  GetItemCooldown=function(id) local c=cds[tonumber(id)] or {0,0,1};return c[1],c[2],c[3] end
+  cooldowns[14]={100,1800,1};cooldowns[13]={100,60,1}
+  local burnt={};ItemRack.MarkEquippedQueueItemBurnt=function(slot) burnt[slot]=(burnt[slot] or 0)+1 end
+  ItemRack.newUseInventoryItem('14');ItemRack.newUseInventoryItem('13')
+  ItemRack.OnCastingStop(nil,'UNIT_SPELLCAST_SUCCEEDED','player','Chicken',23133)
+  advance(100.8)
+  verify(ItemRackUser.ItemsUsed[10725] and not ItemRackUser.ItemsUsed[16022] and not burnt[13]
+   and not ItemRack.EquipTimers[13].used and not ItemRack.SpecialItems.Used[16022],
+   'issue-33-shared-guardian-not-own-use: rejected Dragonling hook on 60s shared lockout must not mark/burn/confirm it')
+  verify(not ItemRack.IsCandidateReady(13,'16022:1',30),'game shared lockout must still block readiness')
+  local chicken=ItemRack.GetObservedItemCooldown('10725:1',10725)
+  verify(chicken and chicken.duration==1800,'Chicken own cooldown must remain on Chicken')
+  advance(161);cds[16022]={0,0,1};cooldowns[13]={0,0,1}
+  ItemRack.newUseInventoryItem('13');advance(161.052);success(23074,'Era-Arcanite')
+  verify(ItemRack.SpecialItems.IsCooldownPending(16022) and not ItemRack.ManualQueueChoice[13]
+   and ItemRack.EquipTimers[13].used and burnt[13]==1,
+   'issue-33-era-wrapper-success: actual 23074 success must confirm only its bounded Arcanite intent')
+  verify(not ItemRack.SpecialItems.Used[10725] and not ItemRack.SpecialItems.Used[4396],
+   'activation receipts must never spread to other guardian items sharing a category')
+  ItemRack.ProcessAutoQueue(13)
+  if inCombat then verify(ItemRack.CombatQueue[13]=='200','wrapper success must retain combat deferral');combat=false;ItemRack.ProcessCombatQueue() end
+  verify(equipment[13]=='200','actual Era wrapper success must yield to preferred trinket')
+  advance(236);cds[16022]={236,3600,1};ItemRack.GetItemCooldownLeft('16022:1')
+  verify(not ItemRack.SpecialItems.IsCooldownPending(16022) and ItemRack.GetObservedItemCooldown('16022:1',16022).duration==3600
+   and ItemRack.GetObservedItemCooldown('10725:1',10725).duration==1800 and ItemRack.GetItemCooldownLeft('4396:1')==0,
+   'distinct IDs must retain independent own cooldowns even when guardian lockout categories match')
+  ItemRack.MarkEquippedQueueItemBurnt=nil
+ end
+end
+-- Two pending Dragonlings: one activation/reconciliation cannot complete the other.
+resetSpecial(11509,false);equipment[14]='4396:1'
+ItemRack.GetQueues()[14]={{id='200'},{id='4396:1'}};ItemRack.EquipTimers[14]={id='4396:1',time=70,used=false}
+local cds={[16022]={0,0,1},[4396]={0,0,1}}
+GetItemCooldown=function(id) local c=cds[tonumber(id)] or {0,0,1};return c[1],c[2],c[3] end
+ItemRack.newUseInventoryItem('13');ItemRack.newUseInventoryItem('14');success(23074,'Arc')
+verify(ItemRack.SpecialItems.Used[16022] and not ItemRack.SpecialItems.Used[4396],
+ 'issue-33-distinct-special-receipts: one summon success must not consume another item intent')
+success(23076,'Mechanical')
+verify(ItemRack.SpecialItems.IsCooldownPending(16022) and ItemRack.SpecialItems.IsCooldownPending(4396),'different Dragonlings need separate confirmed receipts')
+advance(175);cds[16022]={175,3600,1};cds[4396]={175,60,1}
+ItemRack.GetItemCooldownLeft('16022:1');ItemRack.GetItemCooldownLeft('4396:1')
+verify(not ItemRack.SpecialItems.IsCooldownPending(16022) and ItemRack.SpecialItems.IsCooldownPending(4396),
+ 'one native hour cooldown must not resolve another item shared-minute observation')
+GetItemCooldown=standardItemCooldown
+-- Failure/interruption of the Era wrapper cannot turn into a later success.
+for _,event in ipairs({'UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED'}) do
+ resetSpecial(11509,false);ItemRack.newUseInventoryItem('13')
+ ItemRack.OnCastingStop(nil,event,'player','Failed-Wrapper',23074)
+ success(23074,'Late-After-Failure')
+ verify(not ItemRack.SpecialItems.Used[16022] and ItemRack.ManualQueueChoice[13],
+  'Era wrapper failures must cancel intent without releasing temporary protection')
+ local h=ItemRack.SpecialItems.History
+ verify(h[#h].event=='UNIT_SPELLCAST_SUCCEEDED' and h[#h-1].event==event,
+  'bounded history must retain success/failure/interruption event identity')
+end
+print('[REPORTER GUARDIAN IDENTITY LUA] Live wrapper event, failed shared use, separate receipts/cooldowns and combat flow passed.')
+
+-- Ordinary channels use the shared production casting controller, without item rules.
+${extractFunction(itemRackFile,'ItemRack.OnCastingStart')}
+CastingInfo=function() return nil end
+ChannelInfo=function() return UnitChannelInfo('player') end
+ItemRack.SetsWaiting={}
+ItemRack.OnSpellSucceed=function() end
 for _,case in ipairs({{11509,10645,13278},{11509,10727,13183},{11509,11808,17447},
- {11509,213347,435167},{11509,227973,462858},{20506,34430,45052},{16001,10645,13278}}) do
+ {11509,213347,435167},{11509,227973,462858},{20506,34430,45052},{16001,10645,13278},{16001,999999,888888}}) do
  resetSpecial(case[1],false); specialItemID=case[2]
  if case[2]>200000 then ItemRack.IsEngravingActive=function() return true end; ItemRack.SpecialItems.RefreshCatalog() end
  local exact=tostring(case[2])..':1'; equipment[13]=exact
@@ -1238,15 +1369,95 @@ for _,case in ipairs({{11509,10645,13278},{11509,10727,13183},{11509,11808,17447
  ItemRackUser.QueuesEnabled[slot]=true
  cooldowns[slot]={100,300,1}; nativeSpecialCooldown={100,300,1}
  UnitChannelInfo=function() return 'Channel',nil,nil,nil,nil,nil,nil,case[3] end
+ verify(not ItemRack.SpecialItems.GetRule(case[2]),'ordinary channels must not have per-item rules')
+ ItemRack.OnCastingStart(nil,'UNIT_SPELLCAST_CHANNEL_START','player','Channel-Ordinary',case[3])
  local before=#requests; ItemRack.ProcessAutoQueue(slot)
  verify(equipment[slot]==exact and #requests==before,'actual channel entry must hold its current item')
  local context=ItemRack.GetQueueContext(slot)
  verify(not ItemRack.AutoQueueItemToEquip(slot,tostring(case[2]),1,false,nil,context),
   'set recognition must share the same channel guard')
  UnitChannelInfo=function() return nil end
+ ItemRack.OnCastingStop(nil,'UNIT_SPELLCAST_CHANNEL_STOP','player','Channel-Ordinary',case[3])
  ItemRack.ProcessAutoQueue(slot)
  verify(equipment[slot]=='200','channel end must allow the normal replacement')
 end
+-- Real item identities/slots/spells from pinned exports; only API responses and
+-- equipment endpoints are modeled. No fake item/test mode ships in the addon.
+${findPlayerAura}
+${extractFunction(queueFile,'ItemRack.GetProxyBuff')}
+local ordinaryChecks=0
+for _,case in ipairs(${luaData(ordinaryUseCases)}) do
+ for _,mode in ipairs({'global','per-set','mirrored'}) do
+  for _,inCombat in ipairs({false,true}) do
+   for _,api in ipairs({'legacy','legacy-harmful','modern-exact','modern-named','modern-indexed','modern-named-harmful','modern-indexed-harmful'}) do
+    resetSpecial(case.toc,inCombat,mode); specialItemID=case.id
+    local slot,exact=case.slot,tostring(case.id)..':1'
+    equipment[13]=nil; equipment[slot]=exact
+    ItemRack.GetQueues()[slot]={{id='200',priority=true},{id=exact}}
+    if mode=='mirrored' and slot==13 then ItemRackUser.Sets.Master.Queues[slot]={{id='200',priority=true},{id=exact}} end
+    ItemRack.GetQueuesEnabled()[slot]=true
+    ItemRack.EquipTimers[slot]={id=exact,time=70,hasPenalty=false,used=false}
+    ItemRack.SetManualQueueChoice(slot,exact)
+    GetItemSpell=function(id) if tonumber(ItemRack.GetIRString(id))==case.id then return case.name,case.spell end end
+    local active=false
+    UnitBuff=nil; UnitDebuff=nil; C_UnitAuras=nil; AuraUtil=nil
+    if api=='legacy' then UnitBuff=function(unit,index) if active and unit=='player' and index==1 then return case.name end end
+    elseif api=='legacy-harmful' then UnitDebuff=function(unit,index) if active and unit=='player' and index==1 then return case.name end end
+    elseif api=='modern-exact' then C_UnitAuras={GetUnitAuraBySpellID=function(unit,id)
+     if active and unit=='player' and id==case.spell then return {spellId=id} end
+    end}
+    elseif api=='modern-named' or api=='modern-named-harmful' then C_UnitAuras={GetAuraDataBySpellName=function(unit,name,filter)
+     if active and unit=='player' and name==case.name and filter==(api=='modern-named' and 'HELPFUL' or 'HARMFUL') then return {name=name} end
+    end}
+    else C_UnitAuras={GetAuraDataByIndex=function(unit,index,filter)
+     if active and unit=='player' and index==1 and filter==(api=='modern-indexed' and 'HELPFUL' or 'HARMFUL') then return {spellId=case.spell} end
+    end} end
+    verify(not ItemRack.SpecialItems.GetRule(case.id),'ordinary-on-use-not-special: defaults must not need catalog entries')
+    ItemRack.ProcessAutoQueue(slot)
+    verify(equipment[slot]==exact and #requests==0,'unused ordinary items retain temporary protection')
+    cooldowns[slot]={100,case.seconds,1}; nativeSpecialCooldown={100,case.seconds,1}
+    active=case.hasAura
+    ItemRack.newUseInventoryItem(slot); advance(100.06)
+    verify(ItemRack.EquipTimers[slot].used and not ItemRack.ManualQueueChoice[slot],
+     'ordinary-on-use-default-flow: real cooldown proof must release temporary protection in every equipment slot')
+    if active then
+     ItemRack.ProcessAutoQueue(slot)
+     verify(equipment[slot]==exact and #requests==0,'ordinary active player aura must prevent auto replacement')
+     verify(not ItemRack.AutoQueueItemToEquip(slot,tostring(case.id),1,false,nil,ItemRack.GetQueueContext(slot)),
+      'ordinary active aura must also protect set recognition: '..case.id..' '..mode..' '..api)
+    end
+    active=false
+    ItemRack.ProcessAutoQueue(slot)
+    if inCombat then
+     verify(equipment[slot]==exact and ItemRack.CombatQueue[slot]=='200','ordinary use must queue armor swaps during combat')
+     combat=false; ItemRack.ProcessCombatQueue()
+    end
+    verify(equipment[slot]=='200' and #requests==1 and not next(ItemRack.CombatQueue),
+     'ordinary-on-use-default-flow: expired player effect or direct Mortar damage must allow normal replacement')
+    ordinaryChecks=ordinaryChecks+1
+   end
+  end
+ end
+end
+-- Item-only harmful lookups must not change name-only event semantics.
+UnitBuff=nil; C_UnitAuras=nil; AuraUtil=nil
+UnitDebuff=function(_,index) if index==1 then return 'SelfEffect' end end
+verify(ItemRack.FindPlayerAura('SelfEffect',5024) and not ItemRack.FindPlayerAura('SelfEffect'),
+ 'item self-effect lookup must preserve helpful-only name-based event semantics')
+-- Modern failures/secrets cannot invent an effect; an unrelated aura is not a hold.
+UnitBuff=nil; UnitDebuff=nil; AuraUtil=nil
+for _,reader in ipairs({'GetUnitAuraBySpellID','GetAuraDataBySpellName','GetAuraDataByIndex'}) do
+ C_UnitAuras={[reader]=function() error('restricted') end}
+ verify(not ItemRack.FindPlayerAura('Missing',8892),'modern default aura errors must remain contained')
+ local opaque={}; issecretvalue=function(value) return value==opaque end
+ C_UnitAuras={[reader]=function() return opaque end}
+ verify(not ItemRack.FindPlayerAura('Missing',8892),'secret modern records must not invent matching player effects')
+ issecretvalue=nil
+end
+C_UnitAuras={GetAuraDataByIndex=function(_,i) if i==1 then return {name='Other',spellId=999999} end end}
+verify(not ItemRack.FindPlayerAura('Missing',8892),'unrelated modern player aura must not hold the item')
+C_UnitAuras=nil
+print(string.format('[ORDINARY ON-USE DEFAULT FLOW LUA] %d real-item, scope, combat and API scenarios passed.',ordinaryChecks))
 print(string.format('[SPECIAL ITEM RUNTIME LUA] %d delayed-use, slot, context, native cooldown and user-policy checks passed.',specialChecks))
 `, 'issue-33-swap-in-temporary-hold');
 
@@ -1322,6 +1533,9 @@ for _,toc in ipairs({11508,11509,16001,11601}) do
   local re,rw,rs=fresh(store,toc,7,1800000110,scope)
   rw.expectReceipt=true; re.ItemRack.ManualQueueHold[13]=true
   initialize(re,rw,rs)
+  local hasSuccessEvent=false
+  for _,entry in ipairs(rs.PreviousHistory) do if entry.reason=='activation_confirmed' and entry.event=='UNIT_SPELLCAST_SUCCEEDED' then hasSuccessEvent=true end end
+  check(hasSuccessEvent,'special history must retain actual event type across normal reload')
   check(rs.Used[16022].restored and rs.IsCooldownPending(16022) and not re.ItemRack.IsCandidateReady(13,16022,5000),
    'special-use-reload-before-native-cooldown: a fresh Lua environment must retain exclusion despite zero API cooldown')
   check(re.ItemRack.ManualQueueChoice[13]=='16022:1' and re.ItemRack.ManualQueueHold[13] and not next(re.ItemRackUser.ItemsUsed),
@@ -1416,7 +1630,7 @@ env,w,s=fresh(transport(seed),11509)
 w.seasonal=nil; s.CatalogLoaded=nil; s.RefreshCatalog(); s.LoadSaved()
 check(not s.PersistenceLoaded,'unknown seasonal detection must defer receipt validation')
 w.seasonal=true; s.RefreshCatalog(); s.LoadSaved()
-check(s.Client.ruleset=='sod' and s.Rules[228955] and not s.Rules[30720],
+check(s.Client.ruleset=='sod' and not s.Rules[228955] and s.Rules[10726] and not s.Rules[30720],
  'special-client-late-seasonal-detection: refresh must allocate only the selected seasonal table')
 local rules=s.Rules; s.RefreshCatalog()
 check(s.Rules==rules,'unchanged catalog refresh must be idempotent')
@@ -1451,7 +1665,7 @@ const fallbackSlots=new Map(metrics.filter(r=>r.label==='era-11509' && r.trigger
 const cases=[];
 for(const [toc,label] of [[11508,'era-11508'],[11509,'era-11509'],[20505,'tbc-255'],[20506,'tbc-256'],[16001,'forever-16001'],[11601,'forever-16001']]) {
   for(const sod of toc<20000 && toc>=11508 && toc<=11509 ? [false,true] : [false]) {
-    const gear={},references={};
+    const gear={},references={},defaultHandled={};
     for(const r of metrics.filter(r=>r.label===label && (r.trigger==='0' || r.item_id==='30720'))) {
       if(seasonalIDs.has(Number(r.item_id)) && !sod) continue;
       const slotType=r.slot==='' ? fallbackSlots.get(r.item_id) : Number(r.slot);
@@ -1462,7 +1676,10 @@ for(const [toc,label] of [[11508,'era-11508'],[11509,'era-11509'],[20505,'tbc-25
         success:Number(r.legacy_alias||r.spell_id),category:Number(r.item_category),
         categorySeconds:(Number(r.item_category_cd_ms)>=0 ? Number(r.item_category_cd_ms):Number(r.spell_category_cd_ms))/1000};
     }
-    cases.push({toc,sod,gear,references});
+    for(const [id,source] of Object.entries(gear)) {
+      if(!source.deferred && id!=='10726' && id!=='30720') { defaultHandled[id]=source; delete gear[id]; }
+    }
+    cases.push({toc,sod,gear,references,defaultHandled});
   }
 }
 runLua(String.raw`
@@ -1489,12 +1706,13 @@ for _,case in ipairs(${luaData(cases)}) do
  toc,sod=case.toc,case.sod
  ${loadSpecialCatalog}
  local special=ItemRack.SpecialItems
- check(count(special.Rules)==count(case.gear),'collective-catalog-source: every applicable equipped source item must appear exactly once')
- check(count(special.ReferenceItems)==count(case.references),'every reviewed bag-only source item must remain reference-only')
+ check(count(special.Rules)==count(case.gear),'curated-exception-source: only deferred cooldowns, pet charm and dependency proxy belong in the active catalog')
+ check(special.ReferenceItems==nil,'research-only bag records must not allocate runtime tables')
+ for id in pairs(case.defaultHandled) do check(not special.GetRule(id),'ordinary-on-use-not-special: normal source items must use default handling') end
  check(not next(special.InvalidRules),'all enabled catalog entries must pass production validation')
  for id,source in pairs(case.gear) do
   local rule=special.GetRule(id)
-  check(rule and rule.enabled and rule.revision==1,'collective-catalog-source: every reviewed gear row must be enabled')
+  check(rule and rule.enabled and rule.revision==1,'curated-exception-source: each retained exception must be enabled')
   check(count(rule.slots)==#source.slots,'equipment slots must come from InventoryType mapping, never from spell target or category')
   for _,slot in ipairs(source.slots) do check(special.GetRule(id,slot)==rule,'every source equipment slot must match') end
   if id==30720 then check(rule.proxy.id==22044 and rule.proxy.buff==37445,'Braid must preserve its existing shared proxy')
@@ -1541,14 +1759,14 @@ for _,case in ipairs(${luaData(cases)}) do
    end
   end
  end
- for id in pairs(case.references) do check(not special.GetRule(id) and special.ReferenceItems[id].scope=='bag','bag-only reference must never register as an equipment rule') end
+ for id in pairs(case.references) do check(not special.GetRule(id),'bag-only reference must never register as an equipment rule') end
  activeSpell,activeUnit,channelSpell=nil,nil,nil
  local report=special.GetDiagnostics()
- check(report.catalog[4396].cooldown and report.catalogSource.label and report.referenceItems[3456],
-  'support dumps must include selected catalog mechanics, source and bag-reference boundary')
+ check(report.catalog[10726].effect and report.catalogSource.label and not report.referenceItems,
+  'support dumps must include only active exception mechanics and catalog source')
 end
-print(string.format('[COLLECTIVE CATALOG SOURCE LUA] %d pinned-build coverage, metrics and actual channel/aura checks passed.',checks))
-`, 'collective-catalog-source');
+print(string.format('[CURATED EXCEPTION SOURCE LUA] %d pinned-build coverage, metrics and actual channel/aura checks passed.',checks))
+`, 'curated-exception-source');
 
 runLua(String.raw`
 local now=100

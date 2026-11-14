@@ -606,7 +606,7 @@ function ItemRack.GetProxyBuff(itemID)
 	local proxy = ItemRack.ResolveProxy(itemID)
 	if not proxy or not proxy.buff then return nil end
 	if type(proxy.buff) == "number" then
-		return (GetSpellInfo(proxy.buff))
+		return (GetSpellInfo(proxy.buff)),proxy.buff
 	end
 	return proxy.buff
 end
@@ -695,7 +695,7 @@ function ItemRack.ProcessAutoQueue(slot)
 		if ItemRack.QueueDiagnostic then ItemRack.QueueDiagnostic("autoqueue_skipped", { reason = "state_not_ready", slot = slot }) end
 		return
 	end
-	if not slot then return end
+	if not slot or ItemRack.NowCasting then return end
 	if not ItemRack.IsEquippedSlotStateReady(slot) then
 		if ItemRack.QueueDiagnostic then ItemRack.QueueDiagnostic("autoqueue_skipped", { reason = "slot_unresolved", slot = slot }) end
 		return
@@ -742,8 +742,9 @@ function ItemRack.ProcessAutoQueue(slot)
 	end
 	
 	-- Visual updates logic (keep/delay/buff checks)
-	local buff = ItemRack.GetProxyBuff(baseID) or GetItemSpell(baseID)
-	if buff and ItemRack.FindPlayerAura(buff) then
+	local buff,spellID = ItemRack.GetProxyBuff(baseID)
+	if not buff then buff,spellID=GetItemSpell(baseID) end
+	if buff and ItemRack.FindPlayerAura(buff,spellID) then
 		if icon then icon:SetDesaturated(true) end
 		return
 	end
@@ -809,6 +810,9 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 	if not ItemRack.IsEquippedSlotStateReady(slot) then
 		return nil
 	end
+	-- Casting/channeling already blocks ordinary equipment actions. Keep queue
+	-- prediction and set recognition on that same shared state for every item.
+	if ItemRack.NowCasting then return nil end
 	queueContext = queueContext or ItemRack.GetQueueContext(slot,setname)
 	local list = queueContext.list
 	local candidate
@@ -830,8 +834,9 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 	local matchedCurrent = currentMatchIndex ~= nil
 	if currentMatchIndex then
 		local currentEntry = list[currentMatchIndex]
-		local buff = ItemRack.GetProxyBuff(baseID) or GetItemSpell(baseID)
-		if buff and ItemRack.FindPlayerAura(buff) then
+		local buff,spellID = ItemRack.GetProxyBuff(baseID)
+		if not buff then buff,spellID=GetItemSpell(baseID) end
+		if buff and ItemRack.FindPlayerAura(buff,spellID) then
 			return nil
 		end
 		-- Pause Queue: item is flagged to stay equipped indefinitely

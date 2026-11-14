@@ -4,7 +4,7 @@ Research date: 2026-11-12. Status: **research snapshot; owner subsequently appro
 
 This follows [GitHub #33, comment 6841005114](https://github.com/Bl4ut0/ItemRack-Universal/issues/33#issuecomment-6841005114), the owner's request for item-wide rules, and the supplied “Special-Use, Summon & Delayed-Swap Item Reference.” The supplied reference is a candidate list, not verified policy. Several of its numeric values and generalizations conflict with the sampled client data below.
 
-On 2026-11-13 the owner approved the collective catalog for beta12. Current runtime coverage, enabled policies and native-only/reference boundaries are documented in [SPECIAL_ITEM_RULES.md](SPECIAL_ITEM_RULES.md) and [special-item-catalog-coverage.json](research/special-item-catalog-coverage.json). The proposal and acceptance language below remains the original research snapshot, not the current catalog status.
+Beta12 initially loaded the collective inventory on 2026-11-13. The owner then identified ordinary items incorrectly treated as exceptions; current dev trims runtime rules to five distinct exception IDs while retaining this research inventory. Beta12 remains unchanged. Current runtime coverage, enabled policies and native-only/reference boundaries are documented in [SPECIAL_ITEM_RULES.md](SPECIAL_ITEM_RULES.md) and [special-item-catalog-coverage.json](research/special-item-catalog-coverage.json). The proposal and acceptance language below remains the original research snapshot, not the current catalog status.
 
 ## What is confirmed, and what is not
 
@@ -172,3 +172,7 @@ Suggested first-person wording, **not posted**:
 - The shared framework was subsequently approved and implemented on dev. Local installation, publication and a GitHub reply have not been performed for it.
 - Next evidence: acquire the missing live trace before treating event aliases and unequip behavior as confirmed. Usage receipts currently remain runtime-only; reload before cooldown publication is an explicit limitation.
 - Research files are intentionally under `docs/`; do not recreate `.rules` or add root documentation clutter.
+
+## Live Era outcome evidence after beta12
+
+[neferens' dedicated capture](https://github.com/Bl4ut0/ItemRack-Universal/issues/33#issuecomment-6864333843) on Era 1.15.9 / 70576 / 11509 records Chicken success 23133 at 6413.781 and Arcanite success **23074** at 6414.828, after hook 6414.776. This resolves the earlier uncertainty about Arcanite's emitted player event on that build. Dev accepts Era item-use wrappers alongside the inner summon bindings; source-bound wrappers for Mechanical/Mithril remain to be confirmed by community capture. The observed approximately 75-second cooldown delay is reporter evidence, not a replacement for the native cooldown API or an automatic-ready timer. Evidence hashes are in `research/special-item-policy-evidence.json`.

@@ -151,8 +151,40 @@ end
 -- Safe aura lookup for player across all client versions (Retail/Classic/TBC/Wrath/Cata).
 -- Protected against nil-unpack errors in Blizzard's AuraUtil during Edit Mode or UI transitions,
 -- and shielded against modern client secret number values during tainted execution.
-function ItemRack.FindPlayerAura(buff)
+function ItemRack.FindPlayerAura(buff, spellID)
 	if not buff then return nil end
+	-- Ordinary on-use effects use this shared reader, including clients without
+	-- UnitBuff. An item catalog entry is not needed for a normal player aura.
+	local function public(value)
+		return not issecretvalue or not issecretvalue(value)
+	end
+	if not public(buff) then return nil end
+	spellID = public(spellID) and type(spellID)=="number" and spellID or nil
+	-- Item-linked self effects may be helpful or harmful. Existing event callers
+	-- that supply only a buff name keep their helpful-only lookup semantics.
+	local filters = spellID and {"HELPFUL","HARMFUL"} or {"HELPFUL"}
+	if C_UnitAuras then
+		if spellID and C_UnitAuras.GetUnitAuraBySpellID then
+			local ok,aura=pcall(C_UnitAuras.GetUnitAuraBySpellID,"player",spellID)
+			if ok and public(aura) and type(aura)=="table" then return buff end
+		end
+		if C_UnitAuras.GetAuraDataBySpellName then
+			for _,filter in ipairs(filters) do
+				local ok,aura=pcall(C_UnitAuras.GetAuraDataBySpellName,"player",buff,filter)
+				if ok and public(aura) and type(aura)=="table" then return buff end
+			end
+		end
+		if C_UnitAuras.GetAuraDataByIndex then
+			for _,filter in ipairs(filters) do
+				for index=1,40 do
+					local ok,aura=pcall(C_UnitAuras.GetAuraDataByIndex,"player",index,filter)
+					if not ok or not public(aura) or type(aura)~="table" then break end
+					if (public(aura.name) and aura.name==buff)
+						or (spellID and public(aura.spellId) and aura.spellId==spellID) then return buff end
+				end
+			end
+		end
+	end
 	if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellName then
 		local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellName, buff)
 		if ok and aura then
@@ -193,6 +225,13 @@ function ItemRack.FindPlayerAura(buff)
 		end)
 		if ok and result then
 			return result
+		end
+	end
+	if spellID and UnitDebuff then
+		for index=1,40 do
+			local ok,name=pcall(UnitDebuff,"player",index)
+			if not ok or not public(name) or not name then break end
+			if name==buff then return name end
 		end
 	end
 	return nil
@@ -1325,6 +1364,10 @@ function ItemRack.ClearQueueDiagnostics()
 end
 
 function ItemRack.GetEquippedSlotState(slot)
+	-- Secure hooks may supply a numeric slot as text; runtime tables use numbers.
+	if issecretvalue and issecretvalue(slot) then return "unresolved" end
+	slot = (type(slot)=="number" or type(slot)=="string") and tonumber(slot) or nil
+	if not slot or slot<0 or slot>19 or slot~=math.floor(slot) then return "unresolved" end
 	local exactID = ItemRack.GetID(slot)
 	local inventoryID = GetInventoryItemID and GetInventoryItemID("player", slot)
 	local texture = GetInventoryItemTexture and GetInventoryItemTexture("player", slot)
@@ -1352,12 +1395,20 @@ function ItemRack.GetEquippedSlotState(slot)
 end
 
 function ItemRack.IsEquippedSlotStateReady(slot)
+	-- Secure hooks may supply a numeric slot as text; runtime tables use numbers.
+	if issecretvalue and issecretvalue(slot) then return false end
+	slot = (type(slot)=="number" or type(slot)=="string") and tonumber(slot) or nil
+	if not slot or slot<0 or slot>19 or slot~=math.floor(slot) then return false end
 	if ItemRack.QueueStateReady ~= true or type(ItemRack.EquippedSnapshot) ~= "table"
 	or ItemRack.EquippedSnapshot[slot] == false
 	or (ItemRack.UnresolvedEquippedSlots and ItemRack.UnresolvedEquippedSlots[slot]) then
 		return false
 	end
 
+	-- Discard obsolete text-key quarantines created by older use hooks. The
+	-- numeric quarantine and live identity check remain authoritative.
+	if ItemRack.UnresolvedEquippedSlots then ItemRack.UnresolvedEquippedSlots[tostring(slot)] = nil end
+	if ItemRack.PendingEquipTransitionTimes then ItemRack.PendingEquipTransitionTimes[tostring(slot)] = nil end
 	local state, currentID = ItemRack.GetEquippedSlotState(slot)
 	local snapshotID = ItemRack.EquippedSnapshot[slot]
 	local matchesSnapshot = (state == "resolved" and ItemRack.SameExactID(snapshotID, currentID))
@@ -5355,6 +5406,10 @@ end
 --[[ Hooks to capture item use outside the mod ]]
 
 function ItemRack.ScheduleReflectItemUseRetry(slot, exactID, baseID)
+	-- Secure hooks may supply a numeric slot as text; runtime tables use numbers.
+	if issecretvalue and issecretvalue(slot) then return  end
+	slot = (type(slot)=="number" or type(slot)=="string") and tonumber(slot) or nil
+	if not slot or slot<0 or slot>19 or slot~=math.floor(slot) then return  end
 	baseID = tonumber(baseID)
 	if not baseID and exactID then
 		baseID = tonumber(ItemRack.GetIRString(exactID, true))
@@ -5497,6 +5552,10 @@ function ItemRack.ScheduleReflectItemUseRetry(slot, exactID, baseID)
 end
 
 function ItemRack.ReflectItemUse(id, isRetry)
+	-- Secure hooks may supply a numeric slot as text; runtime tables use numbers.
+	if issecretvalue and issecretvalue(id) then return  end
+	id = (type(id)=="number" or type(id)=="string") and tonumber(id) or nil
+	if not id or id<0 or id>19 or id~=math.floor(id) then return  end
 	if not isRetry and ItemRack.SpecialItems then ItemRack.SpecialItems.BeginUse(id) end
 	local retryToken = type(isRetry) == "table" and isRetry or nil
 	local slotState, exactID = ItemRack.GetEquippedSlotState(id)
@@ -5590,6 +5649,16 @@ function ItemRack.ReflectItemUse(id, isRetry)
 			ItemRack.QueueDiagnostic("use_ignored_equip_penalty", { duration = duration, mode = "active", slot = id })
 			return -- Rejected click during active equip penalty -> ignore!
 		end
+	end
+
+	-- A deferred-use item can expose another guardian's short category lockout.
+	-- That blocks readiness but cannot prove this item's own activation.
+	local specialRule = ItemRack.SpecialItems and ItemRack.SpecialItems.GetRule
+		and ItemRack.SpecialItems.GetRule(exactID,id)
+	if specialRule and specialRule.cooldown and specialRule.cooldown.start=="deferred"
+	and duration<(specialRule.cooldown.minimumOwnSeconds or 120) then
+		ItemRack.QueueDiagnostic("use_ignored_special_shared_cooldown", {slot=id,baseID=exactBaseID,duration=duration})
+		return
 	end
 
 	-- A single game action can reach more than one secure hook. Do not process
@@ -7674,6 +7743,9 @@ function ItemRack.SlashHandler(arg1)
 			dumpText = dumpText .. "ItemRack.PreReadyEquippedObservations = " .. ItemRackLogFrame.Serialize(ItemRack.PreReadyEquippedObservations) .. "\n"
 			dumpText = dumpText .. "ItemRack.PendingQueueEquipSet = " .. ItemRackLogFrame.Serialize(ItemRack.PendingQueueEquipSet) .. "\n"
 			dumpText = dumpText .. "ItemRack.EquipTimers = " .. ItemRackLogFrame.Serialize(ItemRack.EquipTimers) .. "\n"
+			dumpText = dumpText .. "ItemRack.ManualQueueChoice = " .. ItemRackLogFrame.Serialize(ItemRack.ManualQueueChoice) .. "\n"
+			dumpText = dumpText .. "ItemRack.ManualQueueChoiceOwner = " .. ItemRackLogFrame.Serialize(ItemRack.ManualQueueChoiceOwner) .. "\n"
+			dumpText = dumpText .. "ItemRack.ManualQueueHold = " .. ItemRackLogFrame.Serialize(ItemRack.ManualQueueHold) .. "\n"
 			dumpText = dumpText .. "ItemRack.BurntQueueItems = " .. ItemRackLogFrame.Serialize(ItemRack.BurntQueueItems) .. "\n"
 			dumpText = dumpText .. "ItemRack.LastActivation = " .. ItemRackLogFrame.Serialize(ItemRack.LastActivation) .. "\n"
 			dumpText = dumpText .. "ItemRack.LastProcessedItemUse = " .. ItemRackLogFrame.Serialize(ItemRack.LastProcessedItemUse) .. "\n"

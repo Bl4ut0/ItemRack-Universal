@@ -39,5 +39,39 @@
     }
   ],
   "aliasCorroboration": "https://github.com/cmangos/mangos-classic/blob/master/src/game/Spells/SpellEffects.cpp",
-  "boundary": "Emulator dummy-spell dispatch corroborates 13180 -> 13181; extracted client aura rows establish spell identity, not a live server capture."
+  "boundary": "Emulator dummy-spell dispatch corroborates 13180 -> 13181; extracted client aura rows establish spell identity, not a live server capture.",
+  "reporterCaptures": [
+    {
+      "issueComment": "https://github.com/Bl4ut0/ItemRack-Universal/issues/33#issuecomment-6864333843",
+      "attachment": "https://github.com/user-attachments/files/34822062/ItemRack.v4.59-beta12.debug.dump.exception.items.txt",
+      "sha256": "3a2e60016000ec57586bfa092b90afa411da13ba8fabceac4b165af1712316b7",
+      "addon": "4.59-beta12",
+      "interface": 11509,
+      "build": 70576,
+      "events": [
+        {
+          "event": "UNIT_SPELLCAST_SUCCEEDED",
+          "spell": 23133,
+          "uptime": 6413.781
+        },
+        {
+          "hook": "UseInventoryItem",
+          "slot": 13,
+          "uptime": 6414.776
+        },
+        {
+          "event": "UNIT_SPELLCAST_SUCCEEDED",
+          "spell": 23074,
+          "uptime": 6414.828
+        }
+      ],
+      "limit": "Confirms Arcanite player success on this Era build; does not establish other clients or guardian lifetimes."
+    },
+    {
+      "issueComment": "https://github.com/Bl4ut0/ItemRack-Universal/issues/33#issuecomment-6863214814",
+      "attachment": "https://github.com/user-attachments/files/34822084/ItemRack.v4.59-beta12.debug.dump.hold.and.swap.in.txt",
+      "sha256": "a4a771782481f6b599ff8e2d4e83073c5823fb4e83a021f8d78b42814010f81e",
+      "finding": "Queue startup ready, text-slot quarantine distinct from numeric snapshot, no accepted use and EquipTimers[13].used=false."
+    }
+  ]
 }
