@@ -4,6 +4,8 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+
+## [4.59-beta14] - 2026-11-14
 - **Tooltip anchor cooperation**: Default-position item tooltips now preserve their existing placement while refreshing the same visible owner, allowing tooltip addons such as TipTac Forever to keep control of mouse/custom anchoring without repeated ItemRack owner resets. Hidden tooltips, owner changes and fresh tooltips initialize normally; explicit ItemRack and character-sheet placement remain unchanged. Clarified that Tooltips beside buttons is not cursor following: leave it off for TipTac positioning. Added a permanent production-Lua regression, including positioning before the first explicit Show. This addresses a source-confirmed reset path; the reported blinking still needs client confirmation.
 - **Optional full diagnostic exports**: Added `/itemrack dump full` to export every retained activity line (up to 5,000), queue-recorder entry and special-item trace entry with the existing state sections. Full reports use Previous/Next copyable pages bounded by 400 newlines and 24,000 bytes, preserving text order and UTF-8 boundaries. Normal `/itemrack dump` remains a single recent report with exactly 500 activity lines and the latest 256 special trace entries. Special capture retains up to 2,048 entries while keeping its 120-second window and drop counts; full export cannot recover overwritten/expired evidence. Large table serialization avoids repeated string rebuilding. Added actual-command, retention, navigation and page-reconstruction tests; native client rendering/copying remains an acceptance check. Beta13 is unchanged.
 

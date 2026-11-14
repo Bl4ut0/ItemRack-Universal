@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.59-beta14 - By Bl4ut0 __
 - Default-position item tooltip refreshes now preserve another addon's placement for the same visible owner, avoiding repeated owner resets with TipTac Forever Mouse Anchor. Fresh/hidden tooltips and owner changes still initialize; explicit ItemRack and character-sheet anchoring remain unchanged. Clarified Tooltips beside buttons: it does not follow the cursor; leave it off for TipTac positioning. Permanent production-Lua regression includes positioning before the first explicit Show; reporter blinking remains a client acceptance check. Beta13 is unchanged.
 - Added /itemrack dump full for every retained activity line (up to 5,000), queue-recorder and special trace entry. Full reports open in copyable Previous/Next pages; copy pages in order. Regular dump keeps one recent report with exactly 500 activity lines and 256 special entries. Special capture now retains up to 2,048 entries for the same 120 seconds; omitted/overwritten counts are reported. Full export cannot restore discarded data. Page size and UTF-8 reconstruction are covered by production-Lua tests; native rendering/copy acceptance is still required. Beta13 is unchanged.
 
