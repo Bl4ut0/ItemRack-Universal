@@ -47,7 +47,7 @@ hard to reproduce manually on a character with only a few saved sets.
 ## User-report regression workflow
 
 Latest #33 feedback (6863125913 / 6863214814 / 6864333843): **fixed at
-code level on dev; community acceptance pending.** Revised hold attachment
+code level; shipped in GitHub-only beta13; community acceptance pending.** Revised hold attachment
 34822084 retains the numeric-snapshot/text-quarantine evidence. The dedicated
 exception capture 34822062 confirms Era 1.15.9 / build 70576 actually emits
 `UNIT_SPELLCAST_SUCCEEDED` 23074 at uptime 6414.828, 52 ms after the Arcanite

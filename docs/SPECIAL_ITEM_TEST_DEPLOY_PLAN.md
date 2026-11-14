@@ -340,3 +340,13 @@ verify the skipped CurseForge job, and send the reporter the direct archive and
 focused cheaper-Dragonling-first acceptance request. No local-client replacement
 is requested for this publication. Record delivery and artifact evidence below
 after success; earlier beta12 records describe immutable historical builds.
+
+### Beta13 delivery receipt - completed
+
+- Published [GitHub-only v4.59-beta13](https://github.com/Bl4ut0/ItemRack-Universal/releases/tag/v4.59-beta13), dated 2026-11-13, as a prerelease with Latest=false.
+- Exact tag/source commit: `7ad8b78135ad8e148575d2b4fd1e33589b4720e3`; implementation: `c5f41d53820a9bbc3b2c13d0e966ae80c643f428`. Prior accepted tags/archives are unchanged.
+- Archive: `ItemRack-universal-4.59-beta13.zip`, 349366 bytes, 50 addon files; SHA-256 `f49748bab47ba480266f258507775f0edc7823f9d61ca0b7f8ca48980b1c4ea7`. GitHub asset digest matches. Exact-tag tree/blob, both TOC versions and checksum verification passed; the actual archive is refused by the CurseForge verifier before network.
+- `npm.cmd ci` and complete `npm.cmd test` passed on development source and again on beta13 metadata. Staged archive syntax/structure verification passed. Permanent reporter regressions and source/effect/recovery checks passed; live community acceptance remains pending.
+- [Policy workflow 43539383785](https://github.com/Bl4ut0/ItemRack-Universal/actions/runs/43539383785): release-policy succeeded; verify-and-deploy skipped. No CurseForge submission/file for beta13.
+- [Reporter reply on #33](https://github.com/Bl4ut0/ItemRack-Universal/issues/33#issuecomment-6869178900): direct ZIP, both diagnoses, independent item/shared-lockout behavior, original Crest check without workaround, cheaper Mechanical/Mithril-first request, later Arcanite confirmation and separate 120-second capture guidance. Posted in the owner's voice.
+- No local installation requested or performed; the six clients retain beta12. Development TOCs reset after successful publication; beta13 retains its immutable GitHub-only policy.
