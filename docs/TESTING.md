@@ -46,6 +46,50 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 13 CurseForge / prokn4h: **TipTac Forever floating-button blinking;
+candidate mitigation on dev, client acceptance pending.** The report names
+TipTac Forever, not TacoTip: hovering an Alt-click-created floating ItemRack
+button blinks heavily with Frame Tip Type = Mouse Anchor / Bottom Left.
+Source: https://www.curseforge.com/wow/addons/itemrack-universal/comments ;
+reporter settings: https://imgur.com/a/m12lPwj . Exact ItemRack version,
+TooltipFollow/Tiny Tooltips settings and a TipTac-specific capture are missing;
+the earlier GearQuest dump is not proof for this separate report.
+
+Reviewed the actual latest archive, TipTac_Forever_1112.zip, November 12,
+file 9580401: https://www.curseforge.com/wow/addons/tiptac-forever/files/9580401 .
+SHA256: `ae113c687aba128658dbf56aba136010d8b62b89c735df480e3011517ba014c0`.
+Its ttCore.lua SetDefaultAnchorHook (4121), AnchorTipToMouse (3890),
+ResetCurrentDisplayParamsForAnchoring (4194) and SetOwner hook (4247) show
+default-owner resets and per-frame mouse placement. TipTacTalents/ttTalents.lua
+GearScore output (392) reads a unit inspect cache after a unit GUID check;
+this is not evidence that scoring causes the item-tooltip report.
+ItemRack's default TooltipUpdate path previously invoked the default-anchor
+hook on every refresh. A local, unshipped research check executing those three
+actual TipTac methods with production ItemRack functions and modeled native
+APIs observed 11 owner resets for 11 updates before, one after; cursor tracking
+and item refresh remained functional in both. This establishes redundant
+resets, not a reproduction of the reported visible blinking. The licensed
+upstream archive is not packaged or required by the standard test gate.
+
+Named permanent case `reported-tiptac-mouse-anchor-floating-button` in
+`.tools/test_identity_matching_lua.js` executes InventoryTooltip, AnchorTooltip,
+TooltipUpdate, ClearTooltip and OnTooltip with modeled default-anchor hooks.
+It fails against the unchanged pre-patch production functions on repeated
+same-owner reset, and passes with the narrow default-refresh guard. It covers
+external placement, repeated button callbacks/cooldown refresh, changed queued
+text/bag contents, owner change, foreign owner, hide/reenter, TooltipFollow
+ON/OFF transitions, fresh options tooltips and native placement without addons.
+Existing character/comparison cases remain in the gate. No addon-name detection
+or global hook override is added; explicit ItemRack positioning still wins when
+selected. Client acceptance: repeat the reporter's floating-button hover with
+TipTac 11.12 Mouse Anchor and actual ItemRack settings, with/without cooldown,
+move the cursor, switch buttons/leave/reenter, check comparison tips and verify
+character-sheet breakouts. If it still blinks, capture exact versions/settings
+and mouse-focus/enter/leave behavior before broadening the patch. A modeled
+anchor test does not establish a client rendering or mouse-focus fix.
+Validation: focused identity/tooltip suite and complete `npm.cmd test` passed.
+Accepted beta13, published releases and local client installations are unchanged.
+
 November 13 owner request: optional `/itemrack dump full`, preserving the normal
 size after previous oversized-copy-window problems. Existing focused suite
 `.tools/test_queue_runtime_lua.js` adds `dump-full-retained-diagnostics`: actual

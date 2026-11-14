@@ -571,7 +571,7 @@ ItemRackSettings = {
 	TinyTooltipsQuickAccess = "OFF", -- whether to apply tiny tooltips only to quick access (not character sheet menus)
 	TinyTooltipsSubMenusOnly = "OFF", -- whether to restrict tiny tooltips to popup sub-menu items only (not the main slot button)
 	DisableTooltipsInCombat = "OFF", -- whether to hide item tooltips on ItemRack menus/buttons during combat
-	TooltipFollow = "OFF", -- whether tooltip follows pointer
+	TooltipFollow = "OFF", -- anchor beside hovered buttons instead of default placement
 	CooldownCount = "OFF", -- whether cooldowns displayed numerically over buttons
 	LargeNumbers = "OFF", -- whether cooldown numbers displayed in large font
 	AllowEmpty = "ON", -- allow empty slot as a choice in menus
@@ -6247,6 +6247,7 @@ function ItemRack.ClearTooltip(self)
 	ItemRack.StopTimer("TooltipUpdate")
 	ItemRack.TooltipType = nil
 	ItemRack.TooltipOwner = nil
+	ItemRack.defaultTooltipAnchorOwner = nil
 	if type(ResetCursor) == "function" then
 		ResetCursor()
 	end
@@ -6270,7 +6271,7 @@ function ItemRack.GetMenuFrameTooltipSide()
 	end
 end
 
-function ItemRack.AnchorTooltip(owner)
+function ItemRack.AnchorTooltip(owner, isRefresh)
 	-- Character sheet anchoring: only applies when the menu is docked to a character
 	-- sheet slot AND the owner is part of that menu context (a menu popup item or the
 	-- character slot itself). This prevents options-panel or quick-access tooltips from
@@ -6279,6 +6280,9 @@ function ItemRack.AnchorTooltip(owner)
 	local isCharacterMenuContext = ItemRackMenuFrame and ItemRackMenuFrame:IsVisible()
 		and string.match(ItemRack.menuDockedTo or "", "^Character")
 		and (string.match(ownerName, "^ItemRackMenu%d") or string.match(ownerName, "^Character"))
+	if isCharacterMenuContext or ItemRackSettings.TooltipFollow=="ON" then
+		ItemRack.defaultTooltipAnchorOwner = nil
+	end
 
 	if isCharacterMenuContext then
 		local name = ItemRack.menuDockedTo
@@ -6330,7 +6334,17 @@ function ItemRack.AnchorTooltip(owner)
 			GameTooltip:SetOwner(owner,"ANCHOR_LEFT")
 		end
 	else
+		-- Content/cooldown refreshes must not repeatedly clear SetOwner or undo a
+		-- tooltip addon's default-anchor hook (e.g. TipTac's Mouse Anchor). Keep
+		-- refreshing the item, but acquire placement again after a hide, owner
+		-- change or explicit ItemRack anchor. Fresh tooltips still initialize it.
+		if isRefresh and owner and ItemRack.defaultTooltipAnchorOwner == owner
+			and type(GameTooltip.GetOwner) == "function" and GameTooltip:GetOwner() == owner
+			and type(GameTooltip.IsShown) == "function" and GameTooltip:IsShown() then
+			return
+		end
 		GameTooltip_SetDefaultAnchor(GameTooltip,owner)
+		ItemRack.defaultTooltipAnchorOwner = owner
 	end
 end
 
@@ -6338,7 +6352,7 @@ end
 function ItemRack.TooltipUpdate()
 	if ItemRack.TooltipType then
 		local cooldown
-		ItemRack.AnchorTooltip(ItemRack.TooltipOwner)
+		ItemRack.AnchorTooltip(ItemRack.TooltipOwner, true)
 		if ItemRack.TooltipType=="BAG" then
 			if ItemRack.TooltipBag == BANK_CONTAINER or ItemRack.TooltipBag == -1 then
 				GameTooltip:SetInventoryItem("player",BankButtonIDToInvSlotID(ItemRack.TooltipSlot))

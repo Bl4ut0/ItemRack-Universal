@@ -541,7 +541,11 @@ Tooltips:
 * Show tooltips [Account-wide; Fresh-profile default: ON] Enables ItemRack-owned
   tooltips.
 * Tooltips beside buttons [Account-wide; Fresh-profile default: OFF; requires Show
-  tooltips] Anchors ItemRack tooltips near the cursor.
+  tooltips] Anchors ItemRack tooltips beside the hovered button; it does not
+  follow the mouse cursor. Leave this OFF to use WoW's default placement or let
+  a tooltip addon such as TipTac control positioning, including Mouse Anchor.
+  Same-owner item refreshes preserve that placement. Character-sheet breakouts
+  retain their separate placement rules to avoid covering the item list.
 * Always compare breakout items [Account-wide; Fresh-profile default: OFF;
   requires Show tooltips] Requests the equipped-item comparison beside ItemRack
   flyout rows even when the WoW client normally requires its comparison

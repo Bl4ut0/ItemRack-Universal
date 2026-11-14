@@ -4,6 +4,89 @@ const { extractFunction, runLua } = require('./lib/lua_harness');
 const core = 'ItemRack/ItemRack.lua';
 const queue = 'ItemRack/ItemRackQueue.lua';
 const options = 'ItemRackOptions/ItemRackOptions.lua';
+// November 13 / prokn4h: TipTac Forever Mouse Anchor + floating item button.
+// Models its documented SetOwner/default-anchor hooks; this proves anchor-reset
+// behavior, not native rendering, scoring or the reporter's complete flicker.
+runLua(String.raw`
+ItemRack={CombatQueue={},SlotInfo={},StartTimer=function() end,StopTimer=function() end,
+  GetPendingSetBindingDisplayID=function() end,GetInfoByID=function(id) return id end,
+  ShrinkTooltip=function() end,ShowBreakoutComparison=function() end}
+ItemRackSettings={ShowTooltips='ON',TooltipFollow='OFF',MenuOnShift='OFF'}
+local function button(id)
+  return {GetID=function() return id end,GetName=function() return 'ItemRackButton'..id end,
+    GetLeft=function() return 100 end}
+end
+local owner,other=button(13),button(14)
+local defaultCalls,ownerCalls,inventoryCalls,bagCalls=0,0,0,0
+local cooldown,firstShowPosition=10,nil
+GameTooltip={shown=false,lines={}}
+function GameTooltip:GetOwner() return self.owner end
+function GameTooltip:IsShown() return self.shown end
+function GameTooltip:SetOwner(o,side)
+  self.owner=o; self.anchor=side; self.position=side; self.lines={}; ownerCalls=ownerCalls+1
+end
+function GameTooltip:SetInventoryItem(_,slot) self.item=slot; self.lines={}; inventoryCalls=inventoryCalls+1 end
+function GameTooltip:SetBagItem(bag,slot) self.item=bag..':'..slot; self.lines={}; bagCalls=bagCalls+1 end
+function GameTooltip:AddLine(line) self.lines[#self.lines+1]=line end
+function GameTooltip:Show() firstShowPosition=firstShowPosition or self.position; self.shown=true end
+function GameTooltip:Hide() self.shown=false end
+function GameTooltip_SetDefaultAnchor(tip,o)
+  defaultCalls=defaultCalls+1
+  tip:SetOwner(o,'ANCHOR_NONE')
+  -- Contract from TipTac 11.12: its default-anchor hook chooses Mouse Anchor.
+  tip.position='tiptac-mouse'
+end
+function GetInventoryItemCooldown() return cooldown end
+function GetContainerItemCooldown() return cooldown end
+function IsShiftKeyDown() return false end
+${extractFunction(core,'ItemRack.InventoryTooltip')}
+${extractFunction(core,'ItemRack.AnchorTooltip')}
+${extractFunction(core,'ItemRack.TooltipUpdate')}
+${extractFunction(core,'ItemRack.ClearTooltip')}
+${extractFunction(core,'ItemRack.OnTooltip')}
+owner.UpdateTooltip=ItemRack.InventoryTooltip
+other.UpdateTooltip=ItemRack.InventoryTooltip
+owner:UpdateTooltip(); ItemRack.TooltipUpdate()
+assert(defaultCalls==1 and GameTooltip.position=='tiptac-mouse','initial hover must allow the default-anchor hook')
+assert(firstShowPosition=='tiptac-mouse','default-anchor hook must position the tooltip before the first explicit Show')
+GameTooltip.position='external-custom-position'
+for i=1,10 do owner:UpdateTooltip(); ItemRack.TooltipUpdate() end
+assert(defaultCalls==1 and ownerCalls==1,
+  'reported-tiptac-mouse-anchor-floating-button: same-owner refresh must not reset anchor/owner')
+assert(inventoryCalls==11 and GameTooltip.position=='external-custom-position',
+  'content refresh must continue while preserving another addon placement')
+ItemRack.CombatQueue[13]='Pending item'
+owner:UpdateTooltip(); ItemRack.TooltipUpdate()
+assert(GameTooltip.lines[1]=='Queued: Pending item' and defaultCalls==1,'pending text must refresh without resetting placement')
+ItemRack.TooltipType='BAG'; ItemRack.TooltipBag=0; ItemRack.TooltipSlot=4
+ItemRack.TooltipUpdate()
+assert(bagCalls==1 and GameTooltip.item=='0:4' and defaultCalls==1,'bag content changes must retain placement')
+other:UpdateTooltip(); ItemRack.TooltipUpdate()
+assert(defaultCalls==2 and GameTooltip.owner==other,'a different button must acquire its own anchor')
+GameTooltip.owner={} -- another addon owns the shared tooltip now
+ItemRack.TooltipUpdate()
+assert(defaultCalls==3 and GameTooltip.owner==other,'a foreign owner must not satisfy the refresh guard')
+GameTooltip:Hide(); ItemRack.TooltipUpdate()
+assert(defaultCalls==4,'a hidden tooltip must reinitialize the default anchor')
+ItemRack.ClearTooltip(); other:UpdateTooltip(); ItemRack.TooltipUpdate()
+assert(defaultCalls==5,'leave/reenter must establish a fresh tooltip')
+ItemRackSettings.TooltipFollow='ON'
+ItemRack.TooltipUpdate()
+assert(GameTooltip.anchor=='ANCHOR_RIGHT','explicit TooltipFollow placement must still apply')
+ItemRackSettings.TooltipFollow='OFF'
+ItemRack.TooltipUpdate()
+assert(defaultCalls==6 and GameTooltip.position=='tiptac-mouse','switching back to default mode must reinitialize its hook')
+ItemRack.OnTooltip(other,'Options title','Options detail')
+assert(defaultCalls==7 and #GameTooltip.lines==2,'fresh non-refresh tooltips must clear old content and establish their anchor')
+cooldown=0
+ItemRack.TooltipUpdate()
+assert(defaultCalls==7,'zero-cooldown refresh must preserve the default anchor too')
+-- Without a positioning addon, the same policy preserves the native anchor.
+ItemRack.ClearTooltip()
+function GameTooltip_SetDefaultAnchor(tip,o) defaultCalls=defaultCalls+1; tip:SetOwner(o,'ANCHOR_RIGHT') end
+owner:UpdateTooltip(); ItemRack.TooltipUpdate(); ItemRack.TooltipUpdate()
+assert(defaultCalls==8 and GameTooltip.anchor=='ANCHOR_RIGHT','native default placement must remain supported')
+`, 'reported-tiptac-mouse-anchor-floating-button');
 // October 8 report/video & GitHub Issue #34 (Spiritshroud08 / Zackk):
 // Verifies character-slot and flyout tooltip anchoring without ANCHOR_NONE
 // (which broke GameTooltip_ShowCompareItem on Rings/Weapons/TipTac/RatingBuster)
