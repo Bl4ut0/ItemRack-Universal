@@ -47,7 +47,7 @@ hard to reproduce manually on a character with only a few saved sets.
 ## User-report regression workflow
 
 November 13 CurseForge / prokn4h: **TipTac Forever floating-button blinking;
-candidate mitigation on dev, client acceptance pending.** The report names
+candidate mitigation shipped in GitHub-only beta14, client acceptance pending.** The report names
 TipTac Forever, not TacoTip: hovering an Alt-click-created floating ItemRack
 button blinks heavily with Frame Tip Type = Mouse Anchor / Bottom Left.
 Source: https://www.curseforge.com/wow/addons/itemrack-universal/comments ;
@@ -89,6 +89,24 @@ and mouse-focus/enter/leave behavior before broadening the patch. A modeled
 anchor test does not establish a client rendering or mouse-focus fix.
 Validation: focused identity/tooltip suite and complete `npm.cmd test` passed.
 Accepted beta13, published releases and local client installations are unchanged.
+
+November 14 delivery: published `v4.59-beta14` from
+`4f3b265b6e3462ba0de6917ba6a192ca92ba3c40`, implementation
+`24f5b04fad30bf4fb44e88da4ad5c1d2bfbcebcb`:
+https://github.com/Bl4ut0/ItemRack-Universal/releases/tag/v4.59-beta14 .
+The 351,608-byte ZIP carries 50 verified addon files; SHA256
+`dda1721b090dab2012c5a15aed975ca80edd435ae5ac4d5354e23a8e31f96f0a`
+matches GitHub's asset digest. Both development and prepared-beta full
+`npm.cmd test` gates passed. The named regression also checks that the default
+anchor hook runs before ItemRack's first explicit Show; native rendering still
+requires reporter acceptance. The release notes include all preceding 4.59 beta
+sections and the new full diagnostic export. GitHub run 43560138140 succeeded:
+release-policy passed, verify-and-deploy skipped. No CurseForge submission or
+local client replacement occurred; stable Latest remains v4.58. Replied as
+Bl4ut0 to prokn4h's TipTac report with the release link, installation steps,
+Mouse Anchor ON / Tooltips beside buttons OFF, cooldown/leave/reenter checks
+and debug/dump instructions. CurseForge displayed "Your reply was posted."
+Development TOCs were restored after publication; the beta tag is immutable.
 
 November 13 owner request: optional `/itemrack dump full`, preserving the normal
 size after previous oversized-copy-window problems. Existing focused suite
