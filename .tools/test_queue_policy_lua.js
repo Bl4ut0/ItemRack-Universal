@@ -1,6 +1,42 @@
 const fs = require('fs');
 const { extractFunction, runLua } = require('./lib/lua_harness');
 
+runLua(String.raw`
+function CursorHasItem() return false end
+function InCombatLockdown() return false end
+function UnitAffectingCombat() return false end
+C_Timer={After=function() end}
+ItemRack={Debug=function() end,ClearLockList=function() end,UpdateCombatQueue=function() end,
+ IsPlayerReallyDead=function() return false end,RunAfterCombat={}}
+ItemRackUser={CurrentSet='Tank',EventStack={},Sets={Tank={equip={}},Ancient={equip={}},['~CombatQueue']={equip={}}}}
+${extractFunction('ItemRack/ItemRack.lua','ItemRack.ClearCombatQueueMetadata')}
+${extractFunction('ItemRack/ItemRack.lua','ItemRack.CancelDeferredSetRequests')}
+${extractFunction('ItemRack/ItemRack.lua','ItemRack.ProcessCombatQueue')}
+${extractFunction('ItemRack/ItemRackEquip.lua','ItemRack.EndSetSwap')}
+ItemRack.EquipSet=function(name) ItemRack.EndSetSwap(name) end
+for _,kind in ipairs({'manual','set','mixed'}) do
+ ItemRackUser.CurrentSet='Tank';ItemRack.CombatSet='Ancient'
+ ItemRack.CombatQueue={[13]='item'};ItemRack.CombatQueueSetOwner={}
+ if kind=='set' or kind=='mixed' then ItemRack.CombatQueueSetOwner[13]='Ancient' end
+ if kind=='mixed' then ItemRack.CombatQueue[14]='manual' end
+ ItemRack.ProcessCombatQueue()
+ assert(ItemRackUser.CurrentSet==(kind=='set' and 'Ancient' or 'Tank'),'issue-38-deferred-authority: anonymous/mixed items cannot inherit a stale set')
+ assert(ItemRack.CombatSet==nil and next(ItemRack.CombatQueueSetOwner)==nil,'consumption must retire ownership metadata')
+end
+ItemRack.CombatQueue={[13]='old-set',[14]='manual'};ItemRack.CombatQueueSetOwner={[13]='Ancient'}
+ItemRack.CancelDeferredSetRequests()
+assert(ItemRack.CombatQueue[13]==nil and ItemRack.CombatQueue[14]=='manual','new manual set must cancel older owned work without canceling independent manual items')
+ItemRackUser.CurrentSet='Tank';ItemRackUser.Sets['~CombatQueue'].oldset='Ancient'
+ItemRack.CombatQueueRestoreGeneration=0
+ItemRack.EndSetSwap('~CombatQueue')
+assert(ItemRackUser.CurrentSet=='Tank','a settling old batch cannot overwrite newer manual set authority')
+ItemRackUser.CurrentSet='OverlayA'
+ItemRackUser.Sets={Base={equip={}},OverlayA={equip={[1]='B'},old={[1]='A'},oldset='Base'},OverlayB={equip={[2]='C'},old={[2]='A'},oldset='OverlayA'}}
+ItemRack.EndSetSwap('OverlayB')
+assert(ItemRackUser.Sets.OverlayA.old[1]=='A' and ItemRackUser.Sets.OverlayA.oldset=='Base','issue-38-live-restore-ancestry: completing B must preserve A restoration')
+print('[ISSUE 38 OWNERSHIP LUA] Manual, set, mixed consumption and live restore ancestry passed.')
+`, 'issue-38-deferred-authority-and-restore');
+
 const policy = fs.readFileSync('ItemRack/ItemRackQueuePolicy.lua', 'utf8');
 
 // November 12 beta9 clarification: mirror the list, not the selected set's switch.

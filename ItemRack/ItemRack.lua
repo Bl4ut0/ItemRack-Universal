@@ -2315,14 +2315,17 @@ function ItemRack.ProcessCombatQueue()
 		for i in pairs(combat) do
 			combat[i] = nil
 		end
+		local hasNonAutoQueueSlot = false
+		local batchOwner, mixedOwner = nil, false
 		for i in pairs(queue) do
 			-- This processor is ordinary Lua, not a secure weapon macro. Keep all
 			-- slots queued until combat ends; permitted secure swaps happen elsewhere.
 			local canSwap = not inCombat
 			ItemRack.Debug("CombatQueue", "  ProcessCQ slot="..tostring(i).." canSwap="..tostring(canSwap))
 			if canSwap then
+				local isAuto = ItemRack.AutoQueueFlag and ItemRack.AutoQueueFlag[i]
 				local discard = false
-				if ItemRack.AutoQueueFlag and ItemRack.AutoQueueFlag[i] then
+				if isAuto then
 					local sourceOwner = ItemRack.AutoQueueOwner and ItemRack.AutoQueueOwner[i]
 					local sourceList = ItemRack.AutoQueueList and ItemRack.AutoQueueList[i]
 					local queueContext = ItemRack.GetQueueContext(i)
@@ -2344,17 +2347,30 @@ function ItemRack.ProcessCombatQueue()
 				else
 					combat[i] = queue[i]
 					queue[i] = nil
+					if not isAuto then
+						hasNonAutoQueueSlot = true
+						local owner = ItemRack.CombatQueueSetOwner and ItemRack.CombatQueueSetOwner[i]
+						if not owner or (batchOwner and batchOwner~=owner) then mixedOwner=true end
+						batchOwner = batchOwner or owner
+					end
 				end
 				ItemRack.ClearCombatQueueMetadata(i)
 			end
 		end
 		if next(combat) then
-			ItemRackUser.Sets["~CombatQueue"].oldset = ItemRack.CombatSet
+			ItemRack.CombatQueueRestoreGeneration = ItemRack.ManualSetGeneration or 0
+			ItemRackUser.Sets["~CombatQueue"].oldset = hasNonAutoQueueSlot and not mixedOwner
+				and batchOwner==ItemRack.CombatSet and batchOwner or nil
+			if not next(queue) then
+				ItemRack.CombatSet = nil
+			end
 			ItemRack.UpdateCombatQueue()
 			local previousDeferredEquipment = ItemRack.IsDeferredEquipment
 			ItemRack.IsDeferredEquipment = true
 			ItemRack.EquipSet("~CombatQueue")
 			ItemRack.IsDeferredEquipment = previousDeferredEquipment
+		elseif not next(queue) then
+			ItemRack.CombatSet = nil
 		end
 	end
 
@@ -5920,7 +5936,17 @@ function ItemRack.IsPlayerReallyDead()
 	return dead
 end
 
+function ItemRack.CancelDeferredSetRequests()
+	ItemRack.ManualSetGeneration = (ItemRack.ManualSetGeneration or 0)+1
+	for slot in pairs(ItemRack.CombatQueueSetOwner or {}) do
+		if ItemRack.CombatQueue then ItemRack.CombatQueue[slot]=nil end
+		ItemRack.ClearCombatQueueMetadata(slot)
+	end
+	ItemRack.CombatSet = nil
+end
+
 function ItemRack.ClearCombatQueueMetadata(slot)
+	if ItemRack.CombatQueueSetOwner then ItemRack.CombatQueueSetOwner[slot]=nil end
 	if ItemRack.AutoQueueFlag then
 		ItemRack.AutoQueueFlag[slot] = nil
 	end
@@ -5932,7 +5958,7 @@ function ItemRack.ClearCombatQueueMetadata(slot)
 	end
 end
 
-function ItemRack.AddToCombatQueue(slot,id,isAutoQueue)
+function ItemRack.AddToCombatQueue(slot,id,isAutoQueue,setOwner)
 	-- Skip if the saved item is already equipped. Legacy entries can use the
 	-- historical base-ID fallback; full entries require their saved item fields.
 	if id and id ~= 0 then
@@ -5957,9 +5983,12 @@ function ItemRack.AddToCombatQueue(slot,id,isAutoQueue)
 	ItemRack.AutoQueueFlag = ItemRack.AutoQueueFlag or {}
 	ItemRack.AutoQueueOwner = ItemRack.AutoQueueOwner or {}
 	ItemRack.AutoQueueList = ItemRack.AutoQueueList or {}
+	ItemRack.CombatQueueSetOwner = ItemRack.CombatQueueSetOwner or {}
 	if ItemRack.CombatQueue[slot] ~= id or ItemRack.AutoQueueFlag[slot] ~= isAutoQueue
-	or ItemRack.AutoQueueOwner[slot] ~= queueOwner or ItemRack.AutoQueueList[slot] ~= queueList then
+	or ItemRack.AutoQueueOwner[slot] ~= queueOwner or ItemRack.AutoQueueList[slot] ~= queueList
+	or ItemRack.CombatQueueSetOwner[slot] ~= setOwner then
 		ItemRack.CombatQueue[slot] = id
+		ItemRack.CombatQueueSetOwner[slot] = setOwner
 		ItemRack.AutoQueueFlag[slot] = isAutoQueue
 		ItemRack.AutoQueueOwner[slot] = queueOwner
 		ItemRack.AutoQueueList[slot] = queueList

@@ -46,6 +46,35 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+Issue #38 local candidate: the pending broad history deletion was removed.
+Deferred slots now retain explicit source-set ownership; anonymous/manual and
+mixed non-auto batches cannot infer a set owner from stale CombatSet. A new
+manual set request retires older set-owned deferred slots and advances a manual
+generation. A settling ~CombatQueue batch cannot restore its set authority after
+that generation changes. Independent manual item requests remain queued.
+`issue-38-deferred-authority-and-restore` extends the standard queue-policy
+suite with production processor, completion and cancellation functions, covering
+manual/set/mixed batches, metadata consumption, newer manual precedence, stale
+completion and live Base -> A -> B restoration ancestry. Modeled completion
+does not establish the reporter's exact original input sequence or native item
+timing. Local general-use and community acceptance remain required. Passive
+queue ranking and physical transaction serialization retain their existing
+behavior; batching is not claimed as a resolved cooldown defect. TipTac visual
+acceptance remains separate. No beta publication is authorized until the owner
+accepts this local general-use candidate.
+Validation: full `npm.cmd test` passed for this source, including the new
+ownership/restore/cancellation/late-completion case and existing tooltip cases.
+Installed ItemRack and ItemRackOptions to Forever only with the existing scoped
+installer. Both directory mirrors passed and the other clients' core/options
+Lua and TOC hashes are unchanged. Installed core SHA256:
+`244981159942f386f455d97ba83b73be861c5150d3ff04943c8adca2f71684fa`;
+equip SHA256:
+`fb029f793ecef2642857d84f45ad9689de8a5d2fd784a408cb344e429ec7dcc4`.
+This is Dev, not a published release. Owner must reload and check general use,
+set/partial-set restores and combat-deferred selections. Actual resolution of
+the reporter's incident and TipTac movement still requires client acceptance.
+No beta/tag/publication or CurseForge submission occurred.
+
 November 14 owner report / Forever beta14 local test: native SetLootItem for
 Copper Ore (2770) reaches OnTooltipItemData and fails at the first tooltip line
 with "attempt to index local 'text' (a secret string value...)". The supplied

@@ -536,6 +536,7 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 			pendingSpecSet.setname, "->", setname)
 	end
 	if not ItemRack.IsEventEquipment and not ItemRack.IsDeferredEquipment and string.sub(setname,1,1) ~= "~" then
+		if ItemRack.CancelDeferredSetRequests then ItemRack.CancelDeferredSetRequests() end
 		if ItemRack.ManualToggledSet and ItemRack.ManualToggledSet ~= setname then
 			ItemRack.ManualToggledSet = nil
 		end
@@ -768,7 +769,7 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 			do
 				local detail = secureMacroMismatch and "secure macro left an item-identity mismatch" or reason
 				ItemRack.Debug("Equip", "  slot " .. tostring(i) .. " -> " .. tostring(swap[i]) .. " DEFERRED to CombatQueue (" .. detail .. ")")
-				ItemRack.AddToCombatQueue(i,swap[i])
+				ItemRack.AddToCombatQueue(i,swap[i],nil,isInternalSet and set.oldset or setname)
 				swap[i] = nil
 				if set.old then
 					set.old[i] = ItemRack.GetID(i)
@@ -819,7 +820,7 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 	-- stuck. The CombatQueue will process them cleanly when combat ends.
 	if InCombatLockdown() then
 		for i in pairs(swap) do
-			ItemRack.AddToCombatQueue(i,swap[i])
+			ItemRack.AddToCombatQueue(i,swap[i],nil,isInternalSet and set.oldset or setname)
 			if set.old then
 				set.old[i] = ItemRack.GetID(i)
 				ItemRack.CombatSet = setname
@@ -1367,6 +1368,9 @@ function ItemRack.EndSetSwap(setname)
 		if not string.match(setname,"^~") then --do not list internal sets, prefixed with ~
 			ItemRackUser.CurrentSet = setname
 			ItemRack.HybridSet = nil
+			if ItemRack.CombatSet and ItemRack.CombatSet ~= setname and not next(ItemRack.CombatQueue or {}) then
+				ItemRack.CombatSet = nil
+			end
 			C_Timer.After(0.5, ItemRack.UpdateCurrentSet)
 
 			-- Dual Spec Support: Auto-Swap Spec if Set is bound
@@ -1408,7 +1412,9 @@ function ItemRack.EndSetSwap(setname)
 			-- Internal set (e.g. ~Unequip, ~CombatQueue) finished restoring gear.
 			-- Set CurrentSet back to the set name stored in oldset.
 			local restoredSet = ItemRackUser.Sets[setname].oldset
-			ItemRackUser.CurrentSet = restoredSet
+			if setname~="~CombatQueue" or ItemRack.CombatQueueRestoreGeneration==(ItemRack.ManualSetGeneration or 0) then
+				ItemRackUser.CurrentSet = restoredSet
+			end
 			if ItemRack.PendingSetHistory then
 				ItemRack.PendingSetHistory[restoredSet] = nil
 			end
