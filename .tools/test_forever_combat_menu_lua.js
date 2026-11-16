@@ -5,7 +5,7 @@ const fs = require('fs');
 const coreFile = 'ItemRack/ItemRack.lua';
 const coreSource = fs.readFileSync(coreFile,'utf8');
 assert(coreSource.includes('=== BREAKOUT DISCOVERY DIAGNOSTICS ===')
-  && coreSource.includes('pcall(ItemRack.GetMenuDiagnosticReport)'),
+  && coreSource.includes('pcall(ItemRack.GetMenuDiagnosticReport,fullDump)'),
   'breakout-diagnostics-dump: include the recorder without letting collection failure abort /dump');
 const alreadyInMenu = extractFunction(coreFile, 'ItemRack.AlreadyInMenu');
 const addToMenu = extractFunction(coreFile, 'ItemRack.AddToMenu');

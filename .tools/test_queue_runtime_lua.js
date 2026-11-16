@@ -1864,6 +1864,9 @@ ${loadSpecialCatalog}
 ${extractFunction(itemRackFile,'ItemRack.Debug')}
 ${extractFunction(itemRackFile,'ItemRack.SplitDiagnosticPages')}
 ${extractFunction(itemRackFile,'ItemRack.ShowDiagnosticPage')}
+${extractFunction(itemRackFile,'ItemRack.MenuDiagnosticValue')}
+${extractFunction(itemRackFile,'ItemRack.GetTooltipAnchorTraceReport')}
+${extractFunction(itemRackFile,'ItemRack.FormatTooltipAnchorTraceReport')}
 ${extractFunction(itemRackFile,'ItemRack.SlashHandler')}
 local checks=0
 local function check(value,message) assert(value,message);checks=checks+1 end
@@ -1933,6 +1936,46 @@ local malformed=string.rep(string.char(128),25000)
 local malformedPages=ItemRack.SplitDiagnosticPages(malformed)
 check(#malformedPages==2 and table.concat(malformedPages)==malformed,'malformed byte runs must make bounded progress without dropping data')
 check(#ItemRack.SplitDiagnosticPages('')==1,'empty full export must still have one copyable page')
+-- Owner supplied four pages of a ten-page report for a ten-second trace.
+-- Exercise the actual focused command with unrelated retained logs still full.
+local reportGetter,specialGetter=ItemRack.GetMenuDiagnosticReport,special.GetDiagnostics
+ItemRack.GetMenuDiagnosticReport=function() error('focused export must not collect bag/profile diagnostics') end
+special.GetDiagnostics=function() error('focused export must not collect special-item diagnostics') end
+ItemRack.TooltipAnchorTrace={status='limit',started=99,untilTime=109,entries={}}
+for i=1,128 do
+ ItemRack.TooltipAnchorTrace.entries[i]={time=100+i/100,frame='ShoppingTooltip1',event='SetPoint',
+  point='TOP',relative='GameTooltip',anchor='TOP',x=0,y=i%2==0 and -10 or 0,
+  top=300,bottom=110,height=190,scale=0.71111112833023,
+  caller=i%2==0 and 'TipTac layout\nRefreshAnchorShoppingTooltips' or 'Native layout\nAnchorShoppingTooltips'}
+end
+ItemRack.SlashHandler('dump tooltips')
+local focused=table.concat(frame.DumpPages)
+local _,rows=focused:gsub(' | ST1 | SetPoint | ','')
+local _,nativeCallers=focused:gsub('Native layout','')
+local _,controllerCallers=focused:gsub('TipTac layout','')
+check(rows==128 and focused:find('128 | 101.28 | ST1',1,true) and focused:find('status=limit retained=128',1,true),
+ 'reported-tooltip-trace-export-size: focused command must include all retained samples, not only the normal 16-sample tail')
+check(focused:find('comparisonPolicy=native-per-render-v1 observed=0 duplicatesSkipped=0',1,true),
+ 'focused report must identify the candidate comparison policy even before any reuse')
+check(nativeCallers==1 and controllerCallers==1,'focused export must deduplicate repeated stacks while preserving each row caller ID')
+check(#frame.DumpPages==1 and not frame.NextPage.shown and not frame.PageLabel.shown,
+ 'representative full tooltip capture must fit one safe copy view regardless of unrelated log/profile size')
+check(not focused:find('ACTIVITY_',1,true) and not focused:find('SPECIAL',1,true) and not focused:find('ConfiguredSets',1,true),
+ 'focused tooltip export must exclude unrelated logs, sets and special-item traces')
+check(#ItemRack.TooltipAnchorTrace.entries==128 and #ItemRack.LogBuffer==originalCount and #special.Trace==2048,
+ 'focused export must preserve the existing capture and all unrelated retained evidence')
+for i,entry in ipairs(ItemRack.TooltipAnchorTrace.entries) do entry.caller=tostring(i)..string.rep('s',630) end
+ItemRack.SlashHandler('dump tooltips')
+local largeFocused=table.concat(frame.DumpPages)
+check(#frame.DumpPages>1 and frame.NextPage.shown and largeFocused:find('128'..string.rep('s',630),1,true),
+ 'unique long stacks must use safe pages without dropping evidence or exceeding native limits')
+for _,page in ipairs(frame.DumpPages) do
+ local _,newlines=page:gsub('\n','')
+ check(#page<=24000 and newlines<=400,'focused export must obey the existing native EditBox bounds')
+end
+ItemRack.TooltipAnchorTrace=nil;ItemRack.SlashHandler('dump tooltips')
+check(ItemRackLogEditBox:GetText():find('status=off retained=0',1,true),'focused export before capture must explain its empty state')
+ItemRack.GetMenuDiagnosticReport,special.GetDiagnostics=reportGetter,specialGetter
 ItemRack.LogBuffer={};special.ClearDiagnostics();ItemRack.SlashHandler('dump full')
 check(ItemRackLogEditBox:GetText():find('All 0 retained lines',1,true),'empty log buffers must still produce the full state report')
 now=221;special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Expired',999999)

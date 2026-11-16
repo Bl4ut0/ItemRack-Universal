@@ -354,6 +354,14 @@ SLASH COMMANDS
   special-item trace entries, alongside the state sections. Review before
   sharing because reports can include set names and item information.
 
+/itemrack dump tooltips
+  Export only the current tooltip anchor capture, including all retained
+  samples. Each sample is one row; caller IDs refer to unique stacks printed
+  once below the rows. No bag, saved-set or unrelated log tables are included.
+  Safe Previous/Next pages appear only if needed. Export does not clear or
+  restart the capture. Use /itemrack debug tooltips before reproducing a
+  comparison-position problem, then dump before reload/relog.
+
 /itemrack dump full
   Export every retained activity line (up to 5,000), queue-recorder entry and
   special-item trace entry with the same state sections. Full reports have
@@ -546,10 +554,20 @@ Tooltips:
   a tooltip addon such as TipTac control positioning, including Mouse Anchor.
   Same-owner item refreshes preserve that placement. Character-sheet breakouts
   retain their separate placement rules to avoid covering the item list.
+  For comparison-position problems, /itemrack debug tooltips records anchor
+  writers and rendered position/size changes for up to ten seconds or 128
+  changes. Hover the affected item, then use /itemrack dump tooltips to copy
+  every retained entry without unrelated state tables. Normal dump includes
+  the latest 16; dump full includes the full trace and all other diagnostics.
+  Stop early with
+  /itemrack debug tooltips stop. This capture only reads ItemRack tooltip
+  context; it does not reposition frames or change TipTac settings/files.
 * Always compare breakout items [Account-wide; Fresh-profile default: OFF;
   requires Show tooltips] Requests the equipped-item comparison beside ItemRack
   flyout rows even when the WoW client normally requires its comparison
   modifier. Turning it off follows the client's comparison CVar and modifier.
+  When the client already supplies a comparison during the current item
+  refresh, ItemRack preserves it rather than requesting a duplicate rebuild.
   Menu on Shift still suppresses comparisons while opening a flyout to avoid
   overlapping tooltips.
 * Show set info in tooltips [Account-wide; Fresh-profile default: OFF; requires

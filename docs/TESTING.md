@@ -46,8 +46,37 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 14 owner report / Forever beta14 local test: native SetLootItem for
+Copper Ore (2770) reaches OnTooltipItemData and fails at the first tooltip line
+with "attempt to index local 'text' (a secret string value...)". The supplied
+stack identifies `text:find` in the duplicate-set-marker scan; the same read
+exists in ListSetsHavingItem. This is a separate concrete failure from the
+reporter's comparison-tooltip movement. Owner's CVar screenshot returns
+alwaysCompareItems = "1" and shows comparisons rendered; it does not establish
+TipTac Mouse Anchor settings or reproduce the oscillation.
+
+Named permanent regression `reported-forever-secret-loot-tooltip-text` extends
+`.tools/test_identity_matching_lua.js` in the standard gate. It invokes the
+actually registered TooltipDataProcessor item post-call with the reported loot
+payload, then production hyperlink parsing and set-list scanning. Marked real
+Lua strings reject method lookup, modeling the exact forbidden operation. The
+case fails before the fix at that lookup and passes with explicit secret guards;
+it also covers readable public identity beside an unreadable title, modern and
+legacy deduplication, direct secret-link rejection, disabled/forbidden tooltips
+and clients without secret-value APIs. Fengari does not implement native WoW
+secrets/taint: client acceptance remains re-hovering loot/bag/equipped items with
+Show set info in tooltips enabled and checking for no new error. The change is
+on dev; beta14's immutable tag remains unchanged. TipTac comparison lifecycle
+and global/native tooltip placement are not changed by this correction.
+Validation: the full `npm.cmd test` gate passed. Installed this tested development
+tree into `_forever_` only with the existing installer's manifest/path/mirror
+checks and a single-client scope; its TOCs now read Dev. TipTac was unchanged by
+that installation. Owner must `/reload` and re-hover loot to accept the native
+secret-string fix. No new beta or tag was created.
+
 November 13 CurseForge / prokn4h: **TipTac Forever floating-button blinking;
-candidate mitigation shipped in GitHub-only beta14, client acceptance pending.** The report names
+candidate mitigation shipped in GitHub-only beta14; main-tooltip reporter
+acceptance received, comparison movement unresolved.** The report names
 TipTac Forever, not TacoTip: hovering an Alt-click-created floating ItemRack
 button blinks heavily with Frame Tip Type = Mouse Anchor / Bottom Left.
 Source: https://www.curseforge.com/wow/addons/itemrack-universal/comments ;
@@ -107,6 +136,260 @@ Bl4ut0 to prokn4h's TipTac report with the release link, installation steps,
 Mouse Anchor ON / Tooltips beside buttons OFF, cooldown/leave/reenter checks
 and debug/dump instructions. CurseForge displayed "Your reply was posted."
 Development TOCs were restored after publication; the beta tag is immutable.
+
+November 14 follow-up: after explicit owner authorization, read the reporter's
+diagnostic conversation and downloaded the new dump and screenshot. Raw private
+evidence and its source manifest remain local and ignored under
+`.versions/ReporterEvidence/prokn4h-2026-11-14/`; do not publish the attachments.
+The reporter confirms the main tooltip stays steady; equipped-item comparison
+tooltips oscillate vertically when hovering a potential replacement in the
+quick-access breakout, with TipTac active. The still screenshot establishes the
+item/tooltip context, not the motion or its frame timing.
+
+Dump confirms beta14, Forever 1.60.1 build 70938, TipTac modules 11.12.26,
+TooltipFollow OFF, all Tiny Tooltips OFF, MenuScale 0.85 and
+AlwaysCompareBreakoutItems OFF. It is out of combat; slot-13 discovery found
+three items plus the empty row. The menu is closed at dump time. Native
+alwaysCompareItems, the modifier at the failing hover, comparison-frame
+geometry/ownership and callback timing are not captured. An OFF ItemRack
+comparison option does not imply comparisons are disabled: the shared predicate
+also honors the game's CVar and comparison modifier.
+
+Source lead: MenuTooltip's native UpdateTooltip callback rebuilds bag content
+and invokes ShowBreakoutComparison; TipTac also hooks native comparison layout,
+post-styling and mouse updates to refresh ShoppingTooltip1/2 placement and size.
+An ignored offline probe of production MenuTooltip/TooltipUpdate/predicate/
+comparison functions models 11 unchanged-row callbacks. With the game CVar ON,
+it observes one default-anchor initialization but 11 content rebuilds and 11
+explicit comparison requests. With CVar OFF and no modifier, it observes zero
+comparison requests and repeated hides. These are modeled call counts, not
+observed reporter timings or a reproduction of vertical oscillation.
+
+Next correction should investigate comparison lifecycle and re-layout ownership,
+preserving the accepted main-tooltip anchor fix. Any refresh coalescing must
+invalidate on hovered-item/owner/equipment/modifier changes, hidden tips, async
+item data and cooldown content; blindly skipping compare calls can leave stale
+tips. Do not overwrite global anchors or TipTac methods. Extend the existing
+identity/tooltip suite with a permanent reported-comparison regression only
+when the failure is reproduced. Actual native layout still needs acceptance.
+For a targeted existing-client capture, TipTac 11.12 provides `/ttcount` (five
+seconds; up to 30 counter rows). Pair its hover output with
+`/dump GetCVar("alwaysCompareItems")`; a short video or frame-position trace is
+needed to establish the exact competing placement/timing. No new patch or
+release is claimed from this review; beta14 remains immutable.
+
+Owner's subsequent local-test request: installed the exact beta14 staged tag
+and the reviewed TipTac Forever 11.12.26 archive into `_forever_` only, including
+ItemRackOptions and all four TipTac modules. The existing installer was scoped
+to its single `_forever_` client entry for this invocation, retaining release
+manifest and full byte-mirror verification. TipTac's 257 files were mirrored
+against the complete archive extraction and `/ttcount` registration was verified
+on disk. Ten ItemRack/Options TOC hashes across the other five clients were
+unchanged. Full `npm.cmd test` passed before deployment. No addon settings or
+SavedVariables were edited. Restart the client to detect the new TipTac folders;
+set Frame Tip Type = Mouse Anchor / Bottom Left and Tooltips beside buttons OFF
+for the reporter's scenario. `/ttcount` prints its five-second counters to chat,
+separately from ItemRack's dump. Live loading and diagnostic output are still
+owner acceptance checks.
+
+Owner subsequently reproduced comparison movement with Mouse Anchor enabled;
+provided screenshots show both aligned tops and a roughly 10-pixel vertical
+gap. The supplied `/ttcount` capture records 5/s SetBagItem, 10/s comparison
+requests, 20/s comparison SetOwner and 39/s full TipTac layout passes. These
+counts establish repeated layout work, not an ItemRack source for every call.
+
+A more specific source lead supersedes assuming refresh coalescing alone is
+the remedy: the current exported Blizzard TooltipComparisonManager layout uses
+Y=0 for each comparison's TOP point, while TipTac 11.12's bundled library uses
+Y=-10 in all three corresponding calls. The external reference is
+https://github.com/Gethe/wow-ui-source/blob/live/Interface/AddOns/Blizzard_SharedXMLGame/Tooltip/TooltipComparisonManager.lua
+(download SHA256 5734a4f0270f47b5d8c858d6f9d355d2850fc258687d75a372631369f3420727).
+This is a reference export, not a verified dump of Forever build 70938.
+An ignored offline source probe executes both actual layout methods against
+modeled geometry, showing 0/-10/0 alternation before correction and agreement
+at 0 after, for left/right placement and one/two comparison panels. It does not
+establish native rendering or callback ordering by itself.
+
+Applied a local diagnostic patch only to the four installed TipTac library
+copies: replace those three -10 offsets with 0 in each copy. All four on-disk
+original hashes matched the reviewed archive before replacement; all patched
+hashes match staged candidates. The four copies are the only installed
+LibFroznFunctions providers and share minor 72. No TipTac source is added to the
+repository or ItemRack package, no global hooks are overridden, and no comparison
+coalescing change is added to ItemRack from this lead. Exact original files are
+retained in the reviewed vendor archive/staging for restoration if ineffective.
+Local patch manifest: `.versions/LocalInstall/TipTac-Forever-comparison-offset-zero/PATCH_MANIFEST.json`.
+Client acceptance is pending: `/reload`, repeat the same hover with automatic
+comparisons and mouse anchoring, then test one/two equipped comparisons, modifier
+changes and screen edges. If ineffective, restore those four original files;
+the separate regression-backed ItemRack secret guard remains applicable.
+
+Owner subsequently required an ItemRack adapter with unmodified TipTac, local
+testing before beta publication and reporter follow-up. Restored all four
+TipTac library copies to their exact reviewed vendor hashes; the spacing-patch
+trial above is retired. No beta15 or reporter message is authorized before this
+local adapter test is accepted.
+
+**Rejected local handoff trial (removed):** `FinishTipTacComparisonLayout` post-hooked the modern manager after
+a default ItemRack hover discovers TipTac's anchoring method. It synchronously
+invokes TipTac's own SetAnchorToTip for the active, exactly owned ItemRack item
+tooltip. Its internal enabled/default-anchor/exclusion checks still decide
+placement. There are no ItemRack spacing constants or replacement TipTac methods.
+Explicit/character-sheet placement, foreign owners, forbidden/secret endpoints,
+missing modern APIs and inactive tooltips are excluded. Reentry is suppressed;
+a failed handler is disabled until replaced/reload. Public counters in breakout
+diagnostics report installation, handoffs and errors; a handoff count does not
+prove TipTac chose to move a disabled/excluded tooltip.
+
+The removed modeled case `reported-tiptac-comparison-layout-handoff` extended the
+identity/tooltip suite. With the original AnchorTooltip integration it failed
+because native layout returns before any handoff; wiring the lazy registrar
+makes it pass. The production registrar/callback/AnchorTooltip execute with
+modeled native/controller endpoints. Cases include repeated same-callback final
+placement, one/two comparison panels, unrelated owners, explicit ItemRack mode,
+missing default context, forbidden/secret visibility, controller settings and
+exclusions, recursive layout, one-time error fallback/recovery, optional addon
+absence and late/replaced modern managers. Existing anchor and secret-text cases
+remain active.
+
+The local ignored interop probe additionally executes actual unmodified TipTac
+SetAnchorToTip, its internal/mouse methods, RefreshAnchorShoppingTooltips and its
+real geometry/point cache with the exported native layout and production adapter.
+Twenty native layouts finish consistently at TipTac's own placement; real
+disabled-anchor/default-exclusion settings keep native placement. Cache checks
+and cache-state writes are asserted to succeed, avoiding a silent error fallback
+in the model. Native rendering, taint and the exact Forever callback ordering
+remain owner acceptance. Test after `/reload` with original TipTac, compare the
+same hovering/mouse motion, check both equipped comparisons, modifier changes,
+edges and other addons' tooltips. `/dump ItemRack.TipTacComparisonAdapter` or the
+normal dump should show installed=true, increasing handoffs and errors=0.
+Validation/deployment: focused regression and complete `npm.cmd test` passed.
+Installed this exact development tree to `_forever_` only; installed core SHA256
+`d50f3b57508edf9f5085e832585fc4848f4009b4b4c4507cc76a06936682e511`.
+Full directory/file/hash comparison verifies all 257 TipTac files match the
+unmodified official 11.12.26 extraction. Ten other-client ItemRack/Options TOC
+hashes remain unchanged. No beta15 metadata/tag/release or reporter follow-up
+was created. Owner acceptance of this restored-TipTac + ItemRack-adapter build
+is required before resuming that publication request.
+
+**Owner rejected the handoff build:** screenshots and an in-client dump show
+installed=true, handoffs=132, errors=0 while the comparison still oscillates.
+The installed core hash equals the tested workspace hash above. This disproves
+the synchronous-manager-handoff correction, not the owner's deployment. Removed
+that runtime adapter and its successful-but-incomplete modeled contract case,
+per the owner's requirement to undo ineffective changes. TipTac remains the
+original vendor build; secret-text guards and beta14's accepted main-tooltip
+refresh correction remain. No beta15 or reporter reply may proceed yet.
+
+Added an opt-in, read-only `/itemrack debug tooltips` capture to identify the
+actual point writer or size change after that attempted handoff. Existing
+GameTooltip/ShoppingTooltip endpoints are observed through secure SetPoint
+post-hooks and OnUpdate/OnSizeChanged samples; no controller or positioning
+method is invoked by collection. Only the active exactly owned ItemRack tooltip
+context is captured. Samples deduplicate unchanged geometry, expire at ten
+seconds, stop at 128 entries and bound stacks to 640 characters. Normal dumps
+include 16 recent samples; full dumps include all retained samples in paged
+output. Explicit stop and existing debug clear retain/clear evidence as named.
+Hook components are registered once even when another component is unavailable.
+Secret values are redacted before inspection or serialization.
+
+Named permanent case `reported-tiptac-comparison-anchor-trace` executes the actual
+SlashHandler/recorder/report functions. It captures native 0, controller -10 and
+a later 0 write, its caller, rendered geometry and size changes, while asserting
+no extra SetPoint/controller calls. It also checks unchanged-frame deduplication,
+foreign/forbidden contexts, redaction, stack/capacity limits, normal/full tails,
+rearm hook idempotence, expiry, stop and clear. This verifies diagnostics, not a
+fix for the live oscillation. The next native acceptance step is a capture of
+the real bouncing hover; do not infer the last writer from the old model.
+Validation: complete `npm.cmd test` passed after the removal/capture changes.
+Installed both addon folders to Forever only; installed core SHA256
+`d562a0890586934f7216fcde7165b24883ddfe2eecb4ad41eaa954f3159fe9b3`.
+Installer mirrors verify the failed handoff is absent, capture is present and
+all 257 TipTac files still match the vendor package. Other-client metadata was
+unchanged. Owner must reload to discard the old in-memory secure hooks, run
+`/itemrack debug tooltips`, hold over the bouncing row for ten seconds and export
+the capture (normal dump tail or full dump with pages copied in order). Beta15
+and the reporter reply remain deferred; no comparison correction is claimed.
+
+November 14 owner capture/export follow-up: the owner reports fourteen pages
+for the ten-second capture, then supplies the first four pages of a ten-page
+report. Those pages contain trace entries 1 through 68 (status limit, retained
+128), spanning uptime 301568.487 through 301568.947. They are sufficient to
+identify repeated native comparison TOP y=0 writes from
+TooltipComparisonManager.lua:136 and TipTac TOP y=-10 writes from
+LibFroznFunctions-1.0.lua:3172. The main tooltip repeatedly changes height from
+232.248 to 148.248, 176.248 and back to 232.248; the comparison height stays
+190.248 in this sequence. Size stacks identify TipTac's RecalculateSizeOfGameTooltip,
+TipTacItemRef and SetScaleToTip paths. These are observed calls and geometry,
+not proof of a rendering fix or evidence that offset alone explains the bounce.
+Remaining capture pages are not needed to establish that repeated sequence.
+
+Added `/itemrack dump tooltips` so a targeted capture does not require copying
+the entire unrelated support report. Compact ordered rows preserve every retained
+sample and reference unique caller stacks printed once; existing safe byte/line
+pagination remains available for many distinct long stacks. Existing normal/full
+exports are unchanged. The named `reported-tooltip-trace-export-size` assertions
+extend the standard gate's `dump-full-retained-diagnostics` production-SlashHandler
+case. They export 128 samples while activity/special buffers remain full, reject
+unrelated diagnostic collection, check caller deduplication/completeness and
+evidence preservation, fit a representative capture in one page, and exercise
+safe pagination for 128 distinct long stacks and the empty-capture state.
+Native copy-window acceptance remains required. No tooltip correction, beta
+publication or reporter reply is claimed by this export improvement.
+Validation: complete `npm.cmd test` passed with the focused command and updated
+capture instructions. Installed both addon folders to Forever only using the
+existing scoped installer; core SHA256
+`25447deb6056ff1eb87bc7771ea5831730d1739bb2513fb2599d3cf6661ab28c`.
+Both folder mirrors passed, all 257 TipTac vendor files remain unchanged, and
+the other five clients' core/options Lua and TOC hashes are unchanged. No further
+capture is required to establish the repeated sequence already supplied; the
+focused command becomes available on the owner's next normal reload.
+
+November 14 focused follow-up capture: owner supplied both pages, including all
+128 samples and caller IDs 1-29, and confirms the pointer was held over one item.
+Capture started at uptime 302851.467; samples span only 302858.560-302858.970
+before hitting capacity. Do not describe this as ten seconds of observed motion
+or assume the owner switched items. The main tooltip's final sampled height
+changes (188.248 then 162.248) accompany repeated intermediate sizing and
+native y=0 / TipTac y=-10 writes. Sampled comparison OnUpdate rows 90 and 120
+both retain y=-10. This does not establish native y=0 as the final rendered
+writer; another last-writer handoff is unsupported by this evidence.
+
+Production MenuTooltip/TooltipUpdate and IDTooltip render native item content,
+then unconditionally request comparison again. A candidate correction observes
+the modern manager's public CompareItem method through a secure post-hook and
+records its revision before rendering. Only a newer revision from that render
+plus a visible, non-secret, non-forbidden comparison owned by GameTooltip can
+suppress the redundant explicit request. A previously visible comparison alone
+never qualifies. No positioning or TipTac methods are invoked by the observer.
+Forced/manual comparisons, hidden/foreign/secret results, absent managers and
+failed hooks retain the explicit fallback; failed registration is not retried
+every refresh. This coalesces requests, not content updates or equipment data.
+
+Named permanent `reported-tiptac-native-comparison-duplicate` in the standard
+identity suite executes production MenuTooltip, TooltipUpdate, IDTooltip,
+predicate, observer and comparison helper with modeled native endpoints. Eleven
+identical renders must produce eleven native comparisons and zero extra explicit
+requests; item changes still render immediately. It covers previous-item stale
+results, forced/disabled policy, hidden/foreign/secret ownership, replacement
+managers, legacy fallback and failed registration. The unchanged old comparison
+helper fails this same test at the redundant-request assertion. Native rendering
+and TipTac's full lifecycle are not implemented by Fengari: this test verifies
+the redundant-call correction and must not be described as proving the visible
+bounce fixed. Acceptance remains a local Forever hover with untouched vendor
+TipTac, comparison modifiers/Always Compare on and off, changing items/equipment,
+and legacy behavior before release. Keep beta15 and the reporter reply on hold.
+The focused export labels `comparisonPolicy=native-per-render-v1` and includes
+observed comparison/duplicate-skip counters to establish whether the candidate
+path actually ran, independently of visual acceptance. Validation: final full
+`npm.cmd test` passed; the local baseline replay fails the named assertion with
+the unchanged old comparison helper. Installed both addon folders into Forever
+only; core SHA256
+`8a8cbd2fe76771d977e587d4b72075ab3f83391ba386983cc016cd5850210c90`.
+Both addon mirrors passed, all 257 TipTac files remain original, and other-client
+core/options Lua and TOC hashes are unchanged. Owner must reload and test the
+same hover; if ineffective, remove this candidate rather than layering another
+positioning workaround on top. No visible resolution is claimed yet.
 
 November 13 owner request: optional `/itemrack dump full`, preserving the normal
 size after previous oversized-copy-window problems. Existing focused suite

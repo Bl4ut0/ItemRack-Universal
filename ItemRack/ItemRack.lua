@@ -2570,7 +2570,9 @@ function ItemRack.OnSetInventoryItem(tooltip, unit, inv_slot)
 end
 
 function ItemRack.OnSetHyperlink(tooltip, link)
-	if type(link) == "string" then ItemRack.ListSetsHavingItem(tooltip,ItemRack.GetIRString(link)) end
+	if type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+		ItemRack.ListSetsHavingItem(tooltip,ItemRack.GetIRString(link))
+	end
 end
 
 function ItemRack.OnTooltipItemData(tooltip, data)
@@ -2582,7 +2584,9 @@ function ItemRack.OnTooltipItemData(tooltip, data)
 		for i = 1, tooltip:NumLines() do
 			local left = _G[tooltipName .. "TextLeft" .. i]
 			local text = left and left.GetText and left:GetText()
-			if text and text:find("^ItemRack Set:") then
+			-- Forever may return secret text even for ordinary loot. Do not index
+			-- it to check our marker; public item metadata remains usable below.
+			if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and text:find("^ItemRack Set:") then
 				return
 			end
 		end
@@ -2758,7 +2762,7 @@ do
 			for i = 1, tooltip:NumLines() do
 				local left = _G[tooltipName .. "TextLeft" .. i]
 				local text = left and left.GetText and left:GetText()
-				if text and text:find("^ItemRack Set:") then
+				if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and text:find("^ItemRack Set:") then
 					return
 				end
 			end
@@ -4308,7 +4312,7 @@ end
 
 -- Bounded, always-on menu evidence. Only public scalars enter this recorder;
 -- recording does not rescan inventory or alter discovery/equip decisions.
-function ItemRack.MenuDiagnosticValue(value)
+function ItemRack.MenuDiagnosticValue(value,maxLength)
 	if issecretvalue then
 		local ok,secret = pcall(issecretvalue,value)
 		if not ok then return "<unavailable>" end
@@ -4319,7 +4323,7 @@ function ItemRack.MenuDiagnosticValue(value)
 		if not ok or not accessible then return "<inaccessible>" end
 	end
 	local kind = type(value)
-	if kind=="string" then return string.sub(value,1,180) end
+	if kind=="string" then return string.sub(value,1,maxLength or 180) end
 	if kind=="number" or kind=="boolean" then return value end
 	if kind=="nil" then return "<nil>" end
 	return "<"..kind..">"
@@ -4453,7 +4457,7 @@ function ItemRack.RecordButtonInput(source,button,mouseButton)
 	return ok
 end
 
-function ItemRack.GetMenuDiagnosticReport()
+function ItemRack.GetMenuDiagnosticReport(fullDump)
 	local state = ItemRack.MenuDiagnostics or { recent={},latest={} }
 	local frame = ItemRackMenuFrame
 	local parent = frame and frame.GetParent and frame:GetParent()
@@ -4495,6 +4499,7 @@ function ItemRack.GetMenuDiagnosticReport()
 			nativeCandidates=type(GetInventoryItemsForSlot)=="function",
 		},
 		snapshots=snapshots,latest=state.latest,recent=state.recent,loadedAddons=addons,
+		tooltipAnchorTrace=ItemRack.GetTooltipAnchorTraceReport and ItemRack.GetTooltipAnchorTraceReport(fullDump),
 	}
 end
 
@@ -6174,8 +6179,27 @@ function ItemRack.ShouldCompareBreakoutItems(owner)
 	return false
 end
 
+-- Observe native comparison requests during our item render. A visible comparison
+-- alone may belong to the previous item, so it must not suppress a fresh request.
+function ItemRack.GetNativeComparisonRevision()
+	local manager = TooltipComparisonManager
+	if type(manager)~="table" or type(manager.CompareItem)~="function" or type(hooksecurefunc)~="function" then return end
+	local state = ItemRack.nativeComparisonObserver
+	if not state or state.manager~=manager then
+		state = {manager=manager,revision=0,reused=0}
+		local ok = pcall(hooksecurefunc,manager,"CompareItem",function(self,item,tooltip)
+			if issecretvalue and (issecretvalue(tooltip) or issecretvalue(item)) then return end
+			if self==manager and tooltip==GameTooltip and item then state.revision=state.revision+1 end
+		end)
+		if not ok then state.failed=true end
+		ItemRack.nativeComparisonObserver = state
+	end
+	if state.failed then return end
+	return state.revision
+end
+
 -- request a tooltip comparison of a straight item id against currently equipped gear
-function ItemRack.ShowBreakoutComparison(owner)
+function ItemRack.ShowBreakoutComparison(owner,nativeRevision)
 	if not ItemRack.ShouldCompareBreakoutItems(owner) then
 		if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
 		if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
@@ -6185,6 +6209,20 @@ function ItemRack.ShowBreakoutComparison(owner)
 	if ShoppingTooltip1 and ShoppingTooltip1.EnableMouse then ShoppingTooltip1:EnableMouse(false) end
 	if ShoppingTooltip2 and ShoppingTooltip2.EnableMouse then ShoppingTooltip2:EnableMouse(false) end
 	if ShoppingTooltip3 and ShoppingTooltip3.EnableMouse then ShoppingTooltip3:EnableMouse(false) end
+	local observer = ItemRack.nativeComparisonObserver
+	if nativeRevision and observer and observer.manager==TooltipComparisonManager and observer.revision>nativeRevision then
+		for _,tip in ipairs({ShoppingTooltip1,ShoppingTooltip2}) do
+			local ok,shown,tipOwner = pcall(function()
+				if tip.IsForbidden and tip:IsForbidden() then return end
+				if type(tip.IsShown)=="function" and type(tip.GetOwner)=="function" then return tip:IsShown(),tip:GetOwner() end
+			end)
+			if ok and not (issecretvalue and (issecretvalue(shown) or issecretvalue(tipOwner)))
+				and shown and tipOwner==GameTooltip then
+				observer.reused=observer.reused+1
+				return
+			end
+		end
+	end
 	if type(GameTooltip_ShowCompareItem) == "function" then
 		GameTooltip_ShowCompareItem(GameTooltip)
 	end
@@ -6203,6 +6241,7 @@ function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style
 	ItemRack.pendingTooltipAnchor = nil
 	ItemRack.pendingTooltipOwner = nil
 	ItemRack.AnchorTooltip(self)
+	local nativeRevision = ItemRack.GetNativeComparisonRevision()
 	local inv,bag,slot = ItemRack.FindItem(itemID,nil,exactOnly) -- queue rows require the saved variant; other callers retain compatible fallback
 	if inv then -- item found in player's worn equipment
 		GameTooltip:SetInventoryItem("player",inv)
@@ -6224,7 +6263,7 @@ function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style
 	local shrunk = ItemRack.ShrinkTooltip(self)
 	GameTooltip:Show()
 	if not shrunk then
-		ItemRack.ShowBreakoutComparison(self)
+		ItemRack.ShowBreakoutComparison(self,nativeRevision)
 	else
 		if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
 		if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
@@ -6269,6 +6308,125 @@ function ItemRack.GetMenuFrameTooltipSide()
 	else
 		return "ANCHOR_LEFT"
 	end
+end
+
+-- Read-only, opt-in evidence for comparison movement. Do not reposition a
+-- tooltip from these hooks: capture the actual writer and rendered geometry.
+function ItemRack.RecordTooltipAnchor(label, tip, event, point, relative, anchor, x, y)
+	local trace = ItemRack.TooltipAnchorTrace
+	if not trace or trace.status ~= "capturing" or trace.recording then return end
+	local now = GetTime()
+	if now >= trace.untilTime then trace.status="expired"; return end
+	if tip ~= _G[label] or not GameTooltip or not ItemRack.TooltipOwner then return end
+	if (tip.IsForbidden and tip:IsForbidden()) or (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) then return end
+	if type(GameTooltip.GetOwner) ~= "function" then return end
+	local ok, owner = pcall(GameTooltip.GetOwner, GameTooltip)
+	if not ok or (issecretvalue and issecretvalue(owner)) or owner ~= ItemRack.TooltipOwner then return end
+	trace.recording = true
+	if event ~= "SetPoint" and type(tip.GetPoint) == "function" then
+		local readOK
+		readOK, point, relative, anchor, x, y = pcall(tip.GetPoint, tip, 1)
+		if not readOK then point="<error>"; relative=nil; anchor=nil; x=nil; y=nil end
+	end
+	point,anchor,x,y = ItemRack.MenuDiagnosticValue(point),ItemRack.MenuDiagnosticValue(anchor),ItemRack.MenuDiagnosticValue(x),ItemRack.MenuDiagnosticValue(y)
+	local relativeName = ItemRack.MenuDiagnosticValue(relative)
+	if relativeName == "<table>" or relativeName == "<userdata>" then
+		local nameOK, name = pcall(function() return relative.GetName and relative:GetName() end)
+		if nameOK and name then relativeName=ItemRack.MenuDiagnosticValue(name) end
+	end
+	if type(anchor) == "number" then x,y,anchor=anchor,x,point end
+	local entry = {frame=label,event=event,time=now,point=point,relative=relativeName,anchor=anchor,x=x,y=y,
+		top=ItemRack.MenuDiagnosticCall(tip.GetTop,tip),bottom=ItemRack.MenuDiagnosticCall(tip.GetBottom,tip),
+		height=ItemRack.MenuDiagnosticCall(tip.GetHeight,tip),scale=ItemRack.MenuDiagnosticCall(tip.GetEffectiveScale,tip)}
+	trace.recording = nil
+	local signature = tostring(point)..":"..tostring(relativeName)..":"..tostring(anchor)..":"..tostring(x)..":"..tostring(y)
+		..":"..tostring(entry.top)..":"..tostring(entry.bottom)..":"..tostring(entry.height)..":"..tostring(entry.scale)
+	local key = label..":"..event
+	if ItemRack.TooltipAnchorLast[key] == signature then return end
+	ItemRack.TooltipAnchorLast[key] = signature
+	if #trace.entries >= 128 then trace.status="limit"; return end
+	if event ~= "OnUpdate" and type(debugstack) == "function" then
+		local stackOK, stack = pcall(debugstack, 3, 8, 0)
+		if stackOK and not (issecretvalue and issecretvalue(stack)) and type(stack) == "string" then
+			entry.caller = string.sub(stack,1,640)
+		end
+	end
+	trace.entries[#trace.entries+1] = entry
+	if #trace.entries == 128 then trace.status="limit" end
+end
+
+function ItemRack.StartTooltipAnchorTrace()
+	ItemRack.TooltipAnchorTrace = {status="capturing",started=GetTime(),untilTime=GetTime()+10,entries={}}
+	ItemRack.TooltipAnchorLast = {}
+	ItemRack.TooltipAnchorHooks = ItemRack.TooltipAnchorHooks or {}
+	for label,tip in pairs({GameTooltip=GameTooltip,ShoppingTooltip1=ShoppingTooltip1,ShoppingTooltip2=ShoppingTooltip2}) do
+		if not (tip.IsForbidden and tip:IsForbidden()) then
+			local frameName = label
+			local hooks = ItemRack.TooltipAnchorHooks[tip] or {}
+			ItemRack.TooltipAnchorHooks[tip] = hooks
+			if not hooks.point and type(hooksecurefunc)=="function" and type(tip.SetPoint)=="function" then
+				hooks.point=pcall(hooksecurefunc,tip,"SetPoint",function(self,...) ItemRack.RecordTooltipAnchor(frameName,self,"SetPoint",...) end)
+			end
+			if type(tip.HookScript)=="function" then
+				if not hooks.update then hooks.update=pcall(tip.HookScript,tip,"OnUpdate",function(self) ItemRack.RecordTooltipAnchor(frameName,self,"OnUpdate") end) end
+				if not hooks.size then hooks.size=pcall(tip.HookScript,tip,"OnSizeChanged",function(self) ItemRack.RecordTooltipAnchor(frameName,self,"OnSizeChanged") end) end
+			end
+		end
+	end
+end
+
+function ItemRack.GetTooltipAnchorTraceReport(fullDump)
+	local trace = ItemRack.TooltipAnchorTrace
+	if not trace then return {status="off",retained=0,entries={}} end
+	local status = trace.status
+	if status=="capturing" and GetTime()>=trace.untilTime then status="expired" end
+	local first = fullDump and 1 or math.max(1,#trace.entries-15)
+	local entries = {}
+	for i=first,#trace.entries do entries[#entries+1]=trace.entries[i] end
+	return {status=status,started=trace.started,untilTime=trace.untilTime,retained=#trace.entries,
+		omitted=first-1,capacity=128,entries=entries}
+end
+
+-- Keep a targeted capture copyable without exporting bags, sets or other logs.
+-- Repeated caller stacks are printed once and referenced by their row's ID.
+function ItemRack.FormatTooltipAnchorTraceReport()
+	local report = ItemRack.GetTooltipAnchorTraceReport(true)
+	local observer = ItemRack.nativeComparisonObserver or {}
+	local function value(v,maxLength)
+		return (tostring(ItemRack.MenuDiagnosticValue(v,maxLength)):gsub("%c"," "))
+	end
+	local lines = {"=== ITEMRACK TOOLTIP ANCHOR TRACE ===",
+		"ItemRack="..value(ItemRack.Version).." build="..value(ItemRack.BuildID),
+		"comparisonPolicy=native-per-render-v1 observed="..value(observer.revision or 0).." duplicatesSkipped="..value(observer.reused or 0),
+		"status="..value(report.status).." retained="..value(report.retained).." capacity="..value(report.capacity)
+			.." started="..value(report.started).." until="..value(report.untilTime),
+		"GT=GameTooltip; ST1=ShoppingTooltip1; ST2=ShoppingTooltip2; caller=stack ID (0 means no stack)",
+		"# | time | frame | event | point | relative | anchor | x | y | top | bottom | height | scale | caller"}
+	local aliases = {GameTooltip="GT",ShoppingTooltip1="ST1",ShoppingTooltip2="ST2"}
+	local callers, callerIDs = {}, {}
+	for i,entry in ipairs(report.entries) do
+		local caller = entry.caller
+		local id = 0
+		if caller then
+			caller = value(caller,640)
+			id = callerIDs[caller]
+			if not id then
+				callers[#callers+1] = caller
+				id = #callers
+				callerIDs[caller] = id
+			end
+		end
+		local row = {tostring(i)}
+		for _,key in ipairs({"time","frame","event","point","relative","anchor","x","y","top","bottom","height","scale"}) do
+			local v = value(entry[key])
+			row[#row+1] = (key=="frame" or key=="relative") and (aliases[v] or v) or v
+		end
+		row[#row+1] = tostring(id)
+		lines[#lines+1] = table.concat(row," | ")
+	end
+	lines[#lines+1] = "=== CALLER STACKS (each unique stack printed once) ==="
+	for i,caller in ipairs(callers) do lines[#lines+1] = tostring(i).." | "..caller end
+	return table.concat(lines,"\n")
 end
 
 function ItemRack.AnchorTooltip(owner, isRefresh)
@@ -6353,6 +6511,7 @@ function ItemRack.TooltipUpdate()
 	if ItemRack.TooltipType then
 		local cooldown
 		ItemRack.AnchorTooltip(ItemRack.TooltipOwner, true)
+		local nativeRevision = ItemRack.GetNativeComparisonRevision()
 		if ItemRack.TooltipType=="BAG" then
 			if ItemRack.TooltipBag == BANK_CONTAINER or ItemRack.TooltipBag == -1 then
 				GameTooltip:SetInventoryItem("player",BankButtonIDToInvSlotID(ItemRack.TooltipSlot))
@@ -6371,7 +6530,7 @@ function ItemRack.TooltipUpdate()
 		end
 		GameTooltip:Show()
 		if not shrunk then
-			ItemRack.ShowBreakoutComparison(ItemRack.TooltipOwner)
+			ItemRack.ShowBreakoutComparison(ItemRack.TooltipOwner,nativeRevision)
 		else
 			if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
 			if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
@@ -7554,6 +7713,8 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.ClearQueueDiagnostics()
 			ItemRack.MenuDiagnostics = nil
 			ItemRack.ButtonInputDiagnostics = nil
+			ItemRack.TooltipAnchorTrace = nil
+			ItemRack.TooltipAnchorLast = nil
 			if ItemRack.SpecialItems then ItemRack.SpecialItems.ClearDiagnostics() end
 			ItemRack.Print("Diagnostic log, AutoQueue and breakout recorders cleared.")
 		elseif subcmd == "status" then
@@ -7561,6 +7722,12 @@ function ItemRack.SlashHandler(arg1)
 		elseif subcmd == "mouse" then
 			ItemRack.RecordButtonInput("mouse_probe")
 			ItemRack.Print("Mouse focus captured. Keep the pointer over the affected button, try Alt-click, then run /itemrack dump before reloading.")
+		elseif subcmd == "tooltips" then
+			ItemRack.StartTooltipAnchorTrace()
+			ItemRack.Print("Capturing tooltip anchor writes and geometry for 10 seconds (up to 128 changes). Hover the affected item, then /itemrack dump tooltips.")
+		elseif subcmd == "tooltips stop" then
+			if ItemRack.TooltipAnchorTrace then ItemRack.TooltipAnchorTrace.status="stopped" end
+			ItemRack.Print("Tooltip anchor capture stopped. Use /itemrack dump tooltips to copy the evidence.")
 		elseif subcmd == "audit" then
 			ItemRack.AuditSavedVariables(true)
 		elseif subcmd == "help" then
@@ -7570,6 +7737,7 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.Print("  /itemrack debug clear : Clears the diagnostic log and AutoQueue trace buffers")
 			ItemRack.Print("  /itemrack debug status : Shows current status of all debug tags")
 			ItemRack.Print("  /itemrack debug mouse : Captures mouse focus without changing any frame's mouse handling")
+			ItemRack.Print("  /itemrack debug tooltips : Captures 10 seconds of read-only tooltip anchor/size evidence; tooltips stop ends it early")
 			ItemRack.Print("  /itemrack debug specialitems : Captures special-item events for 120 seconds (silent by default)")
 			ItemRack.Print("  /itemrack special status : Shows saved special-item use/recovery; special reset <itemID> clears one receipt")
 			ItemRack.Print("  /itemrack debug audit : Scans and repairs SavedVariables issues")
@@ -7630,8 +7798,9 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.Print("Diagnostic debugging DISABLED.")
 			end
 		end
-	elseif arg1=="dump" or arg1=="dump full" then
+	elseif arg1=="dump" or arg1=="dump full" or arg1=="dump tooltips" then
 		local fullDump = arg1=="dump full"
+		local tooltipDump = arg1=="dump tooltips"
 		if not ItemRack.LogBuffer then ItemRack.LogBuffer = {} end
 		if not ItemRackLogFrame then
 			local f = CreateFrame("Frame", "ItemRackLogFrame", UIParent, "BackdropTemplate")
@@ -7733,6 +7902,7 @@ function ItemRack.SlashHandler(arg1)
 		end
 		
 		local success, result = pcall(function()
+			if tooltipDump then return ItemRack.FormatTooltipAnchorTraceReport() end
 			local logCount = #ItemRack.LogBuffer
 			local tempLog = {}
 			local startIdx = fullDump and 1 or math.max(1, logCount - 499)
@@ -7750,7 +7920,7 @@ function ItemRack.SlashHandler(arg1)
 			local queueHeading=fullDump and ("All "..#queueTrace.." retained entries") or "Last 250 entries"
 			dumpText = dumpText .. "\n\n=== AUTOQUEUE FLIGHT RECORDER ("..queueHeading..") ===\n" .. table.concat(tempQueueTrace, "\n")
 			-- Failure in optional evidence collection must not suppress the support dump.
-			local menuOK,menuReport = pcall(ItemRack.GetMenuDiagnosticReport)
+			local menuOK,menuReport = pcall(ItemRack.GetMenuDiagnosticReport,fullDump)
 			dumpText = dumpText .. "\n\n=== BREAKOUT DISCOVERY DIAGNOSTICS ===\n"
 			if menuOK then
 				dumpText = dumpText .. ItemRackLogFrame.Serialize(menuReport)
@@ -7956,8 +8126,8 @@ function ItemRack.SlashHandler(arg1)
 		dumpText = string.gsub(dumpText, "%c", " ")
 		dumpText = string.gsub(dumpText, "_TAB_PLACEHOLDER_", "\t")
 		dumpText = string.gsub(dumpText, "_NL_PLACEHOLDER_", "\n")
-		ItemRackLogFrame.DumpPages=fullDump and ItemRack.SplitDiagnosticPages(dumpText) or {dumpText}
-		if fullDump then
+		ItemRackLogFrame.DumpPages=(fullDump or tooltipDump) and ItemRack.SplitDiagnosticPages(dumpText) or {dumpText}
+		if fullDump or (tooltipDump and #ItemRackLogFrame.DumpPages>1) then
 			ItemRackLogFrame.PreviousPage:Show(); ItemRackLogFrame.NextPage:Show(); ItemRackLogFrame.PageLabel:Show()
 			ItemRackLogScrollFrame:SetPoint("BOTTOMRIGHT",-35,48)
 		else
@@ -7983,7 +8153,7 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.Print("Usage: /itemrack unhold <slot 0-19>")
 		end
 	else
-		ItemRack.Print("/itemrack dump [full] : copy recent diagnostics, or all retained entries in pages.")
+		ItemRack.Print("/itemrack dump [full|tooltips] : copy recent/all diagnostics, or only the tooltip capture.")
 		ItemRack.Print("/itemrack opt : summons options window.")
 		ItemRack.Print("/itemrack equip set name : equip set 'set name'.")
 		ItemRack.Print("/itemrack toggle set name[, second set] : toggles set 'set name'.")
