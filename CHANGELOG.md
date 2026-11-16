@@ -4,6 +4,8 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+
+## [4.59-beta15] - 2026-11-16
 - **Newer manual set precedence (#38)**: Selecting a new manual set retires older deferred set-owned slots without canceling independent manual item requests. Deferred completion checks the manual-set generation before restoring queue authority. Added cancellation and settling-transaction regressions; local/client acceptance remains required.
 - **Deferred set authority (#38)**: Deferred set slots now retain their explicit source set. Anonymous manual items and mixed-owner batches cannot inherit a stale CombatSet and change the active queue set. Consumed slot metadata is cleared. Removed the pending blanket history deletion so live manual overlay restoration chains remain intact. Added production-Lua regressions; original reporter input timing and client acceptance remain pending.
 - **Avoid duplicate native comparisons**: ItemRack now observes whether modern native rendering supplied a visible comparison during the current item refresh before requesting another. Stale results from a previous render do not qualify; forced comparisons, hidden/foreign results, unavailable hooks and legacy clients keep the explicit fallback. This removes a source-confirmed redundant rebuild without positioning frames or calling TipTac. Added a permanent production-Lua regression; acceptance of the reported TipTac comparison bounce remains pending.

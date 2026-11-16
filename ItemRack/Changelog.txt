@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.59-beta15 - By Bl4ut0 __
 - #38: newer manual set choices cancel older set-owned deferred work and invalidate stale completion authority, preserving independent manual item requests. Added cancellation and late-completion regressions.
 - #38: retain explicit source-set ownership for deferred set slots; anonymous/manual and mixed-owner batches cannot inherit stale set authority. Preserve live overlay restoration history. Added production-Lua ownership and ancestry regressions; community acceptance remains pending.
 - Avoid a duplicate comparison rebuild when modern native rendering already supplied a visible comparison during the same item refresh. Previous-item results do not qualify; forced comparisons and hidden/foreign/unavailable/legacy fallback paths remain. No positioning hooks or TipTac controller calls are added. Permanent production-Lua regression added; the live TipTac comparison bounce still requires acceptance.
