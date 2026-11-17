@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.59-beta16 - By Bl4ut0 __
 - Hybrid detection rechecks readiness after matching discovers unresolved gear. Added active/candidate probe regressions and expanded cancellation checks for empty slots, multiple owners and AutoQueue.
 - Existing master/Queue debug captures blocked/forbidden addon-action events with attributed function and set/combat/swap context, without default chat output. Druid form report root cause remains pending evidence.
 - Owner-aware cancellation preserves independent same-item requests; manual unequip invalidates stale completion authority. Hybrid recognition retains stable state during pending/unresolved inventory instead of clearing or inferring from intermediate gear. Permanent regressions added; beta15 is unchanged and reporter acceptance remains pending.
