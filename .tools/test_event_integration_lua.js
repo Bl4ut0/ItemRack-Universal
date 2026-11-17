@@ -1,5 +1,30 @@
 const fs = require('fs');
-const { runLua } = require('./lib/lua_harness');
+const { extractFunction, runLua } = require('./lib/lua_harness');
+
+runLua(String.raw`
+local records={}
+ItemRack={DebugTags={},EventHandlers={},IsEngravingActive=function() return false end,
+ QueueDiagnostic=function(event,details) records[#records+1]={event=event,details=details} end}
+ItemRackUser={CurrentSet='Bear'}
+function InCombatLockdown() return true end
+local secret={}
+function issecretvalue(value) return value==secret end
+${extractFunction('ItemRack/ItemRack.lua','ItemRack.OnBlockedAction')}
+${extractFunction('ItemRack/ItemRack.lua','ItemRack.InitEventHandlers')}
+${extractFunction('ItemRack/ItemRack.lua','ItemRack.OnEvent')}
+ItemRack.InitEventHandlers()
+ItemRack.OnEvent(nil,'ADDON_ACTION_BLOCKED','ItemRack','ShowHelm()')
+assert(#records==0,'blocked-action-diagnostics: default play must not record or print blocked-action diagnostics')
+ItemRack.DebugTags.Queue=true;ItemRack.SetSwapping='Bear';ItemRack.ActiveEquipmentTransaction={};ItemRack.IsEventEquipment=true
+ItemRack.OnEvent(nil,'ADDON_ACTION_BLOCKED','ItemRack','ShowHelm()')
+assert(#records==1 and records[1].event=='blocked_action' and records[1].details.action=='ShowHelm()'
+ and records[1].details.combat and records[1].details.swapping=='Bear' and records[1].details.automatic
+ and records[1].details.transaction and records[1].details.set=='Bear','blocked action must retain the supplied API and execution context')
+ItemRack.OnEvent(nil,'ADDON_ACTION_FORBIDDEN','OtherAddon',secret)
+assert(records[2].details.addon=='OtherAddon' and records[2].details.action=='<secret>',
+ 'other addon attribution and unreadable values must survive without text inspection')
+print('[BLOCKED ACTION LUA] Dispatcher, opt-in capture, attribution, context and secret guards passed.')
+`, 'reported-druid-blocked-action-diagnostics');
 
 const reducer = fs.readFileSync('ItemRack/ItemRackEventState.lua', 'utf8');
 const events = fs.readFileSync('ItemRack/ItemRackEvents.lua', 'utf8');

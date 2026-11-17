@@ -2,6 +2,49 @@ const fs = require('fs');
 const { extractFunction, runLua } = require('./lib/lua_harness');
 
 runLua(String.raw`
+ItemRack={Debug=function() end,Print=function() end,UpdateCombatQueue=function() end,ClearLockList=function() end,
+ AnythingLocked=function() return false end,GetLockedReason=function() return 'waiting' end,
+ MatchesStoredItemID=function(a,b) return a==b end,GetEquippedSlotState=function() return 'resolved','different' end,
+ GetInfoByID=function(id) return id end,IsSetEquipped=function() return false end}
+ItemRackUser={CurrentSet='Tank',Sets={Tank={equip={},old={},oldset='Base'},Base={equip={}},Old={equip={[13]='same'}},['~CombatQueue']={equip={},oldset='Old'},['~Unequip']={equip={}}}}
+C_Timer={After=function() end}
+function InCombatLockdown() return true end
+${['ClearCombatQueueMetadata','RemoveFromCombatQueue','AddToCombatQueue','CancelDeferredSetRequests'].map(n=>extractFunction('ItemRack/ItemRack.lua','ItemRack.'+n)).join('\n')}
+${['IsSetPendingInCombatQueue','CancelCombatQueueSet','UnequipSet','EndSetSwap'].map(n=>extractFunction('ItemRack/ItemRackEquip.lua','ItemRack.'+n)).join('\n')}
+ItemRack.CombatQueue={[13]='same'};ItemRack.CombatQueueSetOwner={[13]='Old'};ItemRack.CombatSet='Old'
+assert(ItemRack.IsSetPendingInCombatQueue('Old'),'explicit ownership must identify pending set work')
+ItemRack.AddToCombatQueue(13,'same',false)
+assert(not ItemRack.IsSetPendingInCombatQueue('Old'),'overwritten owner must not remain pending through the legacy scalar')
+ItemRack.CancelCombatQueueSet('Old')
+assert(ItemRack.CombatQueue[13]=='same','named cancellation must preserve the independent same-item request')
+ItemRack.CombatQueue[14]='owned';ItemRack.CombatQueueSetOwner[14]='Old'
+ItemRack.CancelCombatQueueSet('Old')
+assert(ItemRack.CombatQueue[14]==nil and ItemRack.CombatQueue[13]=='same','cancel owned work even if saved equipment definition changed')
+ItemRack.CombatQueue[1]=0;ItemRack.CombatQueueSetOwner[1]='Old'
+ItemRack.CombatQueue[2]='old-two';ItemRack.CombatQueueSetOwner[2]='Old'
+ItemRack.CombatQueue[3]='other';ItemRack.CombatQueueSetOwner[3]='Tank'
+ItemRack.CombatQueue[4]='auto';ItemRack.AutoQueueFlag[4]=true
+assert(ItemRack.IsSetPendingInCombatQueue('Old'),'an explicitly queued empty slot must count as pending set work')
+ItemRack.CancelCombatQueueSet('Old')
+assert(ItemRack.CombatQueue[1]==nil and ItemRack.CombatQueue[2]==nil
+ and ItemRack.CombatQueue[3]=='other' and ItemRack.CombatQueueSetOwner[3]=='Tank'
+ and ItemRack.CombatQueue[4]=='auto' and ItemRack.AutoQueueFlag[4],
+ 'multi-slot cancellation must remove empty-slot intent while preserving other owners and AutoQueue')
+ItemRack.ManualSetGeneration=4;ItemRack.CombatQueueRestoreGeneration=4;ItemRack.SetSwapping='~CombatQueue'
+ItemRack.AddSetToSetsWaiting=function() end
+ItemRack.UnequipSet('Tank')
+assert(ItemRack.ManualSetGeneration==5,'manual unequip must invalidate old completion before waiting for locks')
+ItemRack.EndSetSwap('~CombatQueue')
+assert(ItemRackUser.CurrentSet=='Tank','old completion must not override the newer manual unequip')
+for _,flag in ipairs({'IsEventEquipment','IsDeferredEquipment'}) do
+ ItemRack[flag]=true;ItemRack.SetSwapping='waiting';local generation=ItemRack.ManualSetGeneration
+ ItemRack.UnequipSet('Tank');assert(ItemRack.ManualSetGeneration==generation,'automatic/deferred restoration must preserve manual generation')
+ ItemRack[flag]=nil
+end
+print('[ISSUE 38 CANCEL/UNEQUIP LUA] Source ownership, same-item independence, edited sets and restoration precedence passed.')
+`, 'issue-38-owner-aware-cancel-and-manual-unequip');
+
+runLua(String.raw`
 function CursorHasItem() return false end
 function InCombatLockdown() return false end
 function UnitAffectingCombat() return false end

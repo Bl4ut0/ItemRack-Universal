@@ -4,6 +4,9 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **Hybrid readiness review**: Recheck inventory readiness after active-set and candidate matching, since those probes can discover unresolved gear. Preserve stable recognition instead of committing a partial observation. Added regressions for both probe boundaries and expanded cancellation coverage for empty slots, multiple owners and AutoQueue.
+- **Blocked-action diagnostics**: Existing master/Queue debug now captures Blizzard's blocked/forbidden addon-action events and their attributed function, set and combat/swap context. No normal-play chat output is added. This supplies missing evidence for the druid form report; its root cause is not yet confirmed.
+- **Deferred cancellation and Hybrid readiness**: Named cancellation now uses source ownership so it cannot remove an independent same-item request; manual unequip invalidates older completion authority before lock waits. Hybrid detection preserves stable recognition during transactions, pending sets and unresolved inventory, with an explicit readiness reason. Added permanent cross-flow and unresolved-state regressions. Original reporter gameplay acceptance remains pending; published beta15 is unchanged.
 - **Hybrid transition evidence (#38)**: Existing `/itemrack debug` capture now records detection transitions into/out of Hybrid state and the matched set's explicit slot IDs versus worn IDs and queue membership. Unchanged detections are not repeatedly logged. This closes an instrumentation gap; the reporter's exact transient Drakes match remains under investigation. Added a permanent diagnostic regression; beta15 is unchanged.
 
 ## [4.59-beta15] - 2026-11-16

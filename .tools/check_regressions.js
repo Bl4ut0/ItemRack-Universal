@@ -489,7 +489,8 @@ check(
 
 check(
   core.includes('if setname == _G.CUSTOM and not ItemRack.SetSwapping and ItemRackUser and ItemRackUser.Sets then') &&
-    core.includes('if count > bestCount and ItemRack.IsSetEquipped(name) then'),
+    core.includes('local matches = count > bestCount and ItemRack.IsSetEquipped(name)') &&
+    core.includes('if matches then'),
   'UpdateCurrentSet must scan saved sets to auto-detect worn sets when CurrentSet is unequipped.'
 );
 

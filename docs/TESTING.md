@@ -46,6 +46,44 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+Development follow-up: `issue-38-owner-aware-cancel-and-manual-unequip` executes
+named cancellation and manual unequip with production ownership/completion
+helpers. It covers independent same-item requests, changed definitions, lock
+waits, obsolete completion generations and event/deferred bypasses.
+`hybrid-unresolved-state` checks pending transactions/sets, unresolved slots and
+profile startup retain stable recognition; ready observations still clear a
+match deliberately. Review found that the matcher can discover unresolved gear
+after the entry guard. `hybrid-mid-probe-readiness` and
+`hybrid-candidate-readiness` assertions now check both probes abandon detection
+before changing Hybrid state; the first failed before the correction. The
+ownership case also covers multiple removed slots, an empty-slot request,
+another source owner and independent AutoQueue preservation.
+Review validation: full `npm.cmd test` passed after the probe-boundary correction,
+including the updated static detection guard, and the additional production-helper
+batch/dual-spec replay passed. `git diff --check` passed. No client copy or release
+was made during this review.
+These do not establish the tentative Drakes report as
+resolved. Additional production-helper batch/dual-spec replay passed. Accepted
+beta15 is unchanged; original gameplay and local acceptance remain pending.
+
+CurseForge druid cat -> bear -> cat blocked-action report lacks the blocked API,
+client/build and combat state. Do not infer a stale item or protected call as
+its cause. Development captures ADDON_ACTION_BLOCKED/FORBIDDEN under existing
+master/Queue debug: attributed addon/function, set, swap, transaction and combat
+context. `reported-druid-blocked-action-diagnostics` exercises the production
+dispatcher/handler, disabled capture, both events, other-addon attribution and
+secret arguments. ShowHelm in the fixture is an illustrative payload, not a
+reproduction. Native taint propagation remains unverified. Needed evidence:
+enable `/itemrack debug` BEFORE the form sequence, reproduce, then ordinary
+`/itemrack dump` immediately; supply version/build and assigned form events.
+
+The CurseForge ammo report cross-links GitHub #37. The reporter's working
+delayed/stack-merging correction is incorporated from beta7 onward, with
+transaction-engine regressions; later packaged-build acceptance is not recorded.
+The Sets-tab icon report concerns its grid (`SetsIconOnClick`), not Button20 or
+the minimap. Current source selects immediately and persists on Save. Clarify
+grid click versus preview click and any Lua error before claiming reproduction.
+
 Issue #38 beta15 follow-up (6933058602): reporter supplies Dungeon -> Boss ->
 manual trinket change -> Dungeon and a brief tentative Drakes Hybrid match.
 The attachment logs steady state after tracking_enabled, final Dungeon and

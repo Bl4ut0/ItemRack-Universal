@@ -701,6 +701,8 @@ ItemRack.ExternalEventHandlers = {}
 
 function ItemRack.InitEventHandlers()
 	local handler = ItemRack.EventHandlers
+	handler.ADDON_ACTION_BLOCKED = ItemRack.OnBlockedAction
+	handler.ADDON_ACTION_FORBIDDEN = ItemRack.OnBlockedAction
 	handler.ITEM_LOCK_CHANGED = ItemRack.OnItemLockChanged
 	handler.ACTIONBAR_UPDATE_COOLDOWN = ItemRack.UpdateButtonCooldowns
 	handler.UNIT_AURA = ItemRack.OnUnitAura
@@ -748,6 +750,24 @@ do
 		ItemRack.MasqueGroups[3] = Masque:Group("ItemRack", "Character info menus")
 		ItemRack.MasqueGroups[4] = Masque:Group("ItemRack", "Map icon menu")
 	end
+end
+
+function ItemRack.OnBlockedAction(self,event,addonName,functionName)
+	if not ItemRack.DebugAll and not (ItemRack.DebugTags and ItemRack.DebugTags.Queue) then return end
+	local function readable(value)
+		if issecretvalue and issecretvalue(value) then return "<secret>" end
+		return type(value)=="string" and value or "<unavailable>"
+	end
+	-- Attribution is evidence, not proof of the original taint source. Keep other
+	-- addons' names too so reports do not silently blame ItemRack for every block.
+	ItemRack.QueueDiagnostic("blocked_action",{
+		event=event,addon=readable(addonName),action=readable(functionName),
+		set=ItemRackUser and ItemRackUser.CurrentSet or "<none>",
+		swapping=ItemRack.SetSwapping or "<none>",
+		transaction=ItemRack.ActiveEquipmentTransaction and true or false,
+		automatic=ItemRack.IsEventEquipment and true or false,
+		combat=InCombatLockdown() and true or false,
+	})
 end
 
 function ItemRack.OnEvent(self,event,...)
@@ -2880,6 +2900,8 @@ function ItemRack.InitCore()
 	ItemRack.RegisterSetTooltipHooks()
 
 	ItemRackFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+	ItemRackFrame:RegisterEvent("ADDON_ACTION_BLOCKED")
+	ItemRackFrame:RegisterEvent("ADDON_ACTION_FORBIDDEN")
 	ItemRackFrame:RegisterEvent("PLAYER_LOGOUT")
 	ItemRackFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 	ItemRackFrame:RegisterEvent("PLAYER_UNGHOST")
@@ -3207,12 +3229,31 @@ function ItemRack.RestoreMinimapButtonVisual()
 end
 
 function ItemRack.UpdateCurrentSet()
+	local function deferDetection(reason)
+		if ItemRack.HybridDetectionStatus~=reason and ItemRack.QueueDiagnostic
+		and (ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Queue)) then
+			ItemRack.QueueDiagnostic("set_detection_pending",{reason=reason})
+		end
+		ItemRack.HybridDetectionStatus=reason
+	end
+	local pending
+	if not ItemRackUser or type(ItemRackUser.Sets)~="table" then pending="profile_unavailable"
+	elseif ItemRack.SetSwapping or ItemRack.ActiveEquipmentTransaction or ItemRack.PendingQueueEquipSet then pending="inventory_settling"
+	elseif (ItemRackUser.EnableQueues=="ON" and ItemRack.QueueStateReady~=true)
+	or next(ItemRack.UnresolvedEquippedSlots or {}) then pending="inventory_unresolved" end
+	if pending then
+		return deferDetection(pending) -- Unknown observations must not clear a stable match.
+	end
+	ItemRack.HybridDetectionStatus="ready"
 	local texture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
 	local previousSet = ItemRackUser and ItemRackUser.CurrentSet
 	local previousHybrid = ItemRack.HybridSet
 	local setname = previousSet or _G.CUSTOM
 	if setname and setname ~= _G.CUSTOM then
 		local equipped = ItemRack.IsSetEquipped(setname)
+		if next(ItemRack.UnresolvedEquippedSlots or {}) then
+			return deferDetection("inventory_unresolved")
+		end
 		
 		if equipped then
 			texture = ItemRack.GetTextureBySlot(20)
@@ -3230,7 +3271,11 @@ function ItemRack.UpdateCurrentSet()
 						count = count + 1
 					end
 				end
-				if count > bestCount and ItemRack.IsSetEquipped(name) then
+				local matches = count > bestCount and ItemRack.IsSetEquipped(name)
+				if next(ItemRack.UnresolvedEquippedSlots or {}) then
+					return deferDetection("inventory_unresolved")
+				end
+				if matches then
 					bestSet = name
 					bestCount = count
 				end

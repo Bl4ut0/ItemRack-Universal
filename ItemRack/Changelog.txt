@@ -1,4 +1,7 @@
 __ Development __
+- Hybrid detection rechecks readiness after matching discovers unresolved gear. Added active/candidate probe regressions and expanded cancellation checks for empty slots, multiple owners and AutoQueue.
+- Existing master/Queue debug captures blocked/forbidden addon-action events with attributed function and set/combat/swap context, without default chat output. Druid form report root cause remains pending evidence.
+- Owner-aware cancellation preserves independent same-item requests; manual unequip invalidates stale completion authority. Hybrid recognition retains stable state during pending/unresolved inventory instead of clearing or inferring from intermediate gear. Permanent regressions added; beta15 is unchanged and reporter acceptance remains pending.
 - #38: existing debug capture now records transient Hybrid enter/exit and explicit-versus-queue slot evidence without repeated steady-state logging. Added a permanent diagnostic regression. The original Drakes match is still under investigation; published beta15 is unchanged.
 
 __ New in 4.59-beta15 - By Bl4ut0 __

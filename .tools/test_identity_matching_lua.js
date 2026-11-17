@@ -6,6 +6,48 @@ const queue = 'ItemRack/ItemRackQueue.lua';
 const options = 'ItemRackOptions/ItemRackOptions.lua';
 runLua(String.raw`
 CUSTOM='Custom'
+local reads=0
+ItemRack={HybridSet='Stable',IsSetEquipped=function() reads=reads+1;return true end,GetTextureBySlot=function() return 1 end}
+ItemRackUser={CurrentSet='Active',EnableQueues='OFF',Sets={Active={equip={}},Stable={equip={}}}}
+${extractFunction(core,'ItemRack.UpdateCurrentSet')}
+for _,field in ipairs({'SetSwapping','ActiveEquipmentTransaction','PendingQueueEquipSet'}) do
+ ItemRack[field]={};ItemRack.UpdateCurrentSet()
+ assert(reads==0 and ItemRack.HybridSet=='Stable' and ItemRack.HybridDetectionStatus=='inventory_settling',
+  'hybrid-unresolved-state: pending work must retain stable recognition without probing intermediate gear')
+ ItemRack[field]=nil
+end
+ItemRack.UnresolvedEquippedSlots={[13]=true};ItemRack.UpdateCurrentSet()
+assert(reads==0 and ItemRack.HybridSet=='Stable' and ItemRack.HybridDetectionStatus=='inventory_unresolved')
+ItemRack.UnresolvedEquippedSlots={};ItemRackUser.EnableQueues='ON';ItemRack.UpdateCurrentSet()
+assert(reads==0 and ItemRack.HybridSet=='Stable','unknown queue state must not become a negative set match')
+ItemRack.QueueStateReady=true;ItemRack.UpdateCurrentSet()
+assert(reads==1 and ItemRack.HybridSet==nil and ItemRackUser.CurrentSet=='Active' and ItemRack.HybridDetectionStatus=='ready',
+ 'resolved gear matching the active set must deliberately clear the old Hybrid match')
+ItemRack.HybridSet='Stable';reads=0
+ItemRack.IsSetEquipped=function(name)
+ reads=reads+1
+ if name=='Active' then ItemRack.UnresolvedEquippedSlots={[13]=true};return false end
+ return true
+end
+ItemRack.UpdateCurrentSet()
+assert(reads==1 and ItemRack.HybridSet=='Stable' and ItemRack.HybridDetectionStatus=='inventory_unresolved',
+ 'hybrid-mid-probe-readiness: a matcher discovering unresolved gear must not fall through to another set')
+ItemRack.UnresolvedEquippedSlots={};reads=0
+ItemRackUser.Sets.Stable.equip[1]='candidate-head'
+ItemRack.IsSetEquipped=function(name)
+ reads=reads+1
+ if name=='Active' then return false end
+ ItemRack.UnresolvedEquippedSlots={[13]=true};return true
+end
+ItemRack.UpdateCurrentSet()
+assert(reads==2 and ItemRack.HybridSet=='Stable' and ItemRack.HybridDetectionStatus=='inventory_unresolved',
+ 'hybrid-candidate-readiness: candidate probing must not commit a match after readiness changes')
+ItemRackUser=nil;ItemRack.UpdateCurrentSet()
+assert(ItemRack.HybridDetectionStatus=='profile_unavailable','profile initialization must not throw or infer an empty set')
+print('[HYBRID UNRESOLVED LUA] Transactions, pending sets, unresolved slots, startup and resumed recognition passed.')
+`, 'hybrid-unresolved-state');
+runLua(String.raw`
+CUSTOM='Custom'
 local events={}
 ItemRack={DebugAll=true,QueueStateReady=true,
  IsSetEquipped=function(name) return name=='Drakes' end,

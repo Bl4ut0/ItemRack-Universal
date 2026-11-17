@@ -1584,6 +1584,10 @@ function ItemRack.UnequipSet(setname, disableSound)
 	-- Unequips a set. If 'parentSet' is found, it patches the stack.
 	-- Otherwise, it restores the set's 'old' to 'ItemRackUser.CurrentSet' via '~Unequip'.
 	if setname and ItemRackUser.Sets[setname] then
+		if not ItemRack.IsEventEquipment and not ItemRack.IsDeferredEquipment
+		and string.sub(setname,1,1)~="~" and ItemRack.CancelDeferredSetRequests then
+			ItemRack.CancelDeferredSetRequests()
+		end
 		ItemRack.Debug("Equip", "UnequipSet called for:", setname, "- CurrentSet is:", ItemRackUser.CurrentSet)
 		-- Manual toggle-off is just as authoritative as choosing a different set
 		-- while an associated specialization cast is pending. Record it before a
@@ -1771,6 +1775,12 @@ function ItemRack.IsSetPendingInCombatQueue(setname)
 	if not setname or not ItemRackUser or not ItemRackUser.Sets or not ItemRackUser.Sets[setname] then
 		return false
 	end
+	if ItemRack.CombatQueueSetOwner then
+		for slot,owner in pairs(ItemRack.CombatQueueSetOwner) do
+			if owner==setname and ItemRack.CombatQueue and ItemRack.CombatQueue[slot]~=nil then return true end
+		end
+		return false
+	end
 	if ItemRack.CombatSet == setname then
 		return true
 	end
@@ -1797,7 +1807,11 @@ function ItemRack.CancelCombatQueueSet(setname)
 		return
 	end
 	local set = ItemRackUser.Sets[setname]
-	if set.equip then
+	if ItemRack.CombatQueueSetOwner then
+		for slot,owner in pairs(ItemRack.CombatQueueSetOwner) do
+			if owner==setname then ItemRack.RemoveFromCombatQueue(slot) end
+		end
+	elseif set.equip then
 		for slot, targetID in pairs(set.equip) do
 		if type(slot) == "number" and targetID and targetID ~= 0 then
 			local queued = ItemRack.CombatQueue and ItemRack.CombatQueue[slot]
