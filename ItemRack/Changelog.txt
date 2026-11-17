@@ -1,4 +1,5 @@
 __ Development __
+- #38: existing debug capture now records transient Hybrid enter/exit and explicit-versus-queue slot evidence without repeated steady-state logging. Added a permanent diagnostic regression. The original Drakes match is still under investigation; published beta15 is unchanged.
 
 __ New in 4.59-beta15 - By Bl4ut0 __
 - #38: newer manual set choices cancel older set-owned deferred work and invalidate stale completion authority, preserving independent manual item requests. Added cancellation and late-completion regressions.

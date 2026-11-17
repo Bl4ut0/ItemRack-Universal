@@ -46,6 +46,25 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+Issue #38 beta15 follow-up (6933058602): reporter supplies Dungeon -> Boss ->
+manual trinket change -> Dungeon and a brief tentative Drakes Hybrid match.
+The attachment logs steady state after tracking_enabled, final Dungeon and
+Hybrid nil. It does not establish the transient match or an equipped banked
+cloak. UpdateCurrentSet previously emitted no Hybrid transition records under
+any debug category; a different dump command could not recover those events.
+Development now logs set_detection_transition and, on entering a Hybrid match,
+hybrid_match_slot for each explicit candidate slot: saved/worn IDs, explicit
+identity match and queue owner/enabled/membership. This is opt-in through the
+existing Queue/master debug category and deduplicated by state transitions.
+Normal behavior and queue authority are unchanged. The named standard identity
+case issue-38-missing-hybrid-transition tests enter/exit evidence, differing
+physical versus queued IDs, unchanged-state suppression and disabled read
+avoidance. Its modeled matcher does not reproduce the reporter's actual set
+configuration; original gameplay resolution remains pending. Requested evidence
+is the manual equip method, candidate cloak queue configuration, Dungeon/Boss
+slot-13 queues and a short capture begun BEFORE the four actions. No new debug
+command or dump full is required. Published beta15 remains unchanged.
+
 Issue #38 local candidate: the pending broad history deletion was removed.
 Deferred slots now retain explicit source-set ownership; anonymous/manual and
 mixed non-auto batches cannot infer a set owner from stale CombatSet. A new

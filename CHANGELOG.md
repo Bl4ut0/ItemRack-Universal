@@ -4,6 +4,7 @@ All notable changes to the TBC Anniversary port of ItemRack will be documented i
 
 ## [Development]
 
+- **Hybrid transition evidence (#38)**: Existing `/itemrack debug` capture now records detection transitions into/out of Hybrid state and the matched set's explicit slot IDs versus worn IDs and queue membership. Unchanged detections are not repeatedly logged. This closes an instrumentation gap; the reporter's exact transient Drakes match remains under investigation. Added a permanent diagnostic regression; beta15 is unchanged.
 
 ## [4.59-beta15] - 2026-11-16
 - **Newer manual set precedence (#38)**: Selecting a new manual set retires older deferred set-owned slots without canceling independent manual item requests. Deferred completion checks the manual-set generation before restoring queue authority. Added cancellation and settling-transaction regressions; local/client acceptance remains required.

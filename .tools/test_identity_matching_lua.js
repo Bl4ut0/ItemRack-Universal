@@ -4,6 +4,37 @@ const { extractFunction, runLua } = require('./lib/lua_harness');
 const core = 'ItemRack/ItemRack.lua';
 const queue = 'ItemRack/ItemRackQueue.lua';
 const options = 'ItemRackOptions/ItemRackOptions.lua';
+runLua(String.raw`
+CUSTOM='Custom'
+local events={}
+ItemRack={DebugAll=true,QueueStateReady=true,
+ IsSetEquipped=function(name) return name=='Drakes' end,
+ GetID=function() return 'worn-cloak' end,
+ GetQueueContext=function() return {enabled=true,owner='Drakes',list={{id='worn-cloak'}}} end,
+ MatchesStoredItemID=function(a,b) return a==b end,
+ FindQueueEntryIndex=function() return 1 end,
+ QueueDiagnostic=function(event,details) events[#events+1]={event=event,details=details} end}
+ItemRackUser={CurrentSet='Dungeon',Sets={Dungeon={equip={[1]='head'}},Drakes={equip={[15]='banked-cloak'}}}}
+${extractFunction(core,'ItemRack.UpdateCurrentSet')}
+ItemRack.UpdateCurrentSet()
+assert(#events==2 and events[1].event=='set_detection_transition' and events[1].details.toHybrid=='Drakes',
+ 'issue-38-missing-hybrid-transition: debug must retain the brief matched set name')
+assert(events[2].event=='hybrid_match_slot' and events[2].details.expected=='banked-cloak'
+ and events[2].details.actual=='worn-cloak' and events[2].details.explicitMatch==false
+ and events[2].details.queueEnabled and events[2].details.queueIndex==1,
+ 'diagnostics must distinguish saved physical gear from queue acceptance')
+ItemRack.UpdateCurrentSet();assert(#events==2,'unchanged detection must not spam transition records')
+ItemRack.IsSetEquipped=function(name) return name=='Dungeon' end
+ItemRack.GetTextureBySlot=function() return 1 end
+ItemRack.UpdateCurrentSet()
+assert(#events==3 and events[3].details.fromHybrid=='Drakes' and events[3].details.toHybrid=='<none>',
+ 'the transition out must survive even when the final dump has no HybridSet')
+ItemRack.DebugAll=false;ItemRack.DebugTags={Queue=false};ItemRack.IsSetEquipped=function(name) return name=='Drakes' end
+ItemRack.GetID=function() error('disabled diagnostics must not read slot evidence') end
+ItemRack.UpdateCurrentSet();assert(#events==3,'diagnostics must remain silent and avoid extra reads when disabled')
+assert(ItemRackUser.CurrentSet=='Dungeon','diagnostics must not change active queue authority')
+print('[HYBRID TRANSITION LUA] Enter/exit, explicit versus queued match, deduplication and disabled behavior passed.')
+`, 'issue-38-missing-hybrid-transition');
 // November 14: the attempted synchronous handoff ran (132 calls, no errors)
 // but did not fix the live bounce. Capture actual late writes/rendered geometry;
 // a modeled handoff contract cannot establish a client rendering correction.

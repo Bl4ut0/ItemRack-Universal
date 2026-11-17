@@ -3209,6 +3209,7 @@ end
 function ItemRack.UpdateCurrentSet()
 	local texture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
 	local previousSet = ItemRackUser and ItemRackUser.CurrentSet
+	local previousHybrid = ItemRack.HybridSet
 	local setname = previousSet or _G.CUSTOM
 	if setname and setname ~= _G.CUSTOM then
 		local equipped = ItemRack.IsSetEquipped(setname)
@@ -3255,6 +3256,27 @@ function ItemRack.UpdateCurrentSet()
 		ItemRack.HybridSet = nil
 	end
 
+	if ItemRack.QueueDiagnostic and (ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Queue))
+	and (previousHybrid~=ItemRack.HybridSet or previousSet~=ItemRackUser.CurrentSet) then
+		ItemRack.QueueDiagnostic("set_detection_transition",{from=previousSet or "<none>",to=ItemRackUser.CurrentSet or "<none>",
+			fromHybrid=previousHybrid or "<none>",toHybrid=ItemRack.HybridSet or "<none>",
+			swapping=ItemRack.SetSwapping or "<none>",transaction=ItemRack.ActiveEquipmentTransaction and true or false,
+			stateReady=ItemRack.QueueStateReady==true})
+		local matched = ItemRack.HybridSet and ItemRackUser.Sets[ItemRack.HybridSet]
+		if matched then
+			for slot=0,19 do
+				local expected = matched.equip and matched.equip[slot]
+				if expected~=nil then
+					local actual = ItemRack.GetID(slot)
+					local context = ItemRack.GetQueueContext(slot,ItemRack.HybridSet)
+					ItemRack.QueueDiagnostic("hybrid_match_slot",{set=ItemRack.HybridSet,slot=slot,expected=expected,actual=actual,
+						explicitMatch=ItemRack.MatchesStoredItemID(expected,actual) and true or false,
+						queueEnabled=context.enabled and true or false,queueOwner=context.owner or "global",
+						queueIndex=ItemRack.FindQueueEntryIndex(context.list,actual) or 0})
+				end
+			end
+		end
+	end
 	local activeOwner = previousSet or ItemRackUser.CurrentSet
 	if ItemRack.SetButton20Visual then
 		ItemRack.SetButton20Visual(activeOwner, ItemRack.HybridSet)
