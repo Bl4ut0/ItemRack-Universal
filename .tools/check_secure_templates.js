@@ -117,8 +117,11 @@ try {
   }
   excludes(menuBody, /SecureActionButtonTemplate|ActionBarButtonTemplate|ActionButtonTemplate/,
     'popup item template must remain visual-only');
+  const coreXml = fs.readFileSync('ItemRack/ItemRack.xml', 'utf8');
+  excludes(coreXml, /name="ItemRackPinnedMenuFrame"[^>]*SecureActionButtonTemplate/,
+    'pinned menu container must remain visual-only');
   contains(coreLua,
-    'CreateFrame("CheckButton","ItemRackMenu"..idx,ItemRackMenuFrame,"ItemRackMenuItemTemplate")',
+    'CreateFrame("CheckButton",buttonName,parentFrame,"ItemRackMenuItemTemplate")',
     'runtime popup creation must use the ItemRack-owned visual template');
   contains(coreLua, 'Icon = _G[name.."Icon"]',
     'popup Masque registration must provide its owned icon explicitly');

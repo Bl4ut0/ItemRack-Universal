@@ -544,5 +544,72 @@ ItemRack.ProcessSpecializationEvent()
 check(ItemRack.PendingSpecSet == nil,
   "a transition to an unexpected specialization must consume the stale request")
 
+-- Forever 1.60.1 (Camelot): PLAYER_TALENT_UPDATE and ACTIVE_COMBAT_CONFIG_CHANGED
+-- must dispatch Specialization transitions when GetActiveTalentGroup changes.
+reset()
+ItemRackUser.Buttons = {}
+ItemRack.Broker = {}
+function GetContainerNumSlots() return 16 end
+GetActiveTalentGroup = function() return currentSpec end
+local activeTimers = {}
+local createdFrame = {
+  _events = {},
+  RegisterEvent = function(self, ev) self._events[ev] = true end,
+  UnregisterEvent = function(self, ev) self._events[ev] = nil end,
+  UnregisterAllEvents = function(self) self._events = {} end,
+  IsEventRegistered = function(self, ev) return self._events[ev] == true end,
+}
+ItemRackEventProcessingFrame = createdFrame
+ItemRack.IsForever = function() return true end
+ItemRack.StartTimer = function(name)
+  activeTimers[#activeTimers + 1] = name
+  if name == "SpecChangeTimer" then ItemRack.ProcessSpecializationEvent() end
+end
+ItemRack.StopTimer = function() end
+addEvent("Primary Spec",{ Type="Specialization", Spec=1, Unequip=1 },"PrimarySet",{ [13]="Primary13" })
+addEvent("Secondary Spec",{ Type="Specialization", Spec=2, Unequip=1 },"SecondarySet",{ [13]="Secondary13" })
+ItemRack.LastLastSpec = 1
+currentSpec = 1
+ItemRack.RegisterEvents()
+check(createdFrame:IsEventRegistered("PLAYER_TALENT_UPDATE") and createdFrame:IsEventRegistered("ACTIVE_COMBAT_CONFIG_CHANGED"),
+  "Forever specialization registration must listen for PLAYER_TALENT_UPDATE and ACTIVE_COMBAT_CONFIG_CHANGED")
+activeTimers = {}
+ItemRack.ProcessingFrameOnEvent(createdFrame, "PLAYER_TALENT_UPDATE")
+check(#activeTimers == 1 and activeTimers[1] == "SpecChangeTimer" and not ItemRackEvents["Secondary Spec"].Active,
+  "same-spec PLAYER_TALENT_UPDATE must not equip Secondary Spec")
+currentSpec = 2
+ItemRack.ProcessingFrameOnEvent(createdFrame, "PLAYER_TALENT_UPDATE")
+finishObservedPlan()
+check(ItemRackEvents["Secondary Spec"].Active and inventory[13] == "Secondary13" and ItemRackUser.CurrentSet == "SecondarySet",
+  "forever-camelot-dual-spec: PLAYER_TALENT_UPDATE on spec change must activate Secondary Spec gear")
+currentSpec = 1
+ItemRack.ProcessingFrameOnEvent(createdFrame, "ACTIVE_COMBAT_CONFIG_CHANGED", 101)
+finishObservedPlan()
+check(ItemRackEvents["Primary Spec"].Active and inventory[13] == "Primary13" and ItemRackUser.CurrentSet == "PrimarySet",
+  "forever-camelot-dual-spec: ACTIVE_COMBAT_CONFIG_CHANGED on spec change must activate Primary Spec gear")
+
 print(string.format("[EVENT PROCESSORS LUA] %d deterministic processor checks passed.",checks))
 `, 'event-processors');
+
+// Verify ItemRack.lua's top-level Forever GetNumSpecGroups -> GetNumTalentGroups shim directly
+const coreSource = fs.readFileSync('ItemRack/ItemRack.lua', 'utf8');
+const shimMatch = /(if not GetActiveTalentGroup[\s\S]*?elseif _G\.GetNumSpecGroups then[\s\S]*?end\s*\nend)/.exec(coreSource);
+if (!shimMatch) throw new Error('Missing GetNumSpecGroups shim in ItemRack/ItemRack.lua');
+runLua(String.raw`
+ItemRack = {}
+local specActive = 1
+local specGroups = 2
+GetNumTalentGroups = nil
+GetActiveTalentGroup = nil
+function GetNumSpecGroups() return specGroups end
+C_SpecializationInfo = {
+  GetActiveSpecGroup = function() return specActive end,
+  SetActiveSpecGroup = function(idx) specActive = idx end,
+}
+wowver, wowbuild, wowtoc = "1.60.1", "70959", 16001
+${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.IsForever')}
+${shimMatch[1]}
+assert(GetActiveTalentGroup and GetActiveTalentGroup() == 1, "Forever GetActiveTalentGroup must alias C_SpecializationInfo.GetActiveSpecGroup")
+assert(GetNumTalentGroups and GetNumTalentGroups() == 2, "forever-dual-spec: GetNumTalentGroups must fall back to global GetNumSpecGroups")
+print('[FOREVER SPEC SHIM LUA] Global GetNumSpecGroups fallback passed.')
+`, 'forever-num-spec-groups-shim');

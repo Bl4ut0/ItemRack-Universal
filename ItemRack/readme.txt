@@ -339,13 +339,14 @@ SLASH COMMANDS
 
 /itemrack debug status
 /itemrack debug clear
+/itemrack debug breakouts
 /itemrack debug audit
 /itemrack debug help
-  Inspect diagnostics, clear recorded data, audit SavedVariables, or list
-  diagnostic commands.
+  Inspect diagnostics, clear recorded data, probe quick-access breakout
+  render blockers, audit SavedVariables, or list diagnostic commands.
 
 /itemrack debug <tag>
-  Toggle one of: events, equip, queue, combatqueue, api, ui, or combat.
+  Toggle one of: events, equip, queue, combatqueue, api, ui, combat, breakouts, or specialitems.
 
 /itemrack dump
   Open a copyable support report containing version/build information, client
@@ -476,6 +477,10 @@ Breakouts & Flyout Menus:
   trinket flyouts: left-click equips the upper slot and right-click the lower.
 * Anchor other trinket [Account-wide; Fresh-profile default: OFF; requires
   TrinketMenu mode] Anchors that combined flyout to the lower trinket instead.
+* Shift+Click keeps breakout open [Account-wide; Fresh-profile default: OFF]
+  Lets Shift+Left-Click on quick-access item buttons (slots 0-19) lock or
+  unlock that slot's breakout menu open (including in combat; links items when
+  chat is open) while hovering other slots still opens normal flyouts on top.
 * Allow empty slots [Account-wide; Fresh-profile default: ON] Adds an unequip
   choice to applicable item flyouts.
 * Allow hidden items [Account-wide; Fresh-profile default: ON] Allows Alt-click

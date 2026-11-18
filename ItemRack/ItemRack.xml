@@ -10,6 +10,24 @@
 		</Scripts>
 	</Frame>
 
+	<Frame name="ItemRackPinnedMenuFrame" frameStrata="MEDIUM" enableMouse="false" movable="true" parent="UIParent" hidden="true" clampedToScreen="true" topLevel="true" inherits="BackdropTemplate">
+		<Size>
+			<AbsDimension x="64" y="64" />
+		</Size>
+		<Scripts>
+			<OnLoad>
+				if ItemRack and ItemRack.ApplyMenuFrameBackdrop then
+					ItemRack.ApplyMenuFrameBackdrop(self)
+				end
+			</OnLoad>
+			<OnHide>
+				if ItemRack and ItemRack.MenuOnHide then
+					ItemRack.MenuOnHide("pinned")
+				end
+			</OnHide>
+		</Scripts>
+	</Frame>
+
 	<Frame name="ItemRackMenuFrame" frameStrata="HIGH" enableMouse="false" movable="true" parent="UIParent" hidden="true" clampedToScreen="true" topLevel="true" inherits="BackdropTemplate">
 		<Size>
 			<AbsDimension x="64" y="64" />

@@ -137,7 +137,7 @@ function ItemRackOpt.GetSpecName(group)
 end
 
 function ItemRackOpt.OnEvent(self, event, ...)
-	if event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
+	if event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "ACTIVE_COMBAT_CONFIG_CHANGED" then
 		if ItemRackOptFrame:IsVisible() then
 			ItemRackOpt.ValidateSetButtons()
 		end
@@ -211,6 +211,7 @@ end
 function ItemRackOpt.OnLoad(self)
 	self:RegisterEvent("PLAYER_TALENT_UPDATE")
 	self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+	pcall(self.RegisterEvent, self, "ACTIVE_COMBAT_CONFIG_CHANGED")
 	self:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 	self:RegisterEvent("BAG_UPDATE")
 	self:RegisterEvent("BANKFRAME_OPENED")
@@ -281,6 +282,7 @@ function ItemRackOpt.OnLoad(self)
 		{type="check",optset=ItemRackSettings,variable="MenuOnRight",label="Menu on right click",tooltip="Open item and set flyout menus by right clicking buttons.\nWhen unchecked, flyout menus open on hover; Alt+Right-Click opens configuration.",combatlock=1},
 		{type="check",optset=ItemRackSettings,variable="TrinketMenuMode",label="TrinketMenu mode",tooltip="When mouseover of either trinket slot, open anchored to the top trinket.  Left click of a menu item will equip to the top trinket.  Right click will equip to the bottom trinket."},
 		{type="check",optset=ItemRackSettings,variable="AnchorOther",depend="TrinketMenuMode",label="Anchor other trinket",tooltip="In TrinketMenu mode, trinket menus dock to the top trinket.  Check this to anchor them to the bottom trinket."},
+		{type="check",optset=ItemRackSettings,variable="KeepMenuOpen",label="Shift+Click keeps breakout open",tooltip="Shift+Left-Click a quick-access item button (slots 0-19) to lock or unlock its breakout menu open (in combat too; links items when chat is open). Clicking items swaps or queues without closing the locked menu, while hovering other slots still opens and closes normal breakouts on top. Does not change character-sheet menus or the Set button."},
 		{type="check",optset=ItemRackSettings,variable="AllowEmpty",label="Allow empty slots",tooltip="Add an empty slot to menus of equipped items."},
 		{type="check",optset=ItemRackSettings,variable="AllowHidden",label="Allow hidden items",tooltip="Enable Alt+clicking of menu items to hide/show them in the menu.  Hold Alt as you enter a menu to show all."},
 		{type="check",optset=ItemRackSettings,variable="HideTradables",label="Hide non-soulbound items",tooltip="Filter bag/bank item candidates from item breakouts unless they are soulbound. Does not delete items or remove them from saved sets."},
@@ -431,6 +433,7 @@ function ItemRackOpt.ToggleQuickAccessMenuSidePick()
 				ItemRackUser.QuickAccessMenuSide = side
 				pick:Hide()
 				ItemRackOpt.UpdateQuickAccessMenuSide()
+				if ItemRack and ItemRack.RefreshPinnedMenu then ItemRack.RefreshPinnedMenu() end
 			end)
 		end
 		pick:Hide()
@@ -476,6 +479,7 @@ function ItemRackOpt.ToggleQuickAccessMenuDirPick()
 				ItemRackUser.QuickAccessMenuDir = dir
 				pick:Hide()
 				ItemRackOpt.UpdateQuickAccessMenuDir()
+				if ItemRack and ItemRack.RefreshPinnedMenu then ItemRack.RefreshPinnedMenu() end
 			end)
 		end
 		pick:Hide()
@@ -1438,6 +1442,7 @@ function ItemRackOpt.UpdateSlider(name)
 				ItemRack.ConstructLayout()
 			elseif name=="BreakoutSpacing" then
 				if ItemRackMenuFrame:IsVisible() then ItemRack.BuildMenu() end
+				if ItemRack.RefreshPinnedMenu then ItemRack.RefreshPinnedMenu() end
 			elseif name=="Alpha" then
 				ItemRack.ReflectAlpha()
 			elseif name=="MenuScale" then
@@ -1564,8 +1569,16 @@ function ItemRackOpt.OptListCheckButtonOnClick(self,override)
 				_G["ItemRackMenu"..i.."Time"]:SetText("")
 			end
 		end
+		for i=1,#(ItemRack.PinnedMenu or {}) do
+			if _G["ItemRackPinnedMenu"..i] and _G["ItemRackPinnedMenu"..i.."Time"] then
+				_G["ItemRackPinnedMenu"..i.."Time"]:SetText("")
+			end
+		end
 		ItemRack.WriteButtonCooldowns()
 		ItemRack.WriteMenuCooldowns()
+	elseif opt.variable=="KeepMenuOpen" or opt.variable=="TrinketMenuMode" or opt.variable=="AnchorOther"
+	or opt.variable=="AllowEmpty" or opt.variable=="AllowHidden" or opt.variable=="HideTradables" or opt.variable=="SetMenuWrap" then
+		if ItemRack.SyncPinnedMenu then ItemRack.SyncPinnedMenu() end
 	elseif opt.variable=="LargeNumbers" then
 		ItemRack.ReflectCooldownFont()
 	elseif opt.variable=="ShowMinimap" then
@@ -1580,6 +1593,7 @@ function ItemRackOpt.OptListCheckButtonOnClick(self,override)
 	elseif opt.variable=="CustomCharacterIcons" or opt.variable=="CustomMenuIcons" then
 		ItemRack.RefreshCustomItemIcons()
 		ItemRackMenuFrame:Hide()
+		if ItemRack.RefreshPinnedMenu then ItemRack.RefreshPinnedMenu() end
 	elseif opt.variable=="TinyTooltips" then
 		if check=="ON" then
 			ItemRackSettings.TinyTooltipsQuickAccess = "OFF"

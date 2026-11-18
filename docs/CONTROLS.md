@@ -22,7 +22,7 @@ A comprehensive guide to all mouse, keyboard, and command controls available in 
 | **Left-Click** | Uses the item (activates on-use trinkets, equippables, etc.) |
 | **Right-Click** | Opens the flyout when **Menu on Right-Click** is enabled; otherwise uses the equipped item when **Use on Right-Click** is enabled; otherwise advances to the next valid queue item with temporary protection that ends on verified use, in or out of combat |
 | **Hover** | Opens the item selection flyout menu (immediate without hover delay) |
-| **Shift+Left-Click** | Links the equipped item to chat (if chat edit box is open) |
+| **Shift+Left-Click** | Links the equipped item to chat (if chat edit box is open); otherwise, if **Shift+Click keeps breakout open** is enabled, locks/unlocks that slot's breakout open (in combat too) |
 | **Alt+Left-Click** | Toggles Auto-Queue ON/OFF for that slot |
 | **Alt+Right-Click** | Opens the Queue Menu (Configuration Panel) for that slot |
 | **Drag (Left or Right)** | Moves the button (if unlocked); Shift+Drag moves just that button, otherwise the entire docked group moves |
@@ -108,6 +108,7 @@ All 20 ItemRack equipment slots can be bound directly via the native WoW interfa
 |---------|--------|
 | `/itemrack opt` or `/itemrack options` | Opens the Options window |
 | `/itemrack debug` | Toggles the diagnostic logging framework (Silent mode by default) |
+| `/itemrack debug breakouts` | Probes quick-access breakout gates, visibility, scale, alpha, mouse focus, and snapshots |
 | `/itemrack debug mouse` | Captures public mouse-focus details without changing any frame's mouse handling |
 | `/itemrack debug specialitems` | Independently starts/stops the same silent 120-second special-item capture included by `/itemrack debug`; starts a fresh window after expiry |
 | `/itemrack special status` | Shows selected client rules and pending/recovered special-item use |

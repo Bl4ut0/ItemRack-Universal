@@ -136,10 +136,16 @@ function ItemRack.InitButtons()
 	ItemRackMenuFrame:SetScript("OnMouseDown",ItemRack.MenuFrameOnMouseDown)
 	ItemRackMenuFrame:SetScript("OnMouseUp",ItemRack.MenuFrameOnMouseUp)
 	ItemRackMenuFrame:EnableMouse(true)
+	if ItemRackPinnedMenuFrame then
+		ItemRackPinnedMenuFrame:SetScript("OnMouseDown",ItemRack.MenuFrameOnMouseDown)
+		ItemRackPinnedMenuFrame:SetScript("OnMouseUp",ItemRack.MenuFrameOnMouseUp)
+		ItemRackPinnedMenuFrame:EnableMouse(true)
+	end
 
 	ItemRack.CreateTimer("ReflectClickedUpdate",ItemRack.ReflectClickedUpdate,.2,1)		
 
 	ItemRackFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+	pcall(ItemRackFrame.RegisterEvent, ItemRackFrame, "PLAYER_EQUIPMENT_CHANGED")
 	ItemRackFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
 	ItemRackFrame:RegisterEvent("ITEM_LOCK_CHANGED")
 	ItemRackFrame:RegisterEvent("UPDATE_BINDINGS")
@@ -158,6 +164,9 @@ function ItemRack.InitButtons()
 	ItemRack.UpdateDisableAltClick()
 	if ItemRack.RefreshQuickAccessMenuSnapshots then
 		ItemRack.RefreshQuickAccessMenuSnapshots()
+	end
+	if ItemRack.SyncPinnedMenu then
+		ItemRack.SyncPinnedMenu()
 	end
 end
 
@@ -258,6 +267,9 @@ function ItemRack.RemoveButton(id)
 	ItemRack.NewAnchor = nil
 	ItemRackUser.Buttons[id] = nil
 	_G["ItemRackButton"..id]:Hide()
+	if ItemRack.SyncPinnedMenu then
+		ItemRack.SyncPinnedMenu()
+	end
 end
 
 function ItemRack.ToggleButton(id)
@@ -567,7 +579,7 @@ function ItemRack.RefreshCustomItemIcons(targetButton)
 	end
 end
 
-function ItemRack.DockMenuToButton(button)
+function ItemRack.DockMenuToButton(button,target)
 	if (button==13 or button==14) and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then
 		button = 13 + (ItemRackSettings.AnchorOther=="ON" and 1 or 0)
 	end
@@ -631,20 +643,38 @@ function ItemRack.DockMenuToButton(button)
 			end
 		end
 	end
-	ItemRack.DockWindows(menuDock,_G["ItemRackButton"..button],mainDock,menuOrient,button)
+	ItemRack.DockWindows(menuDock,_G["ItemRackButton"..button],mainDock,menuOrient,button,target)
 end
 
 function ItemRack.OnEnterButton(self)
 	if ItemRack.RecordButtonInput then ItemRack.RecordButtonInput("hover",self) end
 	ItemRack.InventoryTooltip(self)
-	if ItemRack.IsTimerActive("ButtonsDocking") or (not IsShiftKeyDown() and ItemRackSettings.MenuOnShift=="ON") or ItemRackSettings.MenuOnRight=="ON" then
-		return -- don't show menu while buttons docking
-	end
 	local button = self:GetID()
+	if ItemRack.IsTimerActive("ButtonsDocking") then
+		if ItemRack.RecordBreakoutEvent then ItemRack.RecordBreakoutEvent("hover_gate", "hover", button, "buttons_docking") end
+		return -- don't show menu while buttons docking
+	elseif not IsShiftKeyDown() and ItemRackSettings.MenuOnShift=="ON" then
+		if ItemRack.RecordBreakoutEvent then ItemRack.RecordBreakoutEvent("hover_gate", "hover", button, "requires_shift") end
+		return
+	elseif ItemRackSettings.MenuOnRight=="ON" then
+		if ItemRack.RecordBreakoutEvent then ItemRack.RecordBreakoutEvent("hover_gate", "hover", button, "menu_on_right") end
+		return
+	end
 	local selfName = self.GetName and self:GetName()
+	if ItemRack.IsSlotMenuPinned and ItemRack.IsSlotMenuPinned(button) then
+		-- Hovering the slot whose breakout is already locked open must not spawn
+		-- a duplicate hover window; close any stale hover window from another slot.
+		if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.menuDockedTo ~= selfName then
+			if ItemRack.StopTimer then ItemRack.StopTimer("MenuMouseover") end
+			ItemRackMenuFrame:Hide()
+		end
+		if ItemRack.RecordBreakoutEvent then ItemRack.RecordBreakoutEvent("hover_gate", "hover", button, "already_pinned") end
+		return
+	end
 	if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.menuOpen == button and ItemRack.menuDockedTo == selfName then
 		return -- menu is already open and docked to this button
 	end
+	if ItemRack.RecordBreakoutEvent then ItemRack.RecordBreakoutEvent("hover_gate", "hover", button, "entered") end
 	ItemRack.DockMenuToButton(button)
 	ItemRack.BuildMenu(button, nil, 2)
 end
@@ -652,88 +682,100 @@ end
 --[[ Menu Docking ]]
 
 function ItemRack.MenuFrameOnMouseDown(self,button)
+	local isPinned = (self == ItemRackPinnedMenuFrame)
+	local movable = isPinned and ItemRack.pinnedMenuMovable or ItemRack.menuMovable
 	if button=="LeftButton" then
-		ItemRack.MenuDockingTo = ItemRack.menuMovable
+		ItemRack.MenuDockingTo = movable
+		ItemRack.MenuDockingFrame = self or ItemRackMenuFrame
+		ItemRack.MenuDockingView = isPinned and "pinned" or nil
 		if ItemRack.MenuDockingTo then
 			for i in pairs(ItemRackUser.Buttons) do
 				if i~=ItemRack.MenuDockingTo then
 					_G["ItemRackButton"..i]:SetAlpha(ItemRackUser.Alpha/3)
 				end
 			end
-			ItemRackMenuFrame:StartMoving()
+			ItemRack.MenuDockingFrame:StartMoving()
 			ItemRack.StartTimer("MenuDocking")
 		end
 	end
 end
 
 function ItemRack.MenuFrameOnMouseUp(self,button)
+	local isPinned = (self == ItemRackPinnedMenuFrame)
+	local targetView = ItemRack.MenuDockingView or (isPinned and "pinned" or nil)
+	local menuFrame = ItemRack.MenuDockingFrame or self or ItemRackMenuFrame
+	local movable = isPinned and ItemRack.pinnedMenuMovable or ItemRack.menuMovable
 	if button=="LeftButton" and ItemRack.MenuDockingTo then
 		ItemRack.StopTimer("MenuDocking")
 		for i in pairs(ItemRackUser.Buttons) do
 			_G["ItemRackButton"..i]:SetAlpha(ItemRackUser.Alpha)
 		end
 		local parent = ItemRack.FindParent(ItemRack.MenuDockingTo)
-		ItemRackUser.Buttons[parent].MenuDock = ItemRack.menuDock
-		ItemRackUser.Buttons[parent].MainDock = ItemRack.mainDock
-		ItemRack.DockMenuToButton(ItemRack.MenuDockingTo)
-		ItemRack.BuildMenu()
+		ItemRackUser.Buttons[parent].MenuDock = (targetView == "pinned") and ItemRack.pinnedMenuDock or ItemRack.menuDock
+		ItemRackUser.Buttons[parent].MainDock = (targetView == "pinned") and ItemRack.pinnedMainDock or ItemRack.mainDock
+		ItemRack.DockMenuToButton(ItemRack.MenuDockingTo, targetView)
+		ItemRack.BuildMenu(nil, nil, nil, targetView)
 		ItemRack.MenuDockingTo = nil
-		ItemRackMenuFrame:StopMovingOrSizing()
+		ItemRack.MenuDockingFrame = nil
+		ItemRack.MenuDockingView = nil
+		menuFrame:StopMovingOrSizing()
 		ItemRack.HideBrackets()
 	elseif button=="RightButton" then
-		if ItemRack.menuMovable then
-			local parent = ItemRack.FindParent(ItemRack.menuMovable)
-			local button = ItemRackUser.Buttons[parent]
-			button.MenuOrient = (button.MenuOrient=="VERTICAL") and "HORIZONTAL" or "VERTICAL"
-			ItemRack.DockMenuToButton(ItemRack.menuMovable)
-			ItemRack.BuildMenu()
+		if movable then
+			local parent = ItemRack.FindParent(movable)
+			local btnConfig = ItemRackUser.Buttons[parent]
+			btnConfig.MenuOrient = (btnConfig.MenuOrient=="VERTICAL") and "HORIZONTAL" or "VERTICAL"
+			ItemRack.DockMenuToButton(movable, isPinned and "pinned" or nil)
+			ItemRack.BuildMenu(nil, nil, nil, isPinned and "pinned" or nil)
 		end
 	end
 end
 
 function ItemRack.MenuDocking()
-
+	local isPinned = (ItemRack.MenuDockingView == "pinned")
 	local main = _G["ItemRackButton"..ItemRack.MenuDockingTo]
-	local menu = ItemRackMenuFrame
+	local menu = ItemRack.MenuDockingFrame or (isPinned and ItemRackPinnedMenuFrame or ItemRackMenuFrame)
 	local mainscale = main:GetEffectiveScale()
 	local menuscale = menu:GetEffectiveScale()
 	local near = ItemRack.Near
+	local newMainDock, newMenuDock
 
 	if near(main:GetRight()*mainscale,menu:GetLeft()*menuscale) then
 		if near(main:GetTop()*mainscale,menu:GetTop()*menuscale) then
-			ItemRack.mainDock = "TOPRIGHT"
-			ItemRack.menuDock = "TOPLEFT"
+			newMainDock, newMenuDock = "TOPRIGHT", "TOPLEFT"
 		elseif near(main:GetBottom()*mainscale,menu:GetBottom()*menuscale) then
-			ItemRack.mainDock = "BOTTOMRIGHT"
-			ItemRack.menuDock = "BOTTOMLEFT"
+			newMainDock, newMenuDock = "BOTTOMRIGHT", "BOTTOMLEFT"
 		end
 	elseif near(main:GetLeft()*mainscale,menu:GetRight()*menuscale) then
 		if near(main:GetTop()*mainscale,menu:GetTop()*menuscale) then
-			ItemRack.mainDock = "TOPLEFT"
-			ItemRack.menuDock = "TOPRIGHT"
+			newMainDock, newMenuDock = "TOPLEFT", "TOPRIGHT"
 		elseif near(main:GetBottom()*mainscale,menu:GetBottom()*menuscale) then
-			ItemRack.mainDock = "BOTTOMLEFT"
-			ItemRack.menuDock = "BOTTOMRIGHT"
+			newMainDock, newMenuDock = "BOTTOMLEFT", "BOTTOMRIGHT"
 		end
 	elseif near(main:GetRight()*mainscale,menu:GetRight()*menuscale) then
 		if near(main:GetTop()*mainscale,menu:GetBottom()*menuscale) then
-			ItemRack.mainDock = "TOPRIGHT"
-			ItemRack.menuDock = "BOTTOMRIGHT"
+			newMainDock, newMenuDock = "TOPRIGHT", "BOTTOMRIGHT"
 		elseif near(main:GetBottom()*mainscale,menu:GetTop()*menuscale) then
-			ItemRack.mainDock = "BOTTOMRIGHT"
-			ItemRack.menuDock = "TOPRIGHT"
+			newMainDock, newMenuDock = "BOTTOMRIGHT", "TOPRIGHT"
 		end
 	elseif near(main:GetLeft()*mainscale,menu:GetLeft()*menuscale) then
 		if near(main:GetTop()*mainscale,menu:GetBottom()*menuscale) then
-			ItemRack.mainDock = "TOPLEFT"
-			ItemRack.menuDock = "BOTTOMLEFT"
+			newMainDock, newMenuDock = "TOPLEFT", "BOTTOMLEFT"
 		elseif near(main:GetBottom()*mainscale,menu:GetTop()*menuscale) then
-			ItemRack.mainDock = "BOTTOMLEFT"
-			ItemRack.menuDock = "TOPLEFT"
+			newMainDock, newMenuDock = "BOTTOMLEFT", "TOPLEFT"
 		end
 	end
-	ItemRack.MoveBracket("Main",ItemRack.mainDock,main,ItemRack.mainDock)
-	ItemRack.MoveBracket("Menu",ItemRack.menuDock,menu,ItemRack.menuDock)
+	if newMainDock and newMenuDock then
+		if isPinned then
+			ItemRack.pinnedMainDock = newMainDock
+			ItemRack.pinnedMenuDock = newMenuDock
+		else
+			ItemRack.mainDock = newMainDock
+			ItemRack.menuDock = newMenuDock
+		end
+		ItemRack.MoveBracket("Main",newMainDock,main,newMainDock)
+		ItemRack.MoveBracket("Menu",newMenuDock,menu,newMenuDock)
+	end
 end
 
 --[[ Using buttons ]]
@@ -842,6 +884,11 @@ function ItemRack.ButtonPostClick(self,button)
 		if id<20 then
 			if ChatFrame1EditBox:IsVisible() then
 				ChatFrame1EditBox:Insert(GetInventoryItemLink("player",id))
+			elseif ItemRackSettings and ItemRackSettings.KeepMenuOpen=="ON" and button=="LeftButton" and ItemRack.TogglePinnedMenu then
+				ItemRack.TogglePinnedMenu(id)
+			elseif ItemRack.RecordBreakoutEvent then
+				ItemRack.RecordBreakoutEvent("click_gate", "pinned", id,
+					button ~= "LeftButton" and "shift_right_unhandled" or "keep_menu_open_off")
 			end
 		elseif ItemRackUser.CurrentSet then
 			ItemRack.UnequipSet(ItemRackUser.CurrentSet)
@@ -960,6 +1007,7 @@ function ItemRack.WriteButtonCooldowns()
 end
 function ItemRack.UpdateButtonLocks()
 	local isLocked, alreadyLocked
+	local unlocked = false
 	for i in pairs(ItemRackUser.Buttons) do
 		if i<20 then
 			isLocked = IsInventoryItemLocked(i)
@@ -970,9 +1018,11 @@ function ItemRack.UpdateButtonLocks()
 			elseif not isLocked and alreadyLocked then
 				_G["ItemRackButton"..i.."ItemRackIcon"]:SetDesaturated(false)
 				ItemRack.LockedButtons[i] = nil
+				unlocked = true
 			end
 		end
 	end
+	return unlocked
 end
 
 --[[ Button menu ]]
@@ -1092,6 +1142,9 @@ function ItemRack.RefreshButtonVisibility()
 		else
 			button:Show()
 		end
+	end
+	if ItemRack.SyncPinnedMenu then
+		ItemRack.SyncPinnedMenu()
 	end
 end
 

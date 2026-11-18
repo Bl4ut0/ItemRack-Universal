@@ -650,6 +650,9 @@ function ItemRack.RegisterEvents()
 				if not frame:IsEventRegistered("PLAYER_TALENT_UPDATE") then
 					frame:RegisterEvent("PLAYER_TALENT_UPDATE")
 				end
+				if ItemRack.IsForever and ItemRack.IsForever() and not frame:IsEventRegistered("ACTIVE_COMBAT_CONFIG_CHANGED") then
+					pcall(frame.RegisterEvent, frame, "ACTIVE_COMBAT_CONFIG_CHANGED")
+				end
 			elseif eventType=="Script" then
 				local approved = IsScriptEventApproved(eventName,eventData)
 				if approved and not frame:IsEventRegistered(eventData.Trigger) then
@@ -1564,7 +1567,7 @@ function ItemRack.ProcessingFrameOnEvent(self,event,...)
 
 	local enabled = ItemRackUser.Events.Enabled
 	local events = ItemRackEvents
-	local startBuff, startZone, startStance, eventType
+	local startBuff, startZone, startStance, startSpec, eventType
 	local arg1, arg2 = ...;
 
 	if event == "UNIT_AURA" and arg1 == "player" then
@@ -1597,13 +1600,16 @@ function ItemRack.ProcessingFrameOnEvent(self,event,...)
 			elseif event == "ZONE_CHANGED_INDOORS" and eventType == "Zone" and select(2, IsInInstance()) == "raid" then -- if player change subzone in raid instance, toggle set change, else not.
 				startZone = 1
 				ItemRack.LastZoneChangeTime = GetTime()
-			elseif event == "ACTIVE_TALENT_GROUP_CHANGED" and eventType == "Specialization" then
-				ItemRack.StartTimer("SpecChangeTimer")
+			elseif (event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_COMBAT_CONFIG_CHANGED") and eventType == "Specialization" then
+				startSpec = 1
 			end
 		end
 	end
 	if HasEnabledScriptTrigger(event) then
 		ProcessScriptTriggers(event,CaptureScriptEventArguments(event,...))
+	end
+	if startSpec then
+		ItemRack.StartTimer("SpecChangeTimer")
 	end
 	if startStance then
 		ItemRack.ProcessStanceEvent()

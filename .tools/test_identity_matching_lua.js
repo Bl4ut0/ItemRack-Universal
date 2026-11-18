@@ -16,6 +16,18 @@ for _,field in ipairs({'SetSwapping','ActiveEquipmentTransaction','PendingQueueE
   'hybrid-unresolved-state: pending work must retain stable recognition without probing intermediate gear')
  ItemRack[field]=nil
 end
+-- Issue #38: out-of-combat CombatQueue holds chained AutoQueue slots waiting behind an active transaction or locks
+ItemRack.CombatQueue={[17]='19019'}; InCombatLockdown=function() return false end; ItemRack.IsPlayerReallyDead=function() return false end
+ItemRack.UpdateCurrentSet()
+assert(reads==0 and ItemRack.HybridSet=='Stable' and ItemRack.HybridDetectionStatus=='inventory_settling',
+ 'issue-38-ooc-combatqueue-settling: out-of-combat queued swaps must hold set recognition as inventory_settling')
+-- In combat or while dead, CombatQueue must NOT suspend set detection
+InCombatLockdown=function() return true end; ItemRack.UpdateCurrentSet()
+assert(reads==1 and ItemRack.HybridDetectionStatus=='ready','combat queue entries during combat must not suspend set detection')
+ItemRack.HybridSet='Stable'; reads=0; InCombatLockdown=function() return false end; ItemRack.IsPlayerReallyDead=function() return true end
+ItemRack.UpdateCurrentSet()
+assert(reads==1 and ItemRack.HybridDetectionStatus=='ready','dead player CombatQueue entries must not suspend set detection')
+ItemRack.CombatQueue=nil; InCombatLockdown=nil; ItemRack.IsPlayerReallyDead=nil; ItemRack.HybridSet='Stable'; reads=0
 ItemRack.UnresolvedEquippedSlots={[13]=true};ItemRack.UpdateCurrentSet()
 assert(reads==0 and ItemRack.HybridSet=='Stable' and ItemRack.HybridDetectionStatus=='inventory_unresolved')
 ItemRack.UnresolvedEquippedSlots={};ItemRackUser.EnableQueues='ON';ItemRack.UpdateCurrentSet()

@@ -661,35 +661,18 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 		end
 	end
 
-	if ItemRack.ManualQueueChoice then
-		for i in pairs(set.equip) do
-			if type(i) == "number" then ItemRack.ClearManualQueueChoice(i) end
-		end
-		if type(set.Queues) == "table" then
-			for i in pairs(set.Queues) do
-				if type(i) == "number" then ItemRack.ClearManualQueueChoice(i) end
-			end
-		end
-		if type(set.QueuesEnabled) == "table" then
-			for i in pairs(set.QueuesEnabled) do
-				if type(i) == "number" then ItemRack.ClearManualQueueChoice(i) end
-			end
-		end
-	end
-	if not isInternalSet then
-		for i in pairs(set.equip) do
-			if type(i) == "number" and ItemRack.ClearBurntQueueItems then
-				ItemRack.ClearBurntQueueItems(i)
-			end
-		end
-		if type(set.Queues) == "table" and ItemRack.ClearBurntQueueItems then
-			for i in pairs(set.Queues) do
-				if type(i) == "number" then ItemRack.ClearBurntQueueItems(i) end
-			end
-		end
-		if type(set.QueuesEnabled) == "table" and ItemRack.ClearBurntQueueItems then
-			for i in pairs(set.QueuesEnabled) do
-				if type(i) == "number" then ItemRack.ClearBurntQueueItems(i) end
+	for _, field in ipairs({ "equip", "Queues", "QueuesEnabled", "QueueSync" }) do
+		local source = set[field]
+		if type(source) == "table" then
+			for i in pairs(source) do
+				if type(i) == "number" then
+					if ItemRack.ManualQueueChoice then
+						ItemRack.ClearManualQueueChoice(i)
+					end
+					if not isInternalSet and ItemRack.ClearBurntQueueItems then
+						ItemRack.ClearBurntQueueItems(i)
+					end
+				end
 			end
 		end
 	end
