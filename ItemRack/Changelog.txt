@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.59-beta17 - By Bl4ut0 __
 - Anchored quick-access breakouts (#39): added "Shift+Click keeps breakout open" option for slots 0-19 so Shift+Left-Click locks/unlocks an anchored breakout underneath normal hover menus, supporting TrinketMenu Left/Right-Click swaps and standard swaps/holds without closing while hovering other slots opens and closes normal breakouts on top. Character-sheet slots and Set button Shift+Click unequip are unchanged.
 - Breakout render diagnostics: added /itemrack debug breakouts and automatic gate/render/hide blocker evidence inside /itemrack dump (ButtonsDocking, MenuOnShift, MenuOnRight, hidden/zero-alpha/offscreen frames, mouse focus, and snapshot coverage).
 - Forever dual-spec compatibility: added global GetNumSpecGroups fallback for GetNumTalentGroups and dispatched PLAYER_TALENT_UPDATE / ACTIVE_COMBAT_CONFIG_CHANGED through SpecChangeTimer (live level 40+ Forever client verification pending).
