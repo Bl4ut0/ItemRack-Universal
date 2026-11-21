@@ -1112,14 +1112,6 @@ function ItemRack.IterateSwapList(setname, disableSound)
 		return "pending"
 	end
 
-	if disableSound or ItemRackSettings.DisableSwapSound == "ON" then
-		-- Never modify Sound_EnableSFX as a fallback. A global CVar write cannot be
-		-- scoped safely across early returns, Lua errors, overlapping swaps, or a
-		-- user's own sound-setting changes. LibSoundIndex is deliberately optional;
-		-- without it, the swap proceeds with normal sound.
-		pcall(ItemRack.MuteSwapSounds, 1.5)
-	end
-
 	ItemRack.AbortSwap = nil
 	ItemRack.ClearLockList()
 

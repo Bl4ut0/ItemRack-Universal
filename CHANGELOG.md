@@ -3,6 +3,7 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+- **Targeted swap audio**: With item-aware LibSoundIndex, each submitted equipment move briefly mutes the candidate sound files for the items it touches. Audio remains at its normal settings when the library is missing or has no matching item data.
 
 
 ## [4.59-beta18] - 2026-11-21

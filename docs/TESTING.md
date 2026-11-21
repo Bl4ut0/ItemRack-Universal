@@ -46,6 +46,14 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+Swap audio: `item-scoped swap audio and accepted/rejected destination observation`
+in `.tools/test_transaction_engine_lua.js` checks that a locked move leaves
+audio alone until submission, then passes the two exact item identities before
+pickup. An audio error must leave equipment rejection and cursor recovery
+intact. Live acceptance on Era, TBC Anniversary, and Forever should exercise a
+trinket switch, a multi-slot set, and a weapon binding with ambience and bag
+sounds enabled. Verify the same items are audible again after the mute window.
+
 Druid shared-gear hypothesis review (2026-11-18): named standard-gate case
 `reported-druid-cat-bear-shared-gear-review` executes ProcessStanceEvent,
 event-frame reduction, and production preflight/EquipSet/EndSetSwap paths.

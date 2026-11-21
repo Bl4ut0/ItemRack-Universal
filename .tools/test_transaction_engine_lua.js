@@ -47,18 +47,28 @@ function ClearCursor() clearCursorCalls = clearCursorCalls + 1; cursor = nil end
 `;
 
 runCase(
-  'accepted and rejected destination observation',
+  'item-scoped swap audio and accepted/rejected destination observation',
   `${common}
 local bags = { [0] = { [1] = 9001 } }
 local inventory = { [13] = 8001 }
 cursor = nil
 local rejectDestination = false
+local muteCalls = 0
+local locked = true
+ItemRackSettings.DisableSwapSound = "ON"
+function IsInventoryItemLocked() return locked end
+function ItemRack.MuteSwapSounds(source, destination)
+  assert(source == 9001 and destination == 8001, "mute must receive exact item identities")
+  muteCalls = muteCalls + 1
+  if rejectDestination then error("audio backend failed") end
+end
 function ItemRack.GetID(bag, slot)
   if slot then return bags[bag] and bags[bag][slot] or 0 end
   return inventory[bag] or 0
 end
 function CursorHasItem() return cursor ~= nil end
 function PickupContainerItem(bag, slot)
+  assert(muteCalls == (rejectDestination and 2 or 1), "sound window must start before the first pickup")
   local held = cursor
   cursor = bags[bag][slot]
   bags[bag][slot] = held
@@ -81,7 +91,10 @@ local result, accepted = ItemRack.StartEquipmentTransaction({
 assert(result == "submitted", "accepted move must first be submitted")
 assert(ItemRack.ActiveEquipmentTransaction == accepted, "submitted move must remain observable")
 assert(completed == 0, "submission must not synchronously report completion")
+assert(muteCalls == 0, "a locked step must not start its mute window")
+locked = false
 RunTimers()
+assert(muteCalls == 1, "the deferred step must start one item-scoped window")
 assert(accepted.status == "complete" and completed == 1 and failed == 0, "observed destination must complete once")
 assert(inventory[13] == 9001 and bags[0][1] == 8001 and cursor == nil, "accepted swap must exchange exact endpoints")
 
@@ -94,6 +107,7 @@ local rejectedResult, rejected = ItemRack.StartEquipmentTransaction({
 })
 assert(rejectedResult == "submitted", "a no-op API call is still only a submission")
 RunTimers()
+assert(muteCalls == 2, "the rejected move still reached its item-scoped audio call")
 assert(rejected.status == "failed", "unchanged endpoints must be rejected, never completed")
 assert(rejected.reason == "destination_rejected", "rejection must retain a precise terminal reason")
 assert(bags[0][1] == 9001 and inventory[13] == 8001, "rejected move must restore its source and preserve destination")

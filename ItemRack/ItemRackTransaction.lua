@@ -155,7 +155,12 @@ local function PrepareSteps(request)
 	return true
 end
 
-local function SubmitStep(step)
+local function SubmitStep(request, step)
+	-- Start the window only when this move is about to reach the client,
+	-- including batched moves, retries, and rollback moves.
+	if request.disableSound or ItemRackSettings.DisableSwapSound == "ON" then
+		pcall(ItemRack.MuteSwapSounds, step.sourceBefore, step.destinationBefore)
+	end
 	step.status = "submitting"
 	local sourceOK, sourceError = pcall(PickupLocation, step.from)
 	if not sourceOK then
@@ -245,7 +250,7 @@ local function SubmitCurrentStep(request)
 
 	request.status = "submitting"
 	local usedLocations = {}
-	SubmitStep(step)
+	SubmitStep(request, step)
 	usedLocations[LocationKey(step.from)] = true
 	usedLocations[LocationKey(step.to)] = true
 
@@ -279,7 +284,7 @@ local function SubmitCurrentStep(request)
 			break -- prestate changed
 		end
 
-		SubmitStep(nextStep)
+		SubmitStep(request, nextStep)
 		usedLocations[fromKey] = true
 		usedLocations[toKey] = true
 		if nextTouchesAmmo then touchedAmmo = true end
@@ -455,10 +460,6 @@ function ItemRack.StartEquipmentTransaction(spec)
 		return "failed", request, preflightReason
 	end
 
-	if request.disableSound or ItemRackSettings.DisableSwapSound == "ON" then
-		-- Sound muting is optional and must never prevent or alter a transaction.
-		pcall(ItemRack.MuteSwapSounds, 1.5)
-	end
 	ItemRack.ActiveEquipmentTransaction = request
 	SubmitCurrentStep(request)
 	return request.finished and request.status or "submitted", request, request.reason

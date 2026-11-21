@@ -3009,7 +3009,7 @@ function ItemRackOpt.SoundListScrollFrameUpdate()
 				thisCheck:SetChecked(ItemRackSettings.DisableSwapSound == "ON")
 				thisCheck.OnClickAction = function(check)
 					ItemRackSettings.DisableSwapSound = check
-					if ItemRackSettings.DisableSwapSound == "ON" and not ItemRackSettings.LSIWarningSeen and not (LibStub and LibStub("LibSoundIndex-1.0", true)) then
+					if ItemRackSettings.DisableSwapSound == "ON" and not ItemRackSettings.LSIWarningSeen and not ItemRack.GetSwapSoundLibrary() then
 						StaticPopup_Show("ITEMRACK_MISSING_LSI")
 					end
 				end
@@ -3030,13 +3030,13 @@ end
 
 function ItemRackOpt.SoundListOnShow()
 	local lsi = LibStub and LibStub("LibSoundIndex-1.0", true)
-	if lsi then
-		ItemRackOptSoundActiveFramework:SetText("Active Mute Framework:\nLibSoundIndex")
+	if ItemRack.GetSwapSoundLibrary() then
+		ItemRackOptSoundActiveFramework:SetText("Swap Sound Muting:\nItem files via LibSoundIndex")
 		ItemRackOptSoundActiveFramework:SetTextColor(0.2, 1.0, 0.2)
 		ItemRackOptSoundTestButton:SetText("Test")
 		ItemRackOptSoundTestButton:Show()
 	else
-		ItemRackOptSoundActiveFramework:SetText("Swap Sound Muting:\nLibSoundIndex Required")
+		ItemRackOptSoundActiveFramework:SetText(lsi and "Swap Sound Muting:\nUpdate LibSoundIndex" or "Swap Sound Muting:\nLibSoundIndex Required")
 		ItemRackOptSoundActiveFramework:SetTextColor(1.0, 0.5, 0.0)
 		ItemRackOptSoundTestButton:SetText("Get Addon")
 		ItemRackOptSoundTestButton:Show()

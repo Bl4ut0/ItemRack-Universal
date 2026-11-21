@@ -804,7 +804,7 @@ function ItemRack.FireItemRackEvent(self,event,...)
 end
 
 StaticPopupDialogs["ITEMRACK_MISSING_LSI"] = {
-	text = "ItemRack: 'Disable swap sounds' requires LibSoundIndex, but the library is missing.\n\nItemRack will continue swapping normally and will not modify the game's global SFX setting. Install LibSoundIndex to mute only equipment-swap sounds.",
+	text = "ItemRack: 'Disable swap sounds' requires a version of LibSoundIndex with item sound data for this client.\n\nSwaps will play with normal game audio until that support is available.",
 	button1 = "OK",
 	OnAccept = function()
 		ItemRackSettings.LSIWarningSeen = true
@@ -1149,7 +1149,7 @@ function ItemRack.OnPlayerLogin()
 	
 	-- Check LibSoundIndex presence
 	C_Timer.After(3, function()
-		if ItemRackSettings.DisableSwapSound == "ON" and not ItemRackSettings.LSIWarningSeen and not (LibStub and LibStub("LibSoundIndex-1.0", true)) then
+		if ItemRackSettings.DisableSwapSound == "ON" and not ItemRackSettings.LSIWarningSeen and not ItemRack.GetSwapSoundLibrary() then
 			StaticPopup_Show("ITEMRACK_MISSING_LSI")
 		end
 	end)
@@ -6003,53 +6003,17 @@ function ItemRack.MenuOnClick(self,button)
 	end
 end
 
--- UI SoundKit constants that fire during gear swaps
-ItemRack.SwapUISounds = {
-	"IG_BACKPACK_OPEN",          -- Bag opens during item move
-	"IG_BACKPACK_CLOSE",         -- Bag closes after item move
-	"IG_ABILITY_ICON_DROP",      -- Action bar spell swap
-	"IG_CHARACTER_INFO_OPEN",    -- Character panel opens
-	"IG_CHARACTER_INFO_CLOSE",   -- Character panel closes
-	"PUT_DOWN_GEMS",             -- Gem/item putdown
-	"PICK_UP_GEMS",              -- Gem/item pickup
-	"PUT_DOWN_SMALL_CHAIN",      -- Chain item putdown
-}
-
--- Mute all swap-related sounds using LibSoundIndex
--- Returns: LSI reference (truthy) if surgical muting was used, nil otherwise
-function ItemRack.MuteSwapSounds(duration)
-	duration = duration or 1.5
-	local LSI = LibStub and LibStub("LibSoundIndex-1.0", true)
-	if not LSI then return nil end
-
-	-- Mute equip material sounds (armor foley, weapon sheathe/unsheathe)
-	LSI:MuteEquipCategory("ALL_EQUIP")
-
-	-- Mute UI sounds that fire during item moves
-	for _, soundKit in ipairs(ItemRack.SwapUISounds) do
-		LSI:MuteSoundKit(soundKit)
+function ItemRack.GetSwapSoundLibrary()
+	local library = LibStub and LibStub("LibSoundIndex-1.0", true)
+	if library and library.CanMuteItemSounds and library:CanMuteItemSounds() then
+		return library
 	end
-
-	-- Auto-unmute after duration
-	if ItemRack.SwapMuteTimer then
-		ItemRack.SwapMuteTimer:Cancel()
-	end
-	ItemRack.SwapMuteTimer = C_Timer.NewTimer(duration, function()
-		ItemRack.UnmuteSwapSounds()
-		ItemRack.SwapMuteTimer = nil
-	end)
-
-	return LSI
 end
 
--- Unmute all swap-related sounds
-function ItemRack.UnmuteSwapSounds()
-	local LSI = LibStub and LibStub("LibSoundIndex-1.0", true)
-	if not LSI then return end
-
-	LSI:UnmuteEquipCategory("ALL_EQUIP")
-	for _, soundKit in ipairs(ItemRack.SwapUISounds) do
-		LSI:UnmuteSoundKit(soundKit)
+function ItemRack.MuteSwapSounds(source, destination)
+	local library = ItemRack.GetSwapSoundLibrary()
+	if library then
+		return library:MuteItemSwapSounds(source, destination)
 	end
 end
 
@@ -8299,13 +8263,15 @@ function ItemRack.GetWeaponBindingMacro(setname)
 			if not text:match("^%d[%d:%-]*$") or not base or base <= 0 then return "" end
 		end
 	end
+	local targets = {}
 	for slot=16,18 do
 		local id = set.equip[slot]
 		if id then
+			targets[slot] = id
 			table.insert(lines,"/equipslot "..slot.." "..ItemRack.IRStringToItemString(tostring(id)))
 		end
 	end
-	return #lines > 1 and table.concat(lines,"\n") or ""
+	return #lines > 1 and table.concat(lines,"\n") or "", targets
 end
 
 function ItemRack.ConfigureSetBindingButton(button,setname)
@@ -8313,7 +8279,7 @@ function ItemRack.ConfigureSetBindingButton(button,setname)
 	local buttonName = button.GetName and button:GetName() or ItemRack.GetSetBindingButtonName(setname)
 	ItemRack.SetBindingButtons[buttonName] = button
 	button:SetAttribute("type","macro")
-	local weaponMacro = ItemRack.GetWeaponBindingMacro(setname)
+	local weaponMacro, weaponTargets = ItemRack.GetWeaponBindingMacro(setname)
 	button:SetAttribute("macrotext",weaponMacro)
 	button:SetAttribute("useOnKeyDown",false)
 	local pendingRequest
@@ -8323,6 +8289,16 @@ function ItemRack.ConfigureSetBindingButton(button,setname)
 			-- Combat weapon actions always equip; an insecure toggle cannot
 			-- change the protected macro selected before combat.
 			pendingRequest.intent = "equip"
+			if ItemRackSettings.DisableSwapSound == "ON" then
+				for slot, target in pairs(weaponTargets) do
+					pcall(function()
+						local current = ItemRack.GetID(slot)
+						if not ItemRack.SameExactID(target, current) then
+							ItemRack.MuteSwapSounds(target, current)
+						end
+					end)
+				end
+			end
 		end
 	end)
 	button:SetScript("PostClick",function()

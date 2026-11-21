@@ -622,8 +622,10 @@ Actions & Maintenance:
 * Slot Key Bindings [Character-specific action] Opens the equipment-slot binding
   picker. Saved-set bindings instead use the Sets-tab Bind Key button.
 * Sound Settings [Account-wide] Opens the event sound editor. Disable Swap Sounds
-  silences automatic swap sounds globally; Per-event sound selects an
-  optional LibSoundIndex sound for one event. LibSoundIndex is optional.
+  uses LibSoundIndex to briefly suppress known sound files for the items involved
+  in each move. Unrelated files remain audible. Per-event sound applies the same
+  suppression to one event. Swaps work with normal audio without the library or
+  a matching item entry.
 * Reset Buttons [Character-specific destructive action] Removes quick-access
   buttons and restores their layout, opacity, and scale defaults; it does not
   delete saved sets.

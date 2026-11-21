@@ -1,4 +1,5 @@
 __ Development __
+- Targeted swap audio: LibSoundIndex can briefly mute the files associated with the incoming and displaced items for each move. Unknown items keep their normal sounds.
 
 __ New in 4.59-beta18 - By Bl4ut0 __
 - Custom state icon and Per-Set-only Hybrid splits: Hybrid split indicators now require both AutoQueue and "Use per-set queues". With global queues only, matching another saved set adopts it cleanly and unmatched gear shows the classic solid ItemRackIcon ("Custom"). With per-set queues enabled, unmatched gear wearing an active set's queue shows an Active Queue | Custom split icon ("Custom" label with active queue and Left-Click re-equip tooltips).
