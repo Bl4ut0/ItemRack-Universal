@@ -1333,6 +1333,7 @@ function ItemRack.EndSetSwap(setname)
 		ItemRack.SetSwapTimeout:Cancel()
 		ItemRack.SetSwapTimeout = nil
 	end
+	local isEventPlan = setname and ItemRack.EventFramePlans and ItemRack.EventFramePlans[setname] and ItemRack.EventFramePlanFinished
 	if setname then
 		local completedSet = ItemRackUser.Sets[setname]
 		if completedSet and not string.match(setname,"^~")
@@ -1351,6 +1352,7 @@ function ItemRack.EndSetSwap(setname)
 		if not string.match(setname,"^~") then --do not list internal sets, prefixed with ~
 			ItemRackUser.CurrentSet = setname
 			ItemRack.HybridSet = nil
+			ItemRack.CustomHybridOwner = nil
 			if ItemRack.CombatSet and ItemRack.CombatSet ~= setname and not next(ItemRack.CombatQueue or {}) then
 				ItemRack.CombatSet = nil
 			end
@@ -1404,7 +1406,7 @@ function ItemRack.EndSetSwap(setname)
 			ItemRackUser.Sets[setname].oldset = nil
 			C_Timer.After(0.5, ItemRack.UpdateCurrentSet)
 		end
-		if ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
+		if not isEventPlan and ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
 			-- Only jump to the equipped set if the user isn't currently editing one
 			if not (ItemRackOptSubFrame2 and ItemRackOptSubFrame2:IsVisible() and ItemRackOpt.HasUnsavedSetChanges and ItemRackOpt.HasUnsavedSetChanges())
 			and not (ItemRackOptSubFrame5 and ItemRackOptSubFrame5:IsVisible()) then
@@ -1413,16 +1415,14 @@ function ItemRack.EndSetSwap(setname)
 		end
 
 		ItemRack.UpdateCombatQueue() -- update button gear icon if per set queues is active
-		if not string.match(setname, "^~") and ItemRack.PeriodicQueueCheck then
-			ItemRack.PeriodicQueueCheck()
-			if C_Timer and C_Timer.After then
-				C_Timer.After(0, ItemRack.PeriodicQueueCheck)
-			end
-		end
 	end
-	if setname and ItemRack.EventFramePlans and ItemRack.EventFramePlans[setname]
-	and ItemRack.EventFramePlanFinished then
+	if isEventPlan then
 		ItemRack.EventFramePlanFinished(setname,true)
+	elseif ItemRackUser and ItemRackUser.EnableQueues == "ON" and ItemRack.PeriodicQueueCheck then
+		ItemRack.PeriodicQueueCheck()
+		if C_Timer and C_Timer.After then
+			C_Timer.After(0, ItemRack.PeriodicQueueCheck)
+		end
 	end
 --	ItemRack.Print("End of set swap. CurrentSet: "..tostring(ItemRackUser.CurrentSet))
 end

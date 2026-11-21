@@ -17,12 +17,19 @@ local forms = { { name="Form One" }, { name="Form Two" } }
 local spellNames = {}
 local currentSpec = 1
 local mounted = false
+local swimming = false
+local submerged = false
+local isDead = false
 local instanceType = nil
 local auras = {}
 local inventory = { [13]="Base13", [14]="Base14", [15]="Base15" }
 local scheduled = {}
 
 function IsMounted() return mounted end
+function IsSwimming() return swimming end
+function IsSubmerged() return submerged end
+function UnitIsDeadOrGhost() return isDead end
+function GetContainerNumSlots() return 16 end
 function UnitOnTaxi() return false end
 function GetTime() return now end
 function InCombatLockdown() return false end
@@ -63,6 +70,10 @@ ItemRack = {
   GetID = function(slot) return inventory[slot] or 0 end,
   IsAutomaticSwapBlocked = function() return false end,
   UpdateCurrentSet = function() end,
+  ReflectEventsRunning = function() end,
+  CreateTimer = function() end,
+  StartTimer = function() end,
+  StopTimer = function() end,
 }
 ItemRackSettings = { EventsVersion=20 }
 ItemRackUser = { EnableEvents="ON", Events={ Enabled={}, Set={} }, Sets={}, EventStack={} }
@@ -125,6 +136,9 @@ local function reset()
   C_Spell = nil
   currentSpec = 1
   mounted = false
+  swimming = false
+  submerged = false
+  isDead = false
   instanceType = nil
   inventory = { [13]="Base13", [14]="Base14", [15]="Base15" }
 end
@@ -587,6 +601,279 @@ ItemRack.ProcessingFrameOnEvent(createdFrame, "ACTIVE_COMBAT_CONFIG_CHANGED", 10
 finishObservedPlan()
 check(ItemRackEvents["Primary Spec"].Active and inventory[13] == "Primary13" and ItemRackUser.CurrentSet == "PrimarySet",
   "forever-camelot-dual-spec: ACTIVE_COMBAT_CONFIG_CHANGED on spec change must activate Primary Spec gear")
+
+-- Regression: Primary Spec (Bis) active -> manually equip Shadow (no spec switch!) ->
+-- Mount (ZoomZoom) -> Dismount/Stop -> must unroll back to Shadow (never Bis/Shadow Hybrid).
+reset()
+ItemRack.QueueStateReady = true
+ItemRack.IsEquippedSlotStateReady = function() return true end
+ItemRack.PendingQueueEquipSet = nil
+ItemRack.CancelPendingQueueEquipSet = function() ItemRack.PendingQueueEquipSet = nil end
+ItemRack.GetTextureBySlot = function() return "MockTex" end
+ItemRack.ClearLockList = function() end
+ItemRack.UpdateCombatQueue = function() end
+ItemRack.AnythingLocked = function() return false end
+ItemRack.HasActiveEquipmentTransaction = function() return false end
+ItemRack.IsPlayerReallyDead = function() return false end
+ItemRack.PreventLiveOldsetCycle = function() end
+ItemRack.OrderSwaps = function() end
+ItemRack.StartSetSwapTimeout = function() end
+ItemRack.PreflightSetSwap = function(setname)
+  local equip = ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].equip or {}
+  local diff = {}
+  for slot, target in pairs(equip) do
+    if type(slot) == "number" and inventory[slot] ~= target then
+      diff[slot] = target
+    end
+  end
+  return diff
+end
+ItemRack.IterateSwapList = function(setname)
+  for slot, id in pairs(ItemRack.SwapList or {}) do
+    inventory[slot] = id
+    ItemRack.SwapList[slot] = nil
+  end
+end
+${extractFunction('ItemRack/ItemRackEquip.lua', 'ItemRack.EndSetSwap')}
+
+inventory = { [1]="Other1", [13]="Other13" }
+addEvent("Primary Spec",{ Type="Specialization", Spec=1, Unequip=1 },"Bis",{ [1]="Bis1", [13]="Bis13" })
+addEvent("Secondary Spec",{ Type="Specialization", Spec=2, Unequip=1 },"SecondarySet",{ [1]="Sec1", [13]="Sec13" })
+addEvent("Mounted",{ Type="Buff", Anymount=1, OnMovement=1, OnMovementDelay=false, Unequip=1 },"ZoomZoom",{ [13]="Crop" })
+ItemRackUser.Sets.Shadow = { equip={ [1]="Shadow1", [13]="Shadow13" } }
+currentSpec = 1
+ItemRack.LastLastSpec = 1
+-- Activate Primary Spec once earlier (like previous session / SavedVariables EventStack)
+ItemRack.ProcessSpecializationEvent(true)
+finishObservedPlan()
+check(ItemRackUser.EventStack[1] == "Primary Spec" and ItemRackUser.CurrentSet == "Bis",
+  "precondition: Primary Spec frame begins on stack pointing at Bis")
+-- Manually click Shadow (no spec switch!)
+ItemRack.SwapList = {}
+ItemRack.EquipSet("Shadow")
+check(#ItemRackUser.EventStack == 0 and not ItemRackEvents["Primary Spec"].Active and ItemRackUser.CurrentSet == "Shadow",
+  "spec-manual-shadow-mount-unroll: full manual Shadow equip must retire empty Primary Spec frame without re-triggering on unchanged spec")
+-- Verify unchanged spec event refresh never steals Shadow back to Bis
+ItemRack.ProcessSpecializationEvent()
+check(#ItemRackUser.EventStack == 0 and ItemRackUser.CurrentSet == "Shadow",
+  "spec-manual-shadow-mount-unroll: unchanged Spec 1 check must stay silent over manual Shadow set")
+-- Mount up + move -> ZoomZoom equips Crop
+scheduled = {}
+mounted, movingSpeed = true, 7
+ItemRack.ProcessBuffEvent()
+now = now + 1; runScheduled()
+finishObservedPlan()
+check(ItemRackEvents.Mounted.Active and inventory[13] == "Crop" and ItemRackUser.EventState.baseSetName == "Shadow",
+  "spec-manual-shadow-mount-unroll: Mounted over manual Shadow must anchor baseSetName to Shadow")
+-- Dismount / stop -> ZoomZoom unrolls back to Shadow gear AND CurrentSet == Shadow!
+movingSpeed = 0
+ItemRack.ProcessBuffEvent()
+finishObservedPlan()
+check(#ItemRackUser.EventStack == 0 and inventory[13] == "Shadow13" and ItemRackUser.CurrentSet == "Shadow",
+  "spec-manual-shadow-mount-unroll: popping Mounted must restore Shadow gear and CurrentSet without Bis hijacking")
+-- Actually switching Spec 1 -> 2 -> 1 later cleanly reactivates Bis
+currentSpec = 2; ItemRack.ProcessSpecializationEvent(); finishObservedPlan()
+check(ItemRackEvents["Secondary Spec"].Active and ItemRackUser.CurrentSet == "SecondarySet",
+  "spec-manual-shadow-mount-unroll: switching to Spec 2 activates SecondarySet")
+currentSpec = 1; ItemRack.ProcessSpecializationEvent(); finishObservedPlan()
+check(ItemRackEvents["Primary Spec"].Active and ItemRackUser.CurrentSet == "Bis" and inventory[13] == "Bis13",
+  "spec-manual-shadow-mount-unroll: actual Spec 2 -> Spec 1 switch must reactivate Bis")
+
+-- Regression: PopEvent (~EventFrame) AutoQueue reconciliation via production TryReconcileEventFrames
+-- picks ready queued candidate BestReady in 1 swap and calls PeriodicQueueCheck after CurrentSet restores.
+reset()
+ItemRack.EventFrameBatchDepth = 0
+ItemRack.QueueStateReady = true
+ItemRack.PendingQueueEquipSet = nil
+inventory = { [13]="Old13" }
+addEvent("Mounted",{ Type="Buff", Anymount=1, OnMovement=1, OnMovementDelay=false, Unequip=1 },"ZoomZoom",{ [13]="Crop" })
+ItemRackUser.EnableQueues = "ON"
+ItemRackUser.EnablePerSetQueues = "ON"
+ItemRackUser.Sets.Base = { equip={ [13]="Old13" }, QueuesEnabled={ [13]=true }, Queues={ [13]={ {id="BestReady"}, {id="Old13"} } } }
+ItemRackUser.CurrentSet = "Base"
+local periodicCalls = 0
+local origPeriodic = ItemRack.PeriodicQueueCheck
+ItemRack.PeriodicQueueCheck = function()
+  if ItemRackUser.CurrentSet == "Base" then periodicCalls = periodicCalls + 1 end
+end
+ItemRack.GetIRString = function(v, base) return v end
+ItemRack.MatchesStoredItemID = function(a, b) return a == b end
+ItemRack.GetQueueContext = function(slot, setname)
+  return { owner = "Base", enabled = true, list = ItemRackUser.Sets.Base.Queues[13] }
+end
+ItemRack.FindQueueEntryIndex = function(list, id)
+  for i, entry in ipairs(list or {}) do if entry.id == id then return i end end
+end
+ItemRack.FindItemInBags = function(id) return id == "BestReady" and 0 or nil, 1 end
+ItemRack.ShouldHoldEquippedItem = function(slot, id) return false end
+ItemRack.AutoQueueItemToEquip = function(slot, baseID, enable, ready, setname, context, assumedExactID)
+  if assumedExactID == "Old13" then return "BestReady", "BestReady" end
+  return nil
+end
+mounted, movingSpeed = true, 7
+ItemRack.ProcessBuffEvent(); now = now + 1; runScheduled()
+check(ItemRackEvents.Mounted.Active and inventory[13] == "Crop",
+  "precondition: Mounted equipped Crop over Old13 via production TryReconcileEventFrames")
+movingSpeed = 0
+ItemRack.ProcessBuffEvent()
+check(inventory[13] == "BestReady" and ItemRackUser.CurrentSet == "Base" and periodicCalls >= 1,
+  "~EventFrame AutoQueue reconciliation must equip ready candidate BestReady directly on exit and run PeriodicQueueCheck")
+ItemRack.PeriodicQueueCheck = origPeriodic
+
+-- Regression: Swimming state detection, seamless custom 'local set = "..."' preservation,
+-- Set Picker assignment (Events.Set), approval guard, and exit restoration (restoreOnExit).
+reset()
+inventory = { [13]="Base13", [15]="Base15" }
+ItemRackUser.Sets.Base = { equip={ [13]="Base13", [15]="Base15" } }
+ItemRackUser.Sets.Swim = { equip={ [13]="Swim13", [15]="Swim15" } }
+ItemRackUser.Sets.CustomSwim = { equip={ [13]="Custom13", [15]="Custom15" } }
+ItemRackUser.Sets.OverrideSwim = { equip={ [13]="Override13", [15]="Override15" } }
+ItemRackUser.Sets.Manual = { equip={ [13]="Manual13", [15]="Manual15" } }
+ItemRackUser.CurrentSet = "Base"
+
+-- 1. Script events without explicit Unequip must still set restoreOnExit = true on ScriptEventEquip/ScriptEventUnequip.
+ItemRackEvents.CustomScript = { Type="Script", Trigger="PLAYER_ENTERING_WORLD", Script="EquipEventSet('Swim')" }
+ItemRackUser.Events.Enabled.CustomScript = 1
+local customPush = ItemRack.ScriptEventEquip("CustomScript", "Swim")
+finishObservedPlan()
+check(customPush and inventory[13] == "Swim13" and inventory[15] == "Swim15",
+  "swimming-regression: Type=Script event must equip its target set on ScriptEventEquip")
+local customPop = ItemRack.ScriptEventUnequip("CustomScript")
+finishObservedPlan()
+check(customPop.removed and customPop.targets[13] == "Base13" and inventory[13] == "Base13" and inventory[15] == "Base15"
+  and ItemRackUser.CurrentSet == "Base",
+  "swimming-regression: Type=Script event must restore prior gear and base set when popped (restoreOnExit)")
+
+-- 2. Default bundled Swimming script stays untouched while Set Picker Events.Set.Swimming drives
+-- surface swimming (no MIRROR_TIMER_START), seabed walking (IsSubmerged without IsSwimming), and exit restore.
+reset()
+inventory = { [13]="Base13", [15]="Base15" }
+ItemRackUser.Sets.Base = { equip={ [13]="Base13", [15]="Base15" } }
+ItemRackUser.Sets.Swim = { equip={ [13]="Swim13", [15]="Swim15" } }
+ItemRackUser.Sets.Manual = { equip={ [13]="Manual13", [15]="Manual15" } }
+ItemRackUser.CurrentSet = "Base"
+ItemRackEvents.Swimming = {
+  Type="Script",
+  Trigger=ItemRack.DefaultEvents.Swimming.Trigger,
+  Script=ItemRack.StackedSwimmingScript,
+}
+ItemRackUser.Events.Enabled.Swimming = 1
+ItemRackUser.Events.Set.Swimming = "Swim"
+check(ItemRack.CanUseSetPickerForEvent("Swimming") == true,
+  "swimming-regression: bundled canonical Swimming event must be eligible for the Set Picker")
+check(ItemRackEvents.Swimming.Script == ItemRack.StackedSwimmingScript,
+  "swimming-regression: Swimming Script text must remain unmodified")
+
+swimming, submerged = true, false
+ItemRack.CheckForMountedEvents()
+finishObservedPlan()
+check(ItemRackEvents.Swimming.Active == true and inventory[13] == "Swim13" and inventory[15] == "Swim15"
+  and ItemRackUser.CurrentSet == "Swim",
+  "swimming-regression: surface swimming (IsSwimming=true, no MIRROR_TIMER_START) must equip Swim via 0.5s check")
+
+swimming, submerged = false, true
+ItemRack.CheckForMountedEvents()
+finishObservedPlan()
+check(ItemRackEvents.Swimming.Active == true and inventory[13] == "Swim13" and inventory[15] == "Swim15",
+  "swimming-regression: seabed walking (IsSwimming=false, IsSubmerged=true) must keep Swim equipped")
+
+swimming, submerged = false, false
+ItemRack.CheckForMountedEvents()
+finishObservedPlan()
+check(not ItemRackEvents.Swimming.Active and #ItemRackUser.EventStack == 0
+  and inventory[13] == "Base13" and inventory[15] == "Base15" and ItemRackUser.CurrentSet == "Base",
+  "swimming-regression: exiting water must pop Swimming and restore land gear and base CurrentSet")
+
+-- 3. Manual swap while still swimming must not be hijacked on subsequent 0.5s ticks; leaving & re-entering re-equips.
+swimming, submerged = true, false
+ItemRack.CheckForMountedEvents()
+finishObservedPlan()
+check(inventory[13] == "Swim13", "swimming-regression: re-entering water equips Swim")
+ItemRack.ReleaseEventSlotsForManualChange(ItemRackUser.Sets.Manual.equip)
+inventory[13] = "Manual13"; inventory[15] = "Manual15"
+ItemRackUser.CurrentSet = "Manual"
+ItemRack.CheckForMountedEvents()
+finishObservedPlan()
+check(inventory[13] == "Manual13" and inventory[15] == "Manual15",
+  "swimming-regression: manual gear change in water must hold across subsequent poll ticks")
+swimming, submerged = false, false
+ItemRack.CheckForMountedEvents()
+finishObservedPlan()
+check(inventory[13] == "Manual13" and not ItemRackEvents.Swimming.Active and #ItemRackUser.EventStack == 0,
+  "swimming-regression: exiting water after manual override pops Swimming without clobbering manual gear")
+swimming, submerged = true, false
+ItemRack.CheckForMountedEvents()
+finishObservedPlan()
+check(inventory[13] == "Swim13" and ItemRackEvents.Swimming.Active == true,
+  "swimming-regression: leaving water resets edge state so next entry equips Swim again")
+
+-- 4. Existing users with 'local set = "CustomSwim"' work seamlessly without Set Picker changes,
+-- and an explicit Events.Set override takes precedence over the script literal.
+reset()
+inventory = { [13]="Base13", [15]="Base15" }
+ItemRackUser.Sets.Base = { equip={ [13]="Base13", [15]="Base15" } }
+ItemRackUser.Sets.CustomSwim = { equip={ [13]="Custom13", [15]="Custom15" } }
+ItemRackUser.Sets.OverrideSwim = { equip={ [13]="Override13", [15]="Override15" } }
+ItemRackUser.CurrentSet = "Base"
+local customSwimScript = string.gsub(ItemRack.StackedSwimmingScript, '"Name of set"', '"CustomSwim"', 1)
+ItemRackEvents.Swimming = {
+  Type="Script",
+  Trigger="MIRROR_TIMER_START",
+  Script=customSwimScript,
+}
+ItemRackUser.Events.Enabled.Swimming = 1
+assert(ItemRack.ApproveScriptEventFromInterface("Swimming"))
+check(ItemRack.ResolveSwimmingSetName("Swimming") == "CustomSwim"
+  and ItemRack.GetEventSet("Swimming") == "CustomSwim",
+  "swimming-regression: existing user script 'local set = \"CustomSwim\"' must resolve without UI edits")
+swimming, submerged = true, true
+ItemRack.ProcessingFrameOnEvent(nil, "MIRROR_TIMER_START", "BREATH")
+finishObservedPlan()
+check(inventory[13] == "Custom13" and inventory[15] == "Custom15" and _G.SwimmingEvent == nil,
+  "swimming-regression: MIRROR_TIMER_START triggers immediate equip via ProcessSwimmingEvent without global timer leak")
+
+ItemRackUser.Events.Set.Swimming = "OverrideSwim"
+ItemRack.ProcessSwimmingEvent()
+finishObservedPlan()
+check(inventory[13] == "Override13" and inventory[15] == "Override15",
+  "swimming-regression: explicit Events.Set override must take precedence and swap live while in water")
+swimming, submerged = false, false
+ItemRack.ProcessSwimmingEvent()
+finishObservedPlan()
+check(inventory[13] == "Base13" and inventory[15] == "Base15" and ItemRackEvents.Swimming.Script == customSwimScript,
+  "swimming-regression: exit restores base gear while preserving existing user Script string intact")
+
+-- 5. Unapproved / tampered Swimming scripts must stay blocked and disabled; non-canonical custom Script triggers still run.
+reset()
+inventory = { [13]="Base13" }
+ItemRackUser.Sets.Base = { equip={ [13]="Base13" } }
+ItemRackUser.Sets.Swim = { equip={ [13]="Swim13" } }
+ItemRackUser.CurrentSet = "Base"
+ItemRackEvents.Swimming = {
+  Type="Script",
+  Trigger="MIRROR_TIMER_START",
+  Script=ItemRack.StackedSwimmingScript .. "\nTamperedSwim = 1",
+}
+ItemRackUser.Events.Enabled.Swimming = 1
+ItemRackUser.Events.Set.Swimming = "Swim"
+swimming = true
+check(ItemRack.CanUseSetPickerForEvent("Swimming") == false,
+  "swimming-regression: tampered Swimming script must not expose Set Picker")
+local customRan = 0
+function RecordCustomScriptRun() customRan = customRan + 1 end
+ItemRackEvents.CustomWaterTrigger = {
+  Type="Script",
+  Trigger="MIRROR_TIMER_START",
+  Script="RecordCustomScriptRun(); EquipEventSet('Swim')",
+}
+ItemRackUser.Events.Enabled.CustomWaterTrigger = 1
+assert(ItemRack.ApproveScriptEventFromInterface("CustomWaterTrigger"))
+ItemRack.ProcessingFrameOnEvent(nil, "MIRROR_TIMER_START", "BREATH")
+finishObservedPlan()
+check(ItemRackUser.Events.Enabled.Swimming == nil and _G.TamperedSwim == nil,
+  "swimming-regression: unapproved Swimming script must stay blocked and disabled")
+check(customRan == 1 and inventory[13] == "Swim13",
+  "swimming-regression: approved non-canonical Script event on MIRROR_TIMER_START must continue executing normally")
 
 print(string.format("[EVENT PROCESSORS LUA] %d deterministic processor checks passed.",checks))
 `, 'event-processors');

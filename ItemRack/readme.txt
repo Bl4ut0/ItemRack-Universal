@@ -217,12 +217,16 @@ Special item usage:
 HYBRID SET STATE
 ----------------
 
-The selected set remains the queue authority when manual gear changes happen
-to match another saved set. ItemRack can indicate this as a split icon on the
-set button/minimap: the active queue set on the left and detected gear set on
-the right. Tooltips identify both. Left-click slot 20 or explicitly select the
-detected set to adopt its gear and queue context. Returning to the selected
-set's gear clears the hybrid indicator without switching queue authority.
+When both AutoQueue and "Use per-set queues" are enabled, the selected set
+remains the queue authority if manual gear changes match another saved set
+(displaying Active Queue Set on the left | Detected Gear Set on the right) or
+leave gear unmatched (Custom Hybrid Split: Active Queue Set | Custom icon with
+"Custom" text). Tooltips identify both the active queue and equipped state;
+Left-click slot 20 to switch cleanly to the detected set or re-equip the active
+queue set from Custom. Returning to the selected set's gear clears the hybrid
+indicator. When "Use per-set queues" or AutoQueue is disabled (Global Queues),
+hybrid splitting is off: matching another saved set adopts it cleanly and
+unmatched gear shows the standard solid "Custom" icon.
 
 
 COMBAT, CASTING, AND DEFERRED SWAPS

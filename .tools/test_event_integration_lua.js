@@ -29,6 +29,91 @@ print('[BLOCKED ACTION LUA] Dispatcher, opt-in capture, attribution, context and
 const reducer = fs.readFileSync('ItemRack/ItemRackEventState.lua', 'utf8');
 const events = fs.readFileSync('ItemRack/ItemRackEvents.lua', 'utf8');
 
+// Review of the reported Cat -> Bear -> Cat hypothesis. Execute the actual
+// stance processor, reducer, preflight, EquipSet and completion together.
+runLua(String.raw`
+local form,combat=2,false
+local inventory={[13]='shared13',[14]='shared14'}
+local timers={}
+local plans,moves=0,0
+function IsMounted() return false end
+function UnitOnTaxi() return false end
+function GetTime() return 0 end
+function InCombatLockdown() return combat end
+function GetShapeshiftForm() return form end
+function GetNumShapeshiftForms() return 2 end
+function GetShapeshiftFormInfo(i) return 123,i==1 and 'Bear Form' or 'Cat Form',i==form,true end
+function UnitClass() return 'Druid','DRUID' end
+function IsInInstance() return false,nil end
+function GetUnitSpeed() return 0 end
+function GetActiveTalentGroup() return 1 end
+function GetNumTalentGroups() return 2 end
+function ShowHelm() error('standard stance plans must not call ShowHelm') end
+function ShowCloak() error('standard stance plans must not call ShowCloak') end
+function SetActiveTalentGroup() error('standard stance plans must not switch talent groups') end
+C_AddOns,C_Spell,C_Talent=nil,nil,nil
+C_Timer={After=function(_,callback) timers[#timers+1]=callback end}
+ItemRackSettings={EventsVersion=20}
+ItemRack={Debug=function() end,Print=function() end,SwapList={},LockList={[-2]={}},
+ ClearLockList=function() ItemRack.LockList[-2]={} end,
+ GetID=function(slot) return inventory[slot] or 0 end,
+ GetEquippedSlotState=function(slot) return inventory[slot] and 'resolved' or 'empty',inventory[slot] or 0 end,
+ MatchesStoredItemID=function(a,b) return a==b end,
+ ValidBag=function() return false end,
+ IsAutomaticSwapBlocked=function() return false end,
+ IsPlayerReallyDead=function() return false end,
+ HasActiveEquipmentTransaction=function() return false end,
+ AnythingLocked=function() return false end,
+ UpdateCombatQueue=function() end,UpdateCurrentSet=function() end,
+ IterateSwapList=function() moves=moves+1;error('already-worn gear must not submit moves') end}
+ItemRackUser={EnableQueues='OFF',EnableEvents='ON',CurrentSet='Base',EventStack={},
+ Events={Enabled={Bear=1,Cat=1},Set={Bear='Shared',Cat='Shared'}},
+ Sets={Base={equip={}},Shared={equip={[13]='shared13',[14]='shared14'},ShowHelm=1,ShowCloak=1,AssociatedSpec=2}}}
+ItemRackEvents={Bear={Type='Stance',Stance='Bear Form',Unequip=1},Cat={Type='Stance',Stance='Cat Form',Unequip=1}}
+${reducer}
+${events}
+${['PreflightSetSwap','EquipSet','EndSetSwap'].map(n=>extractFunction('ItemRack/ItemRackEquip.lua','ItemRack.'+n)).join('\n')}
+local actualEquip=ItemRack.EquipSet
+ItemRack.EquipSet=function(name,...)
+ plans=plans+1
+ assert(name:match('^~EventFrame:') and not ItemRackUser.Sets[name].AssociatedSpec
+  and ItemRackUser.Sets[name].ShowHelm==nil and ItemRackUser.Sets[name].ShowCloak==nil,
+  'form plans must contain item targets without saved-set side effects')
+ return actualEquip(name,...)
+end
+local function drain()
+ local passes=0
+ while #timers>0 do passes=passes+1;assert(passes<30,'event timers must settle');table.remove(timers,1)() end
+end
+for _,shared in ipairs({true,false}) do
+ ItemRackUser.EventState=ItemRack.EventFrames.NewState();ItemRackUser.EventStack={};ItemRackUser.CurrentSet='Base'
+ ItemRack.EventFramePendingTargets={};ItemRack.EventFramePlans={};ItemRack.EventFramePlanActive=nil
+ ItemRackUser.Sets.CatPartial={equip={[13]='shared13'},ShowHelm=1,ShowCloak=1,AssociatedSpec=2}
+ ItemRackUser.Events.Set.Cat=shared and 'Shared' or 'CatPartial'
+ for _,nextForm in ipairs({2,1,2}) do
+  form=nextForm;ItemRack.ProcessStanceEvent();drain()
+  assert(#ItemRackUser.EventStack==1 and ItemRackUser.EventStack[1]==(form==1 and 'Bear' or 'Cat'),
+   'cat-bear-shared-gear: exactly the current form must own the event frame')
+  assert(moves==0 and not ItemRack.EventFramePlanActive and inventory[13]=='shared13' and inventory[14]=='shared14',
+   'identical or overlapping worn gear must complete without an equipment transaction')
+  local before=plans;ItemRack.ProcessStanceEvent();drain()
+  assert(plans==before,'repeated unchanged form must not create another plan')
+ end
+ combat=true;form=1;local before=plans;ItemRack.ProcessStanceEvent();drain()
+ assert(plans==before and moves==0,'combat must not submit stance equipment work')
+ combat=false;ItemRack.TryReconcileEventFrames();drain()
+ assert(moves==0 and not ItemRack.EventFramePlanActive,'combat exit must resolve identical gear without moves')
+end
+assert(plans==0,'unchanged shared/overlapping forms should be filtered before EquipSet')
+-- Also exercise the downstream boundary if a retained pending target becomes
+-- satisfied before submission (the reducer correctly filters the cases above).
+ItemRack.EventFramePendingTargets={[13]='shared13'}
+ItemRack.TryReconcileEventFrames();drain()
+assert(plans==1 and moves==0 and not ItemRack.EventFramePlanActive,
+ 'a satisfied pending target must complete through real EquipSet without side-effect APIs')
+print('[DRUID SHARED GEAR LUA] Actual stance/reducer/preflight/equip/completion, shared/partial sets and combat deferral passed.')
+`, 'reported-druid-cat-bear-shared-gear-review');
+
 runLua(String.raw`
 function IsMounted() return false end
 function UnitOnTaxi() return false end

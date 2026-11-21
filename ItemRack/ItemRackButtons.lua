@@ -797,10 +797,15 @@ function ItemRack.ButtonPreClick(self,button)
 						ItemRackOpt.TabOnClick(self,4)
 					end
 					
-					ItemRackOpt.SetupQueue(id)
+					ItemRackOpt.SetupQueue(id, ItemRackUser.CurrentSet)
 					
-					if not wasOpen and ItemRackOptFrame then
-						ItemRackOptFrame:Hide()
+					if not wasOpen then
+						if ItemRackOptSubFrame7 and ItemRackOptSubFrame7.Hide then
+							ItemRackOptSubFrame7:Hide()
+						end
+						if ItemRackOptFrame then
+							ItemRackOptFrame:Hide()
+						end
 					end
 				end
 			end
@@ -836,7 +841,7 @@ function ItemRack.ButtonPostClick(self,button)
 				LoadAddOn("ItemRackOptions")
 				ItemRackOptFrame:Show()
 				ItemRackOpt.TabOnClick(self,4)
-				ItemRackOpt.SetupQueue(id)
+				ItemRackOpt.SetupQueue(id, ItemRackUser.CurrentSet)
 			else
 				-- For slot 20 (set button), open Sets tab instead
 				LoadAddOn("ItemRackOptions")
@@ -882,8 +887,12 @@ function ItemRack.ButtonPostClick(self,button)
 		end
 	elseif IsShiftKeyDown() then
 		if id<20 then
-			if ChatFrame1EditBox:IsVisible() then
-				ChatFrame1EditBox:Insert(GetInventoryItemLink("player",id))
+			local activeChatEditBox = ItemRack.GetActiveChatEditBox and ItemRack.GetActiveChatEditBox()
+				or (ChatFrame1EditBox and ChatFrame1EditBox:IsVisible()
+					and (not ChatFrame1EditBox.HasFocus or ChatFrame1EditBox:HasFocus())
+					and ChatFrame1EditBox)
+			if activeChatEditBox then
+				activeChatEditBox:Insert(GetInventoryItemLink("player",id))
 			elseif ItemRackSettings and ItemRackSettings.KeepMenuOpen=="ON" and button=="LeftButton" and ItemRack.TogglePinnedMenu then
 				ItemRack.TogglePinnedMenu(id)
 			elseif ItemRack.RecordBreakoutEvent then
@@ -1044,7 +1053,7 @@ function ItemRack.ButtonMenuOnClick(self)
 			ItemRackOptFrame:Show()
 			if ItemRack.menuOpen<20 then
 				ItemRackOpt.TabOnClick(self,4)
-				ItemRackOpt.SetupQueue(ItemRack.menuOpen)
+				ItemRackOpt.SetupQueue(ItemRack.menuOpen, ItemRackUser.CurrentSet)
 			else
 				ItemRackOpt.TabOnClick(self,3)
 			end

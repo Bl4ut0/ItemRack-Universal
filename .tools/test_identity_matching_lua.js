@@ -68,7 +68,7 @@ ItemRack={DebugAll=true,QueueStateReady=true,
  MatchesStoredItemID=function(a,b) return a==b end,
  FindQueueEntryIndex=function() return 1 end,
  QueueDiagnostic=function(event,details) events[#events+1]={event=event,details=details} end}
-ItemRackUser={CurrentSet='Dungeon',Sets={Dungeon={equip={[1]='head'}},Drakes={equip={[15]='banked-cloak'}}}}
+ItemRackUser={CurrentSet='Dungeon',EnableQueues='ON',EnablePerSetQueues='ON',Sets={Dungeon={equip={[1]='head'}},Drakes={equip={[15]='banked-cloak'}}}}
 ${extractFunction(core,'ItemRack.UpdateCurrentSet')}
 ItemRack.UpdateCurrentSet()
 assert(#events==2 and events[1].event=='set_detection_transition' and events[1].details.toHybrid=='Drakes',

@@ -690,10 +690,32 @@ ItemRack.SetButton20Visual = function(activeOwner, hybridSet)
   origVisual(activeOwner, hybridSet)
 end
 
+ItemRackUser.EnableQueues = "ON"
+ItemRackUser.EnablePerSetQueues = "ON"
 ItemRackUser.Sets = {
   ["Trash Other"] = { icon = "Icon1", equip = { [1] = "1001", [13] = "HOJ" } },
   ["Trash Undead"] = { icon = "Icon2", equip = { [1] = "1001", [13] = "MOTC" } },
 }
+_G.CUSTOM = "Custom"
+ItemRack.Broker = { icon = "", text = "" }
+local mockMainIcon = {
+  ClearAllPoints = function() end, SetPoint = function() end, SetTexCoord = function() end,
+  SetTexture = function(self, tex) self.texture = tex end, Show = function() end,
+}
+local mockSplitIcon = {
+  ClearAllPoints = function() end, SetPoint = function() end, SetTexCoord = function() end,
+  SetTexture = function(self, tex) self.texture = tex end, Show = function(self) self.shown = true end,
+  Hide = function(self) self.shown = false end,
+}
+local mockDivider = {
+  ClearAllPoints = function() end, SetPoint = function() end, SetWidth = function() end,
+  SetTexture = function() end, SetVertexColor = function() end, SetDrawLayer = function() end,
+  Show = function(self) self.shown = true end, Hide = function(self) self.shown = false end,
+}
+ItemRackButton20 = { GetWidth = function() return 36 end, CreateTexture = function() return mockSplitIcon end }
+ItemRackButton20ItemRackIcon = mockMainIcon
+ItemRackButton20SplitIcon = mockSplitIcon
+ItemRackButton20Divider = mockDivider
 
 -- Scenario A: Player is wearing Trash Other
 ItemRackUser.CurrentSet = "Trash Other"
@@ -701,7 +723,7 @@ ItemRack.IsSetEquipped = function(name) return name == "Trash Other" end
 ItemRack.UpdateCurrentSet()
 
 check(ItemRackUser.CurrentSet == "Trash Other", "Active set must remain Trash Other when equipped")
-check(ItemRack.HybridSet == nil, "HybridSet must be nil when active set is fully equipped")
+check(ItemRack.HybridSet == nil and ItemRack.CustomHybridOwner == nil, "HybridSet must be nil when active set is fully equipped")
 
 -- Scenario B: Player manually equips Mark of the Champion (gear now matches Trash Undead)
 ItemRack.IsSetEquipped = function(name) return name == "Trash Undead" end
@@ -711,6 +733,39 @@ check(ItemRackUser.CurrentSet == "Trash Other", "Active CurrentSet must NOT be h
 check(ItemRack.HybridSet == "Trash Undead", "HybridSet must record detected Trash Undead")
 check(#visualCalls > 0 and visualCalls[#visualCalls].activeOwner == "Trash Other" and visualCalls[#visualCalls].hybridSet == "Trash Undead",
   "SetButton20Visual must receive activeOwner and hybridSet for split icon rendering")
+check(mockMainIcon.texture == "Icon1" and mockSplitIcon.texture == "Icon2" and mockSplitIcon.shown,
+  "Per-set Hybrid split must show active queue set on left and detected gear set on right")
+
+-- Scenario B2: With Per-Set Queues ON, wearing unrecognized Custom gear shows Custom Hybrid split (Queue Set | ItemRackIcon)
+ItemRack.IsSetEquipped = function() return false end
+ItemRack.UpdateCurrentSet()
+check(ItemRack.HybridSet == nil and ItemRack.CustomHybridOwner == "Trash Other",
+  "Custom gear with Per-Set Queues ON must track CustomHybridOwner without setting HybridSet")
+check(#visualCalls > 0 and visualCalls[#visualCalls].activeOwner == "Trash Other" and visualCalls[#visualCalls].hybridSet == "Custom",
+  "Per-set Custom gear must pass activeOwner and _G.CUSTOM to SetButton20Visual for Custom split")
+check(mockMainIcon.texture == "Icon1"
+  and mockSplitIcon.texture == "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+  and mockSplitIcon.shown,
+  "Custom Hybrid split must show active queue set icon on left and Custom ItemRackIcon on right")
+
+-- Scenario B3: With Global Queues (EnablePerSetQueues == OFF), there are NO Hybrid splits:
+-- matching another full set adopts it directly, and Custom gear renders solid ItemRackIcon
+ItemRackUser.EnablePerSetQueues = "OFF"
+ItemRackUser.CurrentSet = "Trash Other"
+ItemRack.IsSetEquipped = function(name) return name == "Trash Undead" end
+ItemRack.UpdateCurrentSet()
+check(ItemRackUser.CurrentSet == "Trash Undead" and ItemRack.HybridSet == nil and ItemRack.CustomHybridOwner == nil,
+  "Global queue mode must adopt matched full sets without entering Hybrid state")
+check(mockMainIcon.texture == "Icon2" and not mockSplitIcon.shown,
+  "Global queue mode must render solid set icon without split")
+ItemRack.IsSetEquipped = function() return false end
+ItemRack.UpdateCurrentSet()
+check(ItemRack.HybridSet == nil and ItemRack.CustomHybridOwner == nil
+  and mockMainIcon.texture == "Interface\\AddOns\\ItemRack\\ItemRackIcon" and not mockSplitIcon.shown,
+  "Global queue Custom state must render solid Custom ItemRackIcon instead of holding previous set icon")
+
+ItemRackUser.EnablePerSetQueues = "ON"
+ItemRackUser.CurrentSet = "Trash Other"
 
 -- Scenario C: Player switches back to Trash Other
 ItemRack.IsSetEquipped = function(name) return name == "Trash Other" end
@@ -1982,3 +2037,210 @@ now=221;special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Expired',99999
 check(not special.IsTraceActive() and #special.Trace==0,'expanded capacity must not extend the 120-second capture')
 print(string.format('[FULL DIAGNOSTIC DUMP LUA] %d actual-command, retention, summary/full, navigation and byte-preservation checks passed.',checks))
 `, 'dump-full-retained-diagnostics');
+
+{
+  const fs = require('fs');
+  const eventsFile = 'ItemRack/ItemRackEvents.lua';
+  const buttonsFile = 'ItemRack/ItemRackButtons.lua';
+  const policySource = fs.readFileSync('ItemRack/ItemRackQueuePolicy.lua', 'utf8');
+  const eventStateSource = fs.readFileSync('ItemRack/ItemRackEventState.lua', 'utf8');
+  const coreSource = fs.readFileSync(itemRackFile, 'utf8');
+  const proxyMatch = /(local function QueueFieldProxy[\s\S]*?)\nItemRack\.DefaultSettings\s*=/.exec(coreSource);
+  if (!proxyMatch) throw new Error('Missing QueueFieldProxy block in ItemRack/ItemRack.lua');
+  const getQueueContext = extractFunction(itemRackFile, 'ItemRack.GetQueueContext');
+  const syncOptionsEditingSet = extractFunction(eventsFile, 'ItemRack.SyncOptionsEditingSet');
+  const getTopEventFrame = extractFunction(eventsFile, 'ItemRack.GetTopEventFrame');
+  const getTopOwnedEventFrame = extractFunction(eventsFile, 'ItemRack.GetTopOwnedEventFrame');
+  const refreshEventStackProjection = extractFunction(eventsFile, 'ItemRack.RefreshEventStackProjection');
+  const queueEventFrameTargets = extractFunction(eventsFile, 'ItemRack.QueueEventFrameTargets');
+  const eventFramePlanFinished = extractFunction(eventsFile, 'ItemRack.EventFramePlanFinished');
+  const buttonPreClick = extractFunction(buttonsFile, 'ItemRack.ButtonPreClick');
+  const buttonPostClick = extractFunction(buttonsFile, 'ItemRack.ButtonPostClick');
+  const buttonMenuOnClick = extractFunction(buttonsFile, 'ItemRack.ButtonMenuOnClick');
+  const updateQueueEnable = extractFunction(optionsFile, 'ItemRackOpt.UpdateQueueEnable');
+  const queueEnableSlotOnClick = extractFunction(optionsFile, 'ItemRackOpt.QueueEnableSlotOnClick');
+
+  runLua(String.raw`
+local checks = 0
+local function check(v, msg) assert(v, msg); checks = checks + 1 end
+ItemRack = {
+  SlotInfo = { [13] = { real = "Trinket 1" } },
+  GetEventSet = function(name) return ItemRackUser.Events and ItemRackUser.Events.Set and ItemRackUser.Events.Set[name] end,
+  GetID = function(slot) return slot == 13 and "25653:0:0" or "0" end,
+  GetIRString = function(v) return v end,
+  SameID = function(a, b) return tostring(a) == tostring(b) end,
+  MatchesStoredItemFields = function(a, b) return tostring(a) == tostring(b) end,
+  IsBareItemID = function() return false end,
+  IsRecentEquip = function() return false end,
+  Debug = function() end,
+  Print = function() end,
+  ClearLockList = function() end,
+  UpdateCombatQueue = function() end,
+  UpdateCurrentSet = function() end,
+  PeriodicQueueCheck = function() end,
+  CancelPendingQueueEquipSet = function() ItemRack.PendingQueueEquipSet = nil end,
+  EventFramePendingTargets = {},
+  EventFramePendingRestoredSlots = {},
+  EventFramePlans = {},
+  EventFrameBatchDepth = 0,
+  Buttons = {},
+}
+ItemRackSettings = { DisableAltClick = "OFF", MenuOnShift = "OFF", KeepMenuOpen = "OFF" }
+ItemRackEvents = { Mounted = { Type = "Buff", Anymount = 1, OnMovement = 1, Unequip = 1 } }
+ItemRackUser = {
+  EnableQueues = "ON",
+  EnablePerSetQueues = "ON",
+  CurrentSet = "BaseSet",
+  EventStack = {},
+  Events = { Enabled = { Mounted = 1 }, Set = { Mounted = "Zoomies" } },
+  Queues = { [13] = {} },
+  QueuesEnabled = {},
+  Sets = {
+    BaseSet = {
+      icon = "icon-base",
+      equip = { [13] = "Base13", [14] = "Base14" },
+      Queues = { [13] = { { id = "Base13" } } },
+      QueuesEnabled = { [13] = true },
+    },
+    Zoomies = {
+      icon = "icon-zoomies",
+      equip = { [13] = "25653:0:0" },
+    },
+  },
+}
+${policySource}
+${eventStateSource}
+ItemRackUser.EventState = ItemRack.EventFrames.NewState()
+${getQueueContext}
+${proxyMatch[1]}
+
+local uiSetNameText = "BaseSet"
+local optVisible, sub2Visible, sub5Visible, sub7Visible = true, false, false, true
+local footerName, footerIcon = "", ""
+local queueChecked = false
+local populatedSets = {}
+ItemRackOptSetsName = { GetText = function() return uiSetNameText end, SetText = function(_, t) uiSetNameText = t end }
+ItemRackOptSetsSaveButton = { IsEnabled = function() return true end }
+ItemRackOptSlotQueueName = { SetText = function() end }
+ItemRackOptQueueSetIcon = { SetTexture = function(_, tex) footerIcon = tex end }
+ItemRackOptQueueSetName = { SetText = function(_, t) footerName = t end }
+ItemRackOptQueueSetInfo = { Show = function() end }
+ItemRackOptQueueEnable = {
+  SetChecked = function(_, v) queueChecked = v and true or false end,
+  GetChecked = function() return queueChecked end,
+}
+ItemRackOptFrame = {
+  IsVisible = function() return optVisible end,
+  Show = function() optVisible = true end,
+  Hide = function() optVisible = false end,
+}
+ItemRackOptSubFrame2 = { IsVisible = function() return optVisible and sub2Visible end }
+ItemRackOptSubFrame5 = { IsVisible = function() return optVisible and sub5Visible end, Hide = function() sub5Visible = false end }
+ItemRackOptSubFrame7 = {
+  IsVisible = function() return optVisible and sub7Visible end,
+  Show = function() sub7Visible = true end,
+  Hide = function() sub7Visible = false end,
+}
+ItemRackOpt = {
+  Inv = {}, HoldInv = {},
+  NormalizeSetIcon = function(i) return i end,
+  UpdateInv = function() end,
+  LayoutQueueControls = function() end,
+  ValidateSortButtons = function() end,
+  TabOnClick = function(_, tab) sub2Visible = (tab == 3); sub7Visible = (tab == 4) end,
+  PopulateSortList = function(slot)
+    table.insert(populatedSets, { set = ItemRackOpt.QueueEditingSet, slot = slot })
+    local list = ItemRack.GetQueues(ItemRackOpt.QueueEditingSet)[slot]
+    if list and #list == 0 then table.insert(list, { id = "25653:0:0", keep = true }) end
+    ItemRackOptQueueEnable:SetChecked(ItemRack.GetQueuesEnabled(ItemRackOpt.QueueEditingSet)[slot])
+  end,
+}
+for i = 0, 19 do ItemRackOpt.Inv[i] = {}; ItemRackOpt.HoldInv[i] = {} end
+function LoadAddOn() end
+function IsAltKeyDown() return true end
+function IsShiftKeyDown() return false end
+C_Timer = { After = function() end }
+ItemRackButtonMenuQueue = {}
+${hasUnsavedSetChanges}
+${changeEditingSet}
+${setupQueue}
+${updateQueueEnable}
+${queueEnableSlotOnClick}
+${syncOptionsEditingSet}
+${getTopEventFrame}
+${getTopOwnedEventFrame}
+${refreshEventStackProjection}
+${queueEventFrameTargets}
+${eventFramePlanFinished}
+${endSetSwap}
+${buttonPreClick}
+${buttonPostClick}
+${buttonMenuOnClick}
+function ItemRack.EnsureEventFrameState() return ItemRackUser.EventState end
+
+ItemRackOpt.SetupQueue(13)
+check(ItemRackOpt.QueueEditingSet == "BaseSet" and footerName == "BaseSet",
+  "precondition: Queue UI starts on BaseSet")
+
+-- 1. Mount + move activates Zoomies: EndSetSwap defer + EventFramePlanFinished SyncOptionsEditingSet must switch open UI to Zoomies
+local pushRes = ItemRack.EventFrames.Activate(ItemRackUser.EventState, {
+  eventName = "Mounted", setName = "Zoomies", slots = { [13] = "25653:0:0" },
+  observed = { [13] = "Base13" }, baseSetName = "BaseSet",
+})
+local plan1 = "~EventFrame:" .. tostring(pushRes.revision)
+ItemRack.EventFramePlans[plan1] = { revision = pushRes.revision, targets = pushRes.targets }
+ItemRackUser.Sets[plan1] = { equip = pushRes.targets }
+ItemRack.EndSetSwap(plan1)
+check(ItemRackUser.CurrentSet == "Zoomies" and ItemRackOpt.QueueEditingSet == "Zoomies" and uiSetNameText == "Zoomies" and footerName == "Zoomies",
+  "event-set-queue-editing-persistence: EventFramePlanFinished must sync open Options Queue UI to Zoomies after CurrentSet settles")
+
+-- 2. Alt+Left-Click when Options was closed with stale uiSetNameText == "BaseSet" and Zoomies.Queues[13] missing
+optVisible = false; sub7Visible = false
+uiSetNameText = "BaseSet"
+ItemRackOpt.QueueEditingSet = "BaseSet"
+local btn13 = { GetID = function() return 13 end, OriginalSetChecked = function() end }
+ItemRack.ButtonPreClick(btn13, "LeftButton")
+check(ItemRackUser.Sets.Zoomies.Queues and ItemRackUser.Sets.Zoomies.Queues[13] and #ItemRackUser.Sets.Zoomies.Queues[13] == 1,
+  "Alt+Left-Click during Zoomies must initialize Zoomies.Queues[13] even when ItemRackOptSetsName is stale")
+check(ItemRackUser.Sets.Zoomies.QueuesEnabled and ItemRackUser.Sets.Zoomies.QueuesEnabled[13] == true,
+  "Alt+Left-Click during Zoomies must save QueuesEnabled[13]=true on Zoomies")
+check(not optVisible and not sub7Visible,
+  "Alt+Left-Click silent SetupQueue must keep Options and SubFrame7 closed when Options was not open")
+check(ItemRackUser.Sets.BaseSet.QueuesEnabled[13] == true,
+  "Alt+Left-Click during Zoomies must leave BaseSet.QueuesEnabled[13] unchanged")
+
+-- 3. Alt+Right-Click while Options is ALREADY open with stale uiSetNameText == "BaseSet" must target Zoomies, not BaseSet
+optVisible = true; sub2Visible = true; sub7Visible = false
+uiSetNameText = "BaseSet"
+ItemRackOpt.QueueEditingSet = "BaseSet"
+ItemRack.ButtonPostClick(btn13, "RightButton")
+check(ItemRackOpt.QueueEditingSet == "Zoomies" and uiSetNameText == "Zoomies" and footerName == "Zoomies",
+  "Alt+Right-Click while Options already open must bind Queue UI to active event set Zoomies, not stale BaseSet")
+queueChecked = false
+ItemRackOpt.QueueEnableSlotOnClick(ItemRackOptQueueEnable)
+check(ItemRackUser.Sets.Zoomies.QueuesEnabled[13] == false and ItemRackUser.Sets.BaseSet.QueuesEnabled[13] == true,
+  "QueueEnableSlotOnClick must persist Zoomies.QueuesEnabled[13]=false without touching BaseSet")
+
+-- 4. ButtonMenu -> Auto Queue while Options is already open with stale uiSetNameText == "BaseSet" must also bind Zoomies
+uiSetNameText = "BaseSet"; ItemRackOpt.QueueEditingSet = "BaseSet"
+ItemRack.menuOpen = 13
+optVisible = false
+ItemRack.ButtonMenuOnClick(ItemRackButtonMenuQueue)
+check(ItemRackOpt.QueueEditingSet == "Zoomies" and uiSetNameText == "Zoomies",
+  "ButtonMenu Auto Queue must bind Queue UI to active event set Zoomies")
+
+-- 5. Unmount/stop returns to BaseSet: Options returns to BaseSet while Zoomies preserves saved toggle & queue
+local popRes = ItemRack.EventFrames.Pop(ItemRackUser.EventState, "Mounted")
+local plan2 = "~EventFrame:" .. tostring(popRes.revision)
+ItemRack.EventFramePlans[plan2] = { revision = popRes.revision, targets = popRes.targets, restoreSetName = popRes.restoredSetName }
+ItemRackUser.Sets[plan2] = { equip = popRes.targets }
+ItemRack.EndSetSwap(plan2)
+check(ItemRackUser.CurrentSet == "BaseSet" and ItemRackOpt.QueueEditingSet == "BaseSet" and footerName == "BaseSet",
+  "exiting Zoomies must restore BaseSet and sync open Options back to BaseSet")
+check(ItemRackUser.Sets.Zoomies.QueuesEnabled[13] == false and ItemRackUser.Sets.Zoomies.Queues[13] ~= nil
+  and ItemRackUser.Sets.BaseSet.QueuesEnabled[13] == true,
+  "Zoomies edited QueuesEnabled[13]=false and Queues[13] must remain saved after swapping back to BaseSet")
+
+print(string.format('[EVENT SET QUEUE EDITING LUA] %d Zoomies event-set queue editing & persistence checks passed.', checks))
+`, 'event-set-queue-editing-persistence');
+}

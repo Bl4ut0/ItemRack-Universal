@@ -803,7 +803,7 @@ function ItemRack.ProcessAutoQueue(slot)
 	end
 end
 
-function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, queueContext)
+function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, queueContext, assumedExactID)
 	if ItemRack.QueueStateReady ~= true then
 		return nil
 	end
@@ -825,7 +825,7 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 	-- Without these checks, IsSetEquipped would falsely report the set as "not equipped"
 	-- whenever a kept/delayed item is worn, causing movement events to re-equip the set
 	-- and the set display to flip to "Custom".
-	local exactID = ItemRack.GetID(slot)
+	local exactID = assumedExactID or ItemRack.GetID(slot)
 	if ItemRack.SpecialItems and ItemRack.SpecialItems.ShouldHoldEffect(slot,exactID) then return nil end
 	local currentBurnt = ItemRack.IsQueueItemBurnt(slot, exactID, baseID)
 	local manualHold = ItemRack.IsManualQueueChoice(slot, exactID, baseID,
@@ -900,7 +900,7 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 			local isEquippedActive = itemSpell ~= nil or (hasObservedCooldown and hasObservedCooldown.duration and hasObservedCooldown.duration > 1.5)
 			if not isEquippedActive and tonumber(enable) == 1 then
 				isEquippedActive = true
-			elseif not isEquippedActive and GetInventoryItemCooldown and slot then
+			elseif not isEquippedActive and not assumedExactID and GetInventoryItemCooldown and slot then
 				local _, _, slotEnable = GetInventoryItemCooldown("player", slot)
 				if tonumber(slotEnable) == 1 then
 					isEquippedActive = true
@@ -959,7 +959,7 @@ function ItemRack.SetQueue(slot,newQueue)
 		ItemRack.GetQueues()[slot] = fresh
 		if ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
 			if ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot==slot then
-				ItemRackOpt.SetupQueue(slot)
+				ItemRackOpt.SetupQueue(slot, ItemRackUser and ItemRackUser.CurrentSet)
 			else
 				ItemRackOpt.UpdateInv()
 			end

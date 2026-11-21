@@ -737,7 +737,10 @@ end
 UIParent = makeFrame('UIParent', 'MEDIUM', 1, 1, true)
 ChatFrame1EditBox = makeFrame('ChatFrame1EditBox', 'DIALOG', 1, 1, false)
 function ChatFrame1EditBox:IsVisible() return chatVisible end
+function ChatFrame1EditBox:HasFocus() return chatFocus end
 function ChatFrame1EditBox:Insert(link) self.lastInserted = link end
+function ChatEdit_GetActiveWindow() return activeChatWindow end
+function GetCurrentKeyBoardFocus() return keyboardFocusFrame end
 function GetInventoryItemLink(_, slot) return 'item:'..tostring(slot) end
 function GetContainerItemLink(b, s) return 'bag:'..tostring(b)..':'..tostring(s) end
 ItemRackOptFrame = makeFrame('ItemRackOptFrame', 'DIALOG', 1, 1, false)
@@ -850,7 +853,7 @@ ${['MenuDiagnosticValue','MenuDiagnosticCall','MenuDiagnosticCounts','GetTopMous
   'ApplyMenuFrameBackdrop','ResolveQuickAccessMenuTarget','IsPinnedMenuVisible',
   'IsSlotMenuPinned','SyncPinnedMenu','RefreshPinnedMenu','SetPinnedMenuSlot',
   'TogglePinnedMenu','DockWindows','BuildMenu','UpdateMenuCooldowns','WriteMenuCooldowns',
-  'MenuMouseover','MenuOnHide','CreateMenuButton','ChatLinkID','MenuOnClick',
+  'MenuMouseover','MenuOnHide','CreateMenuButton','GetActiveChatEditBox','ChatLinkID','MenuOnClick',
   'OnModifierStateChanged','ReflectLock','ReflectAlpha','ReflectMenuScale','SlashHandler']
   .map(n => extractFunction(coreFile, `ItemRack.${n}`)).join('\n')}
 ${extractFunction(coreFile, 'ItemRack.ShouldCompareBreakoutItems')}
@@ -867,13 +870,43 @@ shiftDown = true
 ItemRack.ButtonPostClick(ItemRackButton13, 'LeftButton')
 check(not ItemRack.IsPinnedMenuVisible(), 'Shift+Left-Click must not lock open when KeepMenuOpen is OFF')
 
--- 2) Chat editbox open still preserves Shift+Click chat linking even when KeepMenuOpen=ON
+-- 2) Chat editbox checks: resting visible General tab editbox MUST NOT intercept Shift+Click;
+--    only an actually active/focused chat editbox links into chat.
 ItemRackSettings.KeepMenuOpen = 'ON'
 chatVisible = true
+chatFocus = false
+activeChatWindow = nil
+keyboardFocusFrame = nil
+ChatFrame1EditBox.lastInserted = nil
+ItemRack.ButtonPostClick(ItemRackButton13, 'LeftButton')
+check(ChatFrame1EditBox.lastInserted == nil and ItemRack.IsPinnedMenuVisible() and ItemRack.pinnedMenuOpen == 13,
+  'unfocused visible ChatFrame1EditBox (General tab) must NOT swallow Shift+Left-Click as chat link')
+-- Reset pin back off before active-chat link test
+ItemRack.ButtonPostClick(ItemRackButton13, 'LeftButton')
+check(not ItemRack.IsPinnedMenuVisible(), 'reset pin cleanly')
+
+-- With chat actually opened/focused, Shift+Left-Click links into chat without pinning
+chatFocus = true
+activeChatWindow = ChatFrame1EditBox
 ItemRack.ButtonPostClick(ItemRackButton13, 'LeftButton')
 check(ChatFrame1EditBox.lastInserted == 'item:13' and not ItemRack.IsPinnedMenuVisible(),
-  'open chat editbox must keep Shift+Click linking intact')
+  'open focused chat editbox must keep Shift+Click linking intact')
+ChatFrame1EditBox.lastInserted = nil
+
+-- Custom chat addon (e.g. Chattynator) editbox focused via GetCurrentKeyBoardFocus
+local customChatBox = makeFrame('ChattynatorEditBox', 'DIALOG', 1, 1, true)
+function customChatBox:HasFocus() return true end
+function customChatBox:Insert(link) self.lastInserted = link end
+activeChatWindow = nil
+chatVisible = true
+chatFocus = false
+keyboardFocusFrame = customChatBox
+ItemRack.ButtonPostClick(ItemRackButton13, 'LeftButton')
+check(customChatBox.lastInserted == 'item:13' and not ItemRack.IsPinnedMenuVisible(),
+  'focused custom chat editbox (Chattynator) must receive Shift+Click link')
+keyboardFocusFrame = nil
 chatVisible = false
+chatFocus = false
 
 -- 3) Shift+Left-Click on Trinket 13 locks pinned menu open (works in combat too),
 --    anchored to 13 (or 14 when AnchorOther=ON), at strata BELOW hover ItemRackMenuFrame
@@ -910,6 +943,26 @@ ItemRack.MenuOnClick(ItemRackPinnedMenu1, 'LeftButton')
 ItemRack.MenuOnClick(ItemRackPinnedMenu1, 'RightButton')
 check(#equips == 2 and equips[1].origin == 'manual_swap' and equips[2].origin == 'manual_hold' and ItemRack.IsPinnedMenuVisible(),
   'non-TrinketMenu locked breakout must support Left-swap and Right-hold without closing')
+equips = {}
+shiftDown = true
+chatVisible = true
+chatFocus = false
+activeChatWindow = nil
+keyboardFocusFrame = nil
+ChatFrame1EditBox.lastInserted = nil
+ItemRack.MenuOnClick(ItemRackPinnedMenu1, 'LeftButton')
+check(ChatFrame1EditBox.lastInserted == nil and #equips == 1,
+  'MenuOnClick with unfocused visible ChatFrame1EditBox must NOT post link into chat window')
+chatFocus = true
+activeChatWindow = ChatFrame1EditBox
+ItemRack.MenuOnClick(ItemRackPinnedMenu1, 'LeftButton')
+check(ChatFrame1EditBox.lastInserted ~= nil and #equips == 1,
+  'MenuOnClick with focused chat editbox must link item instead of equipping')
+shiftDown = false
+chatVisible = false
+chatFocus = false
+activeChatWindow = nil
+ChatFrame1EditBox.lastInserted = nil
 
 -- 6) Hovering ANOTHER slot (13) opens ItemRackMenuFrame ON TOP, leaving ItemRackPinnedMenuFrame open,
 --    and leaving bounds closes ONLY ItemRackMenuFrame!

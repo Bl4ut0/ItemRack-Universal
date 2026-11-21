@@ -1341,6 +1341,7 @@ function ItemRack.RunAllEvents(reason, forceSpecialization)
 		ItemRack.ForceSpecializationCheck = nil
 		ItemRack.ProcessSpecializationEvent(forceSpec)
 	end
+	if ItemRack.ProcessSwimmingEvent then ItemRack.ProcessSwimmingEvent() end
 end
 
 function ItemRack.ScheduleEventRecheck(reason, delay)
@@ -3080,12 +3081,16 @@ function ItemRack.SetButton20Visual(currentSetName, hybridSetName)
 	local splitIcon = ItemRackButton20SplitIcon
 	local divider = ItemRackButton20Divider
 
-	local isHybrid = hybridSetName and currentSetName and ItemRackUser and ItemRackUser.Sets
-		and ItemRackUser.Sets[currentSetName] and ItemRackUser.Sets[hybridSetName]
+	local customTexture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+	local hasActiveSet = currentSetName and currentSetName ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets
+		and ItemRackUser.Sets[currentSetName]
+	local isCustomSplit = (hybridSetName == _G.CUSTOM) and hasActiveSet
+	local isHybrid = isCustomSplit or (hasActiveSet and hybridSetName and hybridSetName ~= _G.CUSTOM
+		and ItemRackUser.Sets[hybridSetName])
 
 	if isHybrid then
-		local set1Icon = ItemRackUser.Sets[currentSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
-		local set2Icon = ItemRackUser.Sets[hybridSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+		local set1Icon = ItemRackUser.Sets[currentSetName].icon or customTexture
+		local set2Icon = isCustomSplit and customTexture or (ItemRackUser.Sets[hybridSetName].icon or customTexture)
 
 		if not splitIcon and button.CreateTexture then
 			splitIcon = button:CreateTexture("ItemRackButton20SplitIcon", "ARTWORK")
@@ -3170,12 +3175,16 @@ function ItemRack.SetMinimapButtonVisual(currentSetName, hybridSetName)
 	local icon = button.icon
 	if not icon then return end
 
-	local isHybrid = hybridSetName and currentSetName and ItemRackUser and ItemRackUser.Sets
-		and ItemRackUser.Sets[currentSetName] and ItemRackUser.Sets[hybridSetName]
+	local customTexture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+	local hasActiveSet = currentSetName and currentSetName ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets
+		and ItemRackUser.Sets[currentSetName]
+	local isCustomSplit = (hybridSetName == _G.CUSTOM) and hasActiveSet
+	local isHybrid = isCustomSplit or (hasActiveSet and hybridSetName and hybridSetName ~= _G.CUSTOM
+		and ItemRackUser.Sets[hybridSetName])
 
 	if isHybrid then
-		local set1Icon = ItemRackUser.Sets[currentSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
-		local set2Icon = ItemRackUser.Sets[hybridSetName].icon or "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+		local set1Icon = ItemRackUser.Sets[currentSetName].icon or customTexture
+		local set2Icon = isCustomSplit and customTexture or (ItemRackUser.Sets[hybridSetName].icon or customTexture)
 
 		local splitIcon = button.SplitIcon
 		local divider = button.Divider
@@ -3315,6 +3324,7 @@ function ItemRack.UpdateCurrentSet()
 			setname = _G.CUSTOM
 		end
 	end
+	local perSetHybrid = ItemRackUser and ItemRackUser.EnablePerSetQueues == "ON" and ItemRackUser.EnableQueues == "ON"
 	if setname == _G.CUSTOM and not ItemRack.SetSwapping and ItemRackUser and ItemRackUser.Sets then
 		local bestSet, bestCount = nil, 0
 		for name, set in pairs(ItemRackUser.Sets) do
@@ -3336,13 +3346,13 @@ function ItemRack.UpdateCurrentSet()
 			end
 		end
 		if bestSet then
-			if previousSet and previousSet ~= _G.CUSTOM and bestSet ~= previousSet then
-				-- Hybrid state: player had an active set (preserving queue rules), but worn gear matches bestSet
+			if perSetHybrid and previousSet and previousSet ~= _G.CUSTOM and bestSet ~= previousSet then
+				-- Hybrid state: player had an active per-set queue authority, while worn gear matches bestSet
 				ItemRack.HybridSet = bestSet
 				setname = previousSet
 				texture = (ItemRackUser.Sets[previousSet] and ItemRackUser.Sets[previousSet].icon) or texture
 			else
-				-- Startup recovery or matched previous set
+				-- Startup recovery, matched previous set, or global queues (no per-set hybrid split)
 				ItemRack.HybridSet = nil
 				setname = bestSet
 				ItemRackUser.CurrentSet = bestSet
@@ -3377,14 +3387,19 @@ function ItemRack.UpdateCurrentSet()
 		end
 	end
 	local activeOwner = previousSet or ItemRackUser.CurrentSet
+	local isCustomSplit = perSetHybrid and not ItemRack.HybridSet and setname == _G.CUSTOM
+		and activeOwner and activeOwner ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[activeOwner]
+	ItemRack.CustomHybridOwner = isCustomSplit and activeOwner or nil
+	local visualOwner = ItemRack.HybridSet and activeOwner or (isCustomSplit and activeOwner or setname)
+	local visualHybrid = ItemRack.HybridSet or (isCustomSplit and _G.CUSTOM or nil)
 	if ItemRack.SetButton20Visual then
-		ItemRack.SetButton20Visual(activeOwner, ItemRack.HybridSet)
+		ItemRack.SetButton20Visual(visualOwner, visualHybrid)
 	elseif ItemRackButton20 and ItemRackButton20ItemRackIcon and ItemRackButton20ItemRackIcon.SetTexture then
 		ItemRackButton20ItemRackIcon:SetTexture(texture)
 	end
 
 	if ItemRack.SetMinimapButtonVisual then
-		ItemRack.SetMinimapButtonVisual(activeOwner, ItemRack.HybridSet)
+		ItemRack.SetMinimapButtonVisual(visualOwner, visualHybrid)
 	elseif ItemRack.RestoreMinimapButtonVisual then
 		ItemRack.RestoreMinimapButtonVisual()
 	end
@@ -5803,18 +5818,50 @@ function ItemRack.CreateMenuButton(idx,itemID,viewKey)
 	return button
 end
 
+-- Returns the chat edit box only when chat input is actively open/focused for typing.
+function ItemRack.GetActiveChatEditBox()
+	local active = (ChatFrameUtil and type(ChatFrameUtil.GetActiveWindow) == "function" and ChatFrameUtil.GetActiveWindow())
+		or (type(ChatEdit_GetActiveWindow) == "function" and ChatEdit_GetActiveWindow())
+	if active and type(active.Insert) == "function"
+	and (not active.IsVisible or active:IsVisible())
+	and (not active.HasFocus or active:HasFocus()) then
+		return active
+	end
+	if type(GetCurrentKeyBoardFocus) == "function" then
+		local focus = GetCurrentKeyBoardFocus()
+		if focus and type(focus.Insert) == "function" and (not focus.IsVisible or focus:IsVisible()) then
+			local name = focus.GetName and focus:GetName() or ""
+			if focus == _G.ChatFrame1EditBox
+			or string.match(name, "^ChatFrame%d+EditBox$")
+			or string.find(name, "Chattynator", 1, true)
+			or string.find(name, "Chat", 1, true) then
+				return focus
+			end
+		end
+	end
+	local defaultBox = _G.ChatFrame1EditBox
+	if defaultBox and type(defaultBox.Insert) == "function"
+	and (not defaultBox.IsVisible or defaultBox:IsVisible())
+	and defaultBox.HasFocus and defaultBox:HasFocus() then
+		return defaultBox
+	end
+	return nil
+end
+
 -- takes an ItemRack-style ID, finds the best match in the player's inventory, and puts its ItemLink to the chat editbox.
 -- if the item is missing, it uses the ItemRack-style ID as-is to generate a clickable ItemLink from the stored data
-function ItemRack.ChatLinkID(itemID)
+function ItemRack.ChatLinkID(itemID, editBox)
+	local target = editBox or ItemRack.GetActiveChatEditBox() or ChatFrame1EditBox
+	if not target or type(target.Insert) ~= "function" then return end
 	local inv,bag,slot = ItemRack.FindItem(itemID)
 	if bag then
-		ChatFrame1EditBox:Insert(GetContainerItemLink(bag,slot))
+		target:Insert(GetContainerItemLink(bag,slot))
 	elseif inv then
-		ChatFrame1EditBox:Insert(GetInventoryItemLink("player",inv))
+		target:Insert(GetInventoryItemLink("player",inv))
 	else
 		local _,itemLink = GetItemInfo(ItemRack.IRStringToItemString(ItemRack.UpdateIRString(itemID))) --ensure the stored ID is brought up to date, then generate a regular ItemString from it and get the item info
 		if itemLink then
-			ChatFrame1EditBox:Insert(itemLink)
+			target:Insert(itemLink)
 		end
 	end
 end
@@ -5831,6 +5878,7 @@ function ItemRack.MenuOnClick(self,button)
 	local item = menuItems and menuItems[self:GetID()]
 	ItemRack.Debug("UI", "MenuOnClick:", self:GetName(), "button:", button, "item:", item, "InCombat:", InCombatLockdown(), "menuOpen:", menuOpen, "view:", isPinned and "pinned" or "hover")
 	ItemRack.ClearLockList()
+	local activeChatEditBox = IsShiftKeyDown() and ItemRack.GetActiveChatEditBox and ItemRack.GetActiveChatEditBox()
 	if IsAltKeyDown() and ItemRackSettings.AllowHidden == "ON" and item ~= "MENU" then
 		ItemRack.ToggleHidden(item)
 		ItemRack.BuildMenu(nil, nil, nil, viewKey)
@@ -5838,8 +5886,9 @@ function ItemRack.MenuOnClick(self,button)
 			ItemRack.RefreshPinnedMenu()
 		end
 		return
-	elseif IsShiftKeyDown() and ChatFrame1EditBox:IsVisible() then
-		ItemRack.ChatLinkID(item)
+	elseif activeChatEditBox then
+		ItemRack.ChatLinkID(item, activeChatEditBox)
+		return
 	elseif menuInclude then
 		if ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
 			ItemRackOpt.Inv[menuOpen].id = item
@@ -7444,7 +7493,14 @@ function ItemRack.SetTooltip(self,setname)
 	if set then
 		local itemName,itemColor
 		ItemRack.AnchorTooltip(self)
-		GameTooltip:AddLine(setname)
+		if ItemRack.CustomHybridOwner and self and self.GetID and self:GetID()==20 then
+			GameTooltip:AddLine("ItemRack: Custom Gear", 1, 0.82, 0)
+			GameTooltip:AddLine("Active Queue: |cFFFFFFFF" .. tostring(ItemRack.CustomHybridOwner) .. "|r", 0.8, 0.8, 0.8)
+			GameTooltip:AddLine("Equipped Gear: |cFFFF8C00" .. tostring(_G.CUSTOM) .. "|r", 0.8, 0.8, 0.8)
+			GameTooltip:AddLine("Left-Click: Re-equip " .. tostring(ItemRack.CustomHybridOwner), 1, 1, 1)
+		else
+			GameTooltip:AddLine(setname)
+		end
 		if ItemRackSettings.TinyTooltips~="ON" then
 			for i=0,19 do
 				if set[i] then
@@ -7909,6 +7965,8 @@ function ItemRack.MinimapOnEnter(tooltip)
 		tooltip:AddLine("Hybrid: |cFFFFFFFF" .. tostring(ItemRackUser.CurrentSet) .. "|r / |cFF00FF00" .. tostring(ItemRack.HybridSet) .. "|r", 1, 0.82, 0)
 		tooltip:AddLine("Active Queue: " .. tostring(ItemRackUser.CurrentSet), 0.8, 0.8, 0.8)
 		tooltip:AddLine("Equipped Gear: " .. tostring(ItemRack.HybridSet), 0.8, 0.8, 0.8)
+	elseif ItemRack.CustomHybridOwner then
+		tooltip:AddLine("Custom Gear (Active Queue: |cFFFFFFFF" .. tostring(ItemRack.CustomHybridOwner) .. "|r)", 1, 0.82, 0)
 	end
 	tooltip:AddLine("Left click: Select a set",.8,.8,.8,1)
 	tooltip:AddLine("Right click: Open options",.8,.8,.8,1)

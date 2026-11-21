@@ -1283,6 +1283,12 @@ function ItemRackOpt.SelectSetList(self)
 	if ItemRackOpt.prevFrame==ItemRackOptSubFrame3 then
 		-- fill out event info if picking an event's set
 		local event = ItemRackOpt.EventList[ItemRackOpt.EventSelected][1]
+		local eventData = ItemRackEvents and ItemRackEvents[event]
+		if eventData and eventData.Type == "Script" and ItemRack.IsScriptEventApproved and not ItemRack.IsScriptEventApproved(event) then
+			ItemRackOptSubFrame5:Hide()
+			ItemRack.RequestScriptEventApproval(event, true)
+			return
+		end
 		if not ItemRackUser.Events.Set[event] then
 			ItemRackUser.Events.Enabled[event] = true
 		end
@@ -2442,16 +2448,30 @@ function ItemRackOpt.SlotQueueFrameOnHide()
 	ItemRack.UpdateCombatQueue()
 end
 
-function ItemRackOpt.SetupQueue(id)
+function ItemRackOpt.SetupQueue(id, targetSetName)
 	ItemRackOpt.LayoutQueueControls()
 	-- Always ensure the global queue table exists for this slot
 	if not ItemRackUser.Queues[id] then
 		ItemRackUser.Queues[id] = {}
 	end
 	
-	-- Determine the set being edited in the options UI
+	-- Determine the set being edited in the options UI. Explicit targets
+	-- (such as quick-access Alt-clicks during an active event set) must win
+	-- over a stale name left in ItemRackOptSetsName from an earlier tab view.
 	local uiSetName = ItemRackOptSetsName and ItemRackOptSetsName:GetText()
-	local editingSet = (uiSetName and uiSetName ~= "" and ItemRackUser.Sets[uiSetName]) and uiSetName or ItemRackUser.CurrentSet
+	local explicitSetName = (targetSetName and targetSetName ~= "" and ItemRackUser.Sets[targetSetName]) and targetSetName or nil
+	local currentSetName = ItemRackUser and ItemRackUser.CurrentSet
+	local editingSet = explicitSetName
+		or ((uiSetName and uiSetName ~= "" and ItemRackUser.Sets[uiSetName]) and uiSetName)
+		or ((currentSetName and ItemRackUser.Sets[currentSetName]) and currentSetName)
+		or currentSetName
+	if explicitSetName then
+		if ItemRackOptSetsName and ItemRackOptSetsName.SetText
+		and not (ItemRackOptSubFrame2 and ItemRackOptSubFrame2:IsVisible() and ItemRackOpt.HasUnsavedSetChanges and ItemRackOpt.HasUnsavedSetChanges()) then
+			ItemRackOptSetsName:SetText(explicitSetName)
+		end
+		ItemRackOpt.SelectedSet = explicitSetName
+	end
 	
 	-- If per-set queues are on, only initialize the currently edited set's queue (not all sets)
 	if ItemRackUser.EnablePerSetQueues == "ON" then
@@ -3578,8 +3598,12 @@ function ItemRackOpt.EventListScrollFrameUpdate()
 			_G["ItemRackOptEventList"..i.."Name"]:SetText(displayText)
 			icon = _G["ItemRackOptEventList"..i.."Icon"]
 			local userEvents = ItemRackUser and ItemRackUser.Events
+			local canPickSet = ItemRack.CanUseSetPickerForEvent and ItemRack.CanUseSetPickerForEvent(eventName) or (eventType ~= "Script")
 			local assignedSet = userEvents and userEvents.Set and userEvents.Set[eventName]
-			if eventType=="Script" then
+			if (not assignedSet or assignedSet == "") and canPickSet and ItemRack.ResolveSwimmingSetName then
+				assignedSet = ItemRack.ResolveSwimmingSetName(eventName)
+			end
+			if eventType=="Script" and not canPickSet then
 				texture = "Interface\\AddOns\\ItemRackOptions\\ItemRackScriptIcon"
 			elseif assignedSet and ItemRackUser.Sets and ItemRackUser.Sets[assignedSet] and ItemRackUser.Sets[assignedSet].icon then
 				texture = ItemRackUser.Sets[assignedSet].icon
@@ -3653,6 +3677,10 @@ function ItemRackOpt.EventListOnEnter(self,child)
 		if comment then
 			desc = desc.."\n"..comment
 		end
+		local resolvedSet = ItemRack.ResolveSwimmingSetName and ItemRack.ResolveSwimmingSetName(eventName)
+		if resolvedSet then
+			desc = desc.."\n|cFFCCCC88Set: "..resolvedSet
+		end
 		if ItemRack.IsScriptEventApproved then
 			local approved,reason = ItemRack.IsScriptEventApproved(eventName)
 			if approved then
@@ -3696,8 +3724,11 @@ function ItemRackOpt.EventListIconOnClick(self)
 	ItemRackOpt.EventSelected = idx
 	ItemRackOpt.EventListScrollFrameUpdate()
 	ItemRackOpt.ValidateEventListButtons()
-	if ItemRackOpt.EventList[ItemRackOpt.EventSelected][2]~="Script" then
-		ItemRackOptSubFrame5:Show() -- Buff, Stance or Zone event, go pick a set
+	local eventName = ItemRackOpt.EventList[ItemRackOpt.EventSelected][1]
+	local eventType = ItemRackOpt.EventList[ItemRackOpt.EventSelected][2]
+	local canPickSet = ItemRack.CanUseSetPickerForEvent and ItemRack.CanUseSetPickerForEvent(eventName) or (eventType~="Script")
+	if canPickSet then
+		ItemRackOptSubFrame5:Show() -- Buff, Stance, Zone, Spec, or canonical Swimming event, go pick a set
 	else
 		ItemRackOptSubFrame8:Show() -- Script event, go straight to editing it
 	end
@@ -3733,7 +3764,10 @@ function ItemRackOpt.EventListEnabledOnClick(self)
 			ItemRack.SpinDownEvent(eventName)
 		end
 	end
-	if checked and eventType~="Script" and not ItemRackUser.Events.Set[eventName] then
+	local canPickSet = ItemRack.CanUseSetPickerForEvent and ItemRack.CanUseSetPickerForEvent(eventName) or (eventType~="Script")
+	local resolvedSet = ItemRack.GetEventSet and ItemRack.GetEventSet(eventName) or ItemRackUser.Events.Set[eventName]
+	local validSet = resolvedSet and ItemRackUser.Sets and ItemRackUser.Sets[resolvedSet]
+	if checked and canPickSet and not validSet then
 		-- if an event without a set is being checked, choose a set
 		ItemRackOpt.EventListIconOnClick(self)
 	end
@@ -3981,6 +4015,8 @@ function ItemRackOpt.EventEditSave(override)
 			return
 		end
 	end
+	local prevEvent = ItemRackEvents[eventName]
+	local prevScriptSet = prevEvent and ItemRack.ExtractSwimmingScriptSetName and ItemRack.ExtractSwimmingScriptSetName(prevEvent.Script)
 	ItemRackEvents[eventName] = {}
 	local event=ItemRackEvents[eventName]
 	event.Type = ItemRackOptEventEditTypeDropText:GetText()
@@ -4023,6 +4059,12 @@ function ItemRackOpt.EventEditSave(override)
 		if not approved then
 			ItemRack.Print("Event \""..eventName.."\" was not saved: "..tostring(reason)..".")
 			return
+		end
+		if ItemRack.ExtractSwimmingScriptSetName then
+			local newScriptSet = ItemRack.ExtractSwimmingScriptSetName(event.Script)
+			if newScriptSet and newScriptSet ~= "" and newScriptSet ~= "Name of set" and newScriptSet ~= prevScriptSet then
+				ItemRackUser.Events.Set[eventName] = newScriptSet
+			end
 		end
 		ItemRack.Print("Event \""..eventName.."\" saved and approved through the ItemRack editor.")
 	else
