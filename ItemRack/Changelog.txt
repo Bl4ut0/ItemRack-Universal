@@ -1,4 +1,6 @@
 __ Development __
+
+__ New in 4.59-beta18 - By Bl4ut0 __
 - Custom state icon and Per-Set-only Hybrid splits: Hybrid split indicators now require both AutoQueue and "Use per-set queues". With global queues only, matching another saved set adopts it cleanly and unmatched gear shows the classic solid ItemRackIcon ("Custom"). With per-set queues enabled, unmatched gear wearing an active set's queue shows an Active Queue | Custom split icon ("Custom" label with active queue and Left-Click re-equip tooltips).
 - Specialization event stack unroll fix: Prune overridden 0-slot Specialization frames on manual set equip so temporary overlays (such as Mounted -> stop) unroll back to the manually selected set instead of reverting to an unchanged spec's set (while real spec swaps still activate spec sets).
 - Event-exit AutoQueue reconciliation: Exiting temporary event frames now checks higher-priority ready AutoQueue swaps directly against restored slots and runs PeriodicQueueCheck once CurrentSet settles.
