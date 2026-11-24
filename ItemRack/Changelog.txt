@@ -1,86 +1,60 @@
 __ Development __
+
+__ New in 4.59 - By Bl4ut0 __
 - #38 beta18: inferred Hybrid sets must match their saved worn items; another set's AutoQueue membership alone cannot label gear as that set. Active-set queue matching/authority remains unchanged. Reporter-derived regression added; live acceptance pending.
 - Targeted swap audio: LibSoundIndex can briefly mute the files associated with the incoming and displaced items for each move. Unknown items keep their normal sounds.
-
-__ New in 4.59-beta18 - By Bl4ut0 __
 - Custom state icon and Per-Set-only Hybrid splits: Hybrid split indicators now require both AutoQueue and "Use per-set queues". With global queues only, matching another saved set adopts it cleanly and unmatched gear shows the classic solid ItemRackIcon ("Custom"). With per-set queues enabled, unmatched gear wearing an active set's queue shows an Active Queue | Custom split icon ("Custom" label with active queue and Left-Click re-equip tooltips).
 - Specialization event stack unroll fix: Prune overridden 0-slot Specialization frames on manual set equip so temporary overlays (such as Mounted -> stop) unroll back to the manually selected set instead of reverting to an unchanged spec's set (while real spec swaps still activate spec sets).
 - Event-exit AutoQueue reconciliation: Exiting temporary event frames now checks higher-priority ready AutoQueue swaps directly against restored slots and runs PeriodicQueueCheck once CurrentSet settles.
 - Shift+Click chat focus guard: Only link items into chat when a chat editbox is actually open/focused (including Chattynator / custom editboxes via GetCurrentKeyBoardFocus), preventing unfocused visible General chat editboxes from swallowing Shift+Click pin toggles or posting unwanted links.
 - Per-set AutoQueue editing on active event sets: Sync Options Queue UI after EventFrame swaps settle CurrentSet (instead of before inside EndSetSwap) and target CurrentSet when opening or Alt-clicking AutoQueue from quick-access buttons/menus, so editing/toggling AutoQueue while an event set (such as a movement set) is active saves to that event set and persists when exiting back to the prior set.
 - Swimming event detection, unequip, and Set Picker UX: Fixed Script event PushEvent restoreOnExit (plus baseSetName retention across coalesced frame replacement) so exiting water restores prior gear cleanly; added ProcessSwimmingEvent tracking IsSwimming() or IsSubmerged() on MIRROR_TIMER_START, login/combat-exit, and the 0.5s poll timer (fixing surface swimming, water-breathing dives, and seabed walking without modifying existing users' Swimming scripts or ScriptApprovals); and enabled Set Picker (SubFrame5) set selection + icon display for canonical approved Swimming events while keeping Lua editing on Edit/double-click and preserving custom Script triggers.
-
-__ New in 4.59-beta17 - By Bl4ut0 __
 - Anchored quick-access breakouts (#39): added "Shift+Click keeps breakout open" option for slots 0-19 so Shift+Left-Click locks/unlocks an anchored breakout underneath normal hover menus, supporting TrinketMenu Left/Right-Click swaps and standard swaps/holds without closing while hovering other slots opens and closes normal breakouts on top. Character-sheet slots and Set button Shift+Click unequip are unchanged.
 - Breakout render diagnostics: added /itemrack debug breakouts and automatic gate/render/hide blocker evidence inside /itemrack dump (ButtonsDocking, MenuOnShift, MenuOnRight, hidden/zero-alpha/offscreen frames, mouse focus, and snapshot coverage).
 - Forever dual-spec compatibility: added global GetNumSpecGroups fallback for GetNumTalentGroups and dispatched PLAYER_TALENT_UPDATE / ACTIVE_COMBAT_CONFIG_CHANGED through SpecChangeTimer (live level 40+ Forever client verification pending).
 - Forever combat breakout discovery (1.60.1.70959 / Discord & CurseForge reports): ignore temporary combat-lock red tooltip lines ("Cannot change equip status while in combat" and localized combat globals, including short <= 4-line tooltips) in PlayerCanWear while retaining real requirement/proficiency rejections; prevent combat/transition empty scans from overwriting populated OOC menu snapshots; restore ItemRack.Menu cleanly on snapshot errors and refresh OOC snapshots on bank close.
 - Chained AutoQueue settlement (#38): drain pending out-of-combat CombatQueue swaps immediately on transaction completion and hold UpdateCurrentSet detection as inventory_settling while out-of-combat CombatQueue entries remain pending; include mirrored QueueSync slots in EquipSet manual/burnt slot cleanup. Eliminates brief false Hybrid flashes between multi-slot AutoQueue transitions after set swaps.
 - External swap button sync (#39): register PLAYER_EQUIPMENT_CHANGED safely and refresh quick-access button icons and ManualQueueChoice when inventory slot locks settle externally (without refreshing on bag-only locks).
-
-__ New in 4.59-beta16 - By Bl4ut0 __
 - Hybrid detection rechecks readiness after matching discovers unresolved gear. Added active/candidate probe regressions and expanded cancellation checks for empty slots, multiple owners and AutoQueue.
 - Existing master/Queue debug captures blocked/forbidden addon-action events with attributed function and set/combat/swap context, without default chat output. Druid form report root cause remains pending evidence.
 - Owner-aware cancellation preserves independent same-item requests; manual unequip invalidates stale completion authority. Hybrid recognition retains stable state during pending/unresolved inventory instead of clearing or inferring from intermediate gear. Permanent regressions added; beta15 is unchanged and reporter acceptance remains pending.
 - #38: existing debug capture now records transient Hybrid enter/exit and explicit-versus-queue slot evidence without repeated steady-state logging. Added a permanent diagnostic regression. The original Drakes match is still under investigation; published beta15 is unchanged.
-
-__ New in 4.59-beta15 - By Bl4ut0 __
 - #38: newer manual set choices cancel older set-owned deferred work and invalidate stale completion authority, preserving independent manual item requests. Added cancellation and late-completion regressions.
 - #38: retain explicit source-set ownership for deferred set slots; anonymous/manual and mixed-owner batches cannot inherit stale set authority. Preserve live overlay restoration history. Added production-Lua ownership and ancestry regressions; community acceptance remains pending.
 - Avoid a duplicate comparison rebuild when modern native rendering already supplied a visible comparison during the same item refresh. Previous-item results do not qualify; forced comparisons and hidden/foreign/unavailable/legacy fallback paths remain. No positioning hooks or TipTac controller calls are added. Permanent production-Lua regression added; the live TipTac comparison bounce still requires acceptance.
 - Added /itemrack dump tooltips: exports every retained tooltip sample without unrelated bag/set/queue reports. Compact rows reference each unique caller stack once; existing safe pagination handles larger captures. Export preserves evidence and never repositions tooltips. Actual-command regressions cover sample/caller completeness, output size and page bounds.
 - Added /itemrack debug tooltips: read-only anchor/render/size capture for up to ten seconds or 128 changes, with caller stacks. Normal dump includes the latest 16 entries; dump full includes all retained entries in paged output. tooltips stop ends capture; debug clear removes it. Removed the unsuccessful local comparison handoff. Capture never repositions tooltips or calls TipTac. Permanent command, late-writer, bounds, expiry and redaction checks added; comparison movement remains under investigation.
 - Guarded set-info tooltip scans against secret text on Forever, including the reported Copper Ore loot callback. Public item metadata still supplies set lines, while secret hyperlinks are rejected before parsing. Added permanent modern/legacy regression coverage. This change addresses the secret-text error; TipTac comparison movement remains a separate investigation.
-
-__ New in 4.59-beta14 - By Bl4ut0 __
 - Default-position item tooltip refreshes now preserve another addon's placement for the same visible owner, avoiding repeated owner resets with TipTac Forever Mouse Anchor. Fresh/hidden tooltips and owner changes still initialize; explicit ItemRack and character-sheet anchoring remain unchanged. Clarified Tooltips beside buttons: it does not follow the cursor; leave it off for TipTac positioning. Permanent production-Lua regression includes positioning before the first explicit Show; reporter blinking remains a client acceptance check. Beta13 is unchanged.
 - Added /itemrack dump full for every retained activity line (up to 5,000), queue-recorder and special trace entry. Full reports open in copyable Previous/Next pages; copy pages in order. Regular dump keeps one recent report with exactly 500 activity lines and 256 special entries. Special capture now retains up to 2,048 entries for the same 120 seconds; omitted/overwritten counts are reported. Full export cannot restore discarded data. Page size and UTF-8 reconstruction are covered by production-Lua tests; native rendering/copy acceptance is still required. Beta13 is unchanged.
-
-__ New in 4.59-beta13 - By Bl4ut0 __
 - Fixed text equipment-slot inputs causing use receipts to expire without clearing temporary protection (#33). Actual readiness/retry now uses numeric slot keys and recovers obsolete text quarantines. Era Dragonling rules accept item-use wrapper successes (Arcanite 23074 confirmed in the reporter's capture). Short shared guardian lockouts cannot mark a different deferred item used/burnt; distinct items retain their own cooldowns and receipts while real shared lockouts still block readiness. Dumps include manual holds, hook input types and persistent spell outcome history. Permanent production-Lua reporter regressions added; live acceptance remains pending and beta12 is unchanged.
 - Trimmed special-item catalogs to five unique exception IDs: Era's three Dragonlings, Forever Arcanite, the Mind Control Cap's pet charm and TBC Braid's mana-gem dependency. Normal cooldown/charged/player-effect/channel items use shared handling; bag-only research records no longer load. Generic player effects support modern/legacy aura APIs; queue selection and set recognition respect shared casting state. Added permanent production-Lua default-flow and source exclusion checks. Beta12 remains unchanged.
-
-__ New in 4.59-beta12 - By Bl4ut0 __
 - Expanded the complete reviewed client catalogs: 27 Era equipment entries plus five SoD variants, 31 TBC and 26 Forever entries, covering 36 distinct equipment IDs. Era Mechanical/Mithril Dragonlings now use the same deferred-use handler as Arcanite. Native cooldowns, exact channels, player/pet auras and the Braid dependency use shared policies; head, feet and off-hand entries use their proper slots. Bag-only items remain references. Per-build metrics and categories are checked against Wago data; random/charged/companion outcomes are not guessed from cast or timer alone. Aura guards support modern spell-ID/indexed APIs and legacy globals.
 - /itemrack debug now includes the same silent 120-second special-item capture as /itemrack debug specialitems. Both paths stop correctly; the dedicated command can rearm after expiry. Debug chat includes capture when enabling all layers; status shows the actual window, and clearing diagnostics keeps pending use intact. Added permanent production-Lua command, source-catalog and multi-item queue regressions.
-
-__ New in 4.59-beta11 - By Bl4ut0 __
 - Added client-specific special-item rules and Arcanite Dragonling handling (#33). A matching successful activation on Era/Forever can release temporary protection before its native cooldown starts; the pending used item remains excluded from automatic reselection. Buffs, Pause/Delay, persistent holds and combat restrictions still apply. TBC keeps native handling and its mana-gem proxy. Other researched exceptions remain disabled; only the matching catalog is allocated, including late SoD detection.
 - Confirmed use now survives normal reload/relog, including items in bags. Recovery runs before queues and never replays swaps, burns, hold changes or notifications. Native cooldowns and confirmed arena resets reconcile the saved receipt. /itemrack special status inspects recovery; /itemrack special reset <itemID> clears only that item's special receipt. /itemrack debug specialitems captures 120 seconds of bounded event/cooldown evidence silently for /itemrack dump. Production-Lua checks run offline; community testing checks the live interaction. No fake items or in-game test harness is included.
 - Added an immutable GitHub-only candidate policy that blocks both automatic and manual CurseForge submission without changing normal beta/stable distribution. This targeted test candidate is distributed through GitHub; local clients are not replaced.
-
-__ New in 4.59-beta10 - By Bl4ut0 __
 - Fixed Protect Until Used interacting with custom Swap In (GitHub #33): verified use ends the matching temporary manual protection both in and out of combat, so a large Swap In value cannot block the prioritized replacement after the buff fades. Active buffs, Pause Queue, delays, persistent holds and candidate eligibility remain respected. Rejected equip/shared cooldowns and duplicate/stale use signals retain protection. Added permanent timing regressions and clarified the guide and Swap In tooltip; live reporter confirmation is pending.
-
-__ New in 4.59-beta9 - By Bl4ut0 __
 - With Use per-set queues enabled, mirrored slots share the master's queue order, stop marker, item policies and icons, but save Auto Queue ON/OFF independently per set. First linking copies the chosen master's current state once; existing mirrors initialize once from their previously effective state on upgrade. Later master changes and retargeting preserve the local choice. Alt-click and the Queue checkbox edit the follower's switch, including inactive sets in Options. Unsync preserves that choice; automatic requests and manual holds stay scoped to each follower. With per-set queues disabled, global queues remain normally editable and mirror links are dormant.
 - Routine AutoQueue ON/OFF messages now appear only through Queue debug chat, not normal chat. Enable /itemrack debug chat for visible diagnostics; silent debug still records them. Input capture is unchanged.
-
-__ New in 4.59-beta8 - By Bl4ut0 __
 - Fixed the reported SoD character-slot OnEnter stack overflow caused by XML forwarding back into ItemRack. Preserve native tooltip calls and third-party hooks, including disabled menus, with safe error cleanup. Live SoD testing remains required.
 - Synced-slot Alt-click now names the controlling master instead of silently changing unused follower settings. Normal queue toggles show ON/OFF feedback even with a pending icon; they do not cancel existing pending swaps.
 - Added /itemrack debug mouse and bounded input evidence in /itemrack dump to distinguish received clicks from focus on another frame, without altering other addons' mouse handling. The suspected character-specific external obstruction is tracked separately.
 - Fixed internal AutoQueue transactions being mistaken for external manual choices. Replacing a held item externally no longer transfers its persistent hold to the new item.
 - Unsyncing chained queues and deleting intermediate master sets now retain the effective queue, enabled state, stop marker and independent metadata.
 - Fixed unsafe aura retries in queue/event callers and legacy shim self-recursion. Strengthened unlocked-ammo latency coverage and updated the packaged guide for queue mirroring, holds and hybrid state.
-
-__ New in 4.59-beta7 - By Bl4ut0 __
 - Ammunition & Ranged Weapon Equipment Set Swapping (GitHub Issue #37):
   * Fixed a timing bug where switching between sets requiring cross-type ranged weapons and ammunition (e.g. Gun + Bullets to Crossbow + Arrows) failed on the first click with destination_rejected, leaving ammunition equipped but aborting before the ranged weapon could equip.
   * Classic Engine Lock & Latency Protection: In Blizzard's Classic engine, INVSLOT_AMMO (slot 0) never reports locked (IsInventoryItemLocked(0) == false), causing ItemRack's 50ms unchanged destination heuristic to prematurely time out and fail before the server's acknowledgement packet arrived over the network. Ammunition steps now remain patient for server acknowledgement or transaction deadline rather than aborting at 50ms.
   * Stackable Ammunition Merging: Displaced ammunition returning to bags can merge with existing stacks or change stack counts. Slot 0 equipment moves now authoritatively confirm based on destination matching (inventory[0]), stabilized across 2 consecutive observation frames before proceeding to dependent slot 18.
   * Instant Rejection Detection: Synchronous engine rejections (e.g. attempting to equip an incompatible weapon into slot 18) are now identified immediately (0ms) by inspecting GetCursorInfo() following destination pickup, avoiding unnecessary 5-second observation delays.
   * Transaction Reversals: Hardened IsAmmoStep to cover both step.to == 0 and step.from == 0, ensuring ammo unequips and transaction rollbacks receive identical latency and stack protection.
-
-__ New in 4.59-beta6 - By Bl4ut0 __
 - Character Sheet Breakout Compatibility & Addon Load Chaining (GearQuest Forever / Forever 1.60.1):
   * Fixed an issue where character sheet breakout menus failed to open on hover when addons loaded earlier in alphabetical order (such as GearQuestForever) had hooked Character*Slot:HookScript("OnEnter").
   * Updated ItemRack.RegisterCharacterSlotOnEnterHandlers() to wrap any existing handler rather than strictly checking for Blizzard's original handler, capturing and chaining third-party hooks in button._ItemRackOriginalOnEnter.
   * Guarantees ItemRack's breakout menu docking and building executes reliably while preserving all third-party OnEnter hooks.
 - Minimap Hybrid Icon Mouse Event Safety:
   * Protected icon.UpdateCoord on the LibDBIcon button during hybrid set display to prevent mouse clicks and drags from resetting half-split texture coordinates.
-
-__ New in 4.59-beta5 - By Bl4ut0 __
 - Character Sheet Slot Tooltip Flicker Elimination (WoW Forever / GearQuest Forever):
   * Fixed an issue where hovering over equipment slots on the Character Sheet caused rapid 5Hz tooltip flickering when GearQuestForever or other tooltip-augmenting addons are running.
   * Character slot buttons now bind UpdateTooltip to ItemRack.PaperDollItemSlotButton_UpdateTooltip, which refreshes cursor state (e.g. repair hammer) via CursorUpdate(self) without re-invoking GameTooltip:SetOwner(self, "ANCHOR_RIGHT") or rebuilding tooltip lines every 0.2 seconds.
@@ -89,8 +63,6 @@ __ New in 4.59-beta5 - By Bl4ut0 __
   * Fixed an issue on WoW Forever where only one of two 2-Handed axes in bags appeared in the breakout menu for weapon slot 16 during combat when 1H + Shield is equipped.
   * Refined PlayerCanWear tooltip scanning to distinguish Blizzard's native requirement lines (level, class, race, skill proficiency, and header lines 2-4) from third-party addon stat differences or score comparisons (e.g. Score: 45 (-15), -10 Attack Power, Not Recommended). Non-requirement lines after line 4 no longer trigger false-positive wearability rejections.
   * Expanded RefreshQuickAccessMenuSnapshots on WoW Forever to always pre-cache snapshots for weapon slots (16, 17, 18) and trinket slots (13, 14) with both un-included (bags) and included (character sheet) keys, ensuring full breakout candidate availability in combat even for players with empty ItemRackUser.Buttons quick-access bars.
-
-__ New in 4.59-beta4 - By Bl4ut0 __
 - Minimap Icon Circular Border Geometry (GitHub Issue #33 Follow-up):
   * Fixed an issue introduced in 4.59-beta3 where the minimap button icon appeared square and spilled outside the circular tracking border.
   * Restored LibDBIcon-1.0 native coordinate clipping and 17x17 inset geometry (LibDBIcon10_ItemRack:SetSize(17, 17) at TOPLEFT 7, -6), allowing LibDBIcon to manage circular masking via ItemRack.Broker.icon.
@@ -115,8 +87,6 @@ __ New in 4.59-beta4 - By Bl4ut0 __
   * AutoQueue preserves the manually equipped item while it is ready (or during its 30-second equip cooldown) instead of immediately overwriting it with queue items.
   * Once the player uses the item in combat (burn-on-use), AutoQueue automatically resumes its normal queue rotation.
   * Added slash commands /itemrack hold <slot 0-19> [itemID] and /itemrack unhold <slot 0-19>, and APIs ItemRack.HoldSlot / ItemRack.ClearHoldSlot for explicit hold control.
-
-__ New in 4.59-beta3 - By Bl4ut0 __
 - Hybrid Set State & Split-Icon Visual Presentation (GitHub Issue #33 Follow-up):
   * Preserved ItemRackUser.CurrentSet as the active queue authority during live gameplay swaps to prevent unintended queue context hijacking when using sets that share identical armor or per-set queues.
   * Added ItemRack.HybridSet to track when worn gear matches another saved set without silently overwriting CurrentSet or changing AutoQueue rules.
@@ -125,8 +95,6 @@ __ New in 4.59-beta3 - By Bl4ut0 __
   * Normal Left-Click manual equips in flyout menus now clear previous manual holds (ManualQueueChoice) and manual toggle protection (ManualToggledSet), allowing AutoQueue to resume automatically.
   * Right-Click manual equips in flyout menus set an explicit manual hold that AutoQueue respects, including full support for "foreign" items not present in the active queue list.
   * In Trinket Menu Mode, Left-Click equips Slot 13 and Right-Click equips Slot 14 as normal swaps, while Alt-Click or Ctrl-Click sets explicit manual holds.
-
-__ New in 4.59-beta2 - By Bl4ut0 __
 - Anti-Taint & Secret Value Sanitization (Modern WoW 11.0+ / 12.0 Midnight & Leveling Guide Addons):
   * Fixed 745x Blizzard_BuffFrame/BuffFrame.lua:70: attempt to compare local 'duration' (a secret number value, while execution tainted by 'ItemRack') and BuffFrame.lua:1394: attempt to compare field 'count' (a secret number value).
   * Fixed 1x Blizzard_UnitFrame/Shared/PartyMemberFrame.lua:128: attempted to index a table that cannot be accessed while tainted (execution tainted by 'ItemRack') in ParseAllAuras during EnterEditMode.
@@ -140,8 +108,6 @@ __ New in 4.59-beta2 - By Bl4ut0 __
   * Submitting both slot 18 and slot 0 in the same synchronous frame causes the engine to evaluate weapon compatibility against the in-flight unsettled state of slot 0, rejecting the weapon and causing transaction rollback.
   * Removed an erroneous legacy rewrite in ItemRackTransaction.lua (NormalizeLocation) that redirected ammo moves (INVSLOT_AMMO = 0) to INVSLOT_RANGED (18).
   * Ordered slot 0 (Ammo) before slot 18 (Ranged) in ItemRack.GetSwapOrder() and IterateSwapList, and added a co-dependency guard in ItemRackTransaction.lua (SubmitCurrentStep) ensuring moves touching slot 18 and slot 0 are never submitted synchronously within the same execution frame when either is in-flight; the dependent weapon move remains planned and automatically submits and settles cleanly in the subsequent transaction frame once slot 0 has confirmed.
-
-__ New in 4.59-beta1 - By Bl4ut0 __
 - Manual Toggle Handler & Queue Coordination:
   * Replicated legacy ItemRack toggle priority alongside the modernized Universal swap and queue engine.
   * In-Combat Set Toggling / Canceling: Re-implemented classic second-click combat cancel via ItemRack.IsSetPendingInCombatQueue and ItemRack.CancelCombatQueueSet. Toggling a set in combat queues it for combat exit; toggling the same set again cleanly removes it from CombatQueue and clears pending slot overlays. Toggling a different set cleanly replaces the previously queued set.
