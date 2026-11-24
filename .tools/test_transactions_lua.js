@@ -263,7 +263,7 @@ assert(ItemRack.updateCount == 1, "queue overlay must refresh exactly once")
 );
 
 runCase(
-  'ammo-after-ranged swap order (Rummelboxer99 CurseForge regression)',
+  'ammo-before-ranged swap order (Rummelboxer99 Issue 37 regression)',
   `
 ItemRack = {
   SwapList = { [0] = 2000, [18] = 1000 },
@@ -306,14 +306,14 @@ for idx, slot in ipairs(order) do
   if slot == 18 then rangedIdx = idx end
   if slot == 0 then ammoIdx = idx end
 end
-assert(rangedIdx and ammoIdx and rangedIdx < ammoIdx,
-  "slot 18 (Ranged) must precede slot 0 (Ammo) in swap order to prevent destination_rejected ammo errors")
+assert(rangedIdx and ammoIdx and ammoIdx < rangedIdx,
+  "slot 0 (Ammo) must precede slot 18 (Ranged) in swap order so ammo establishes compatibility before weapon checks")
 
 local result = ItemRack.IterateSwapList("HunterGun", false)
 assert(result == "submitted", "IterateSwapList must submit batch moves")
 assert(ItemRack.submittedBatch and #ItemRack.submittedBatch == 2, "must generate exactly 2 moves")
-assert(ItemRack.submittedBatch[1].to.bag == 18, "First move MUST be Ranged slot (18)")
-assert(ItemRack.submittedBatch[2].to.bag == 0, "Second move MUST be Ammo slot (0)")
+assert(ItemRack.submittedBatch[1].to.bag == 0, "First move MUST be Ammo slot (0)")
+assert(ItemRack.submittedBatch[2].to.bag == 18, "Second move MUST be Ranged slot (18)")
 `
 );
 

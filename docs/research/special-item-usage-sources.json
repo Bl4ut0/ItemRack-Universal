@@ -1,0 +1,374 @@
+{
+  "research_date": "2026-11-12",
+  "status": "research_only_not_runtime_rules",
+  "sources": [
+    {
+      "label": "era-11508",
+      "build": "1.15.8.67156",
+      "table": "ItemSparse",
+      "rows": 24442,
+      "sha256": "3ffa13f933ddaffdeca7991be87ce53c7be41f2d7cf73ff8c7dc9abcd448309e",
+      "url": "https://wago.tools/db2/ItemSparse/csv?build=1.15.8.67156"
+    },
+    {
+      "label": "era-11508",
+      "build": "1.15.8.67156",
+      "table": "SpellName",
+      "rows": 31248,
+      "sha256": "a56054d13ed17e7813b52d916edf85a549d97282d6bd69126d9538a50dc5c32e",
+      "url": "https://wago.tools/db2/SpellName/csv?build=1.15.8.67156"
+    },
+    {
+      "label": "era-11508",
+      "build": "1.15.8.67156",
+      "table": "SpellMisc",
+      "rows": 31281,
+      "sha256": "df336d1f28873f5fddf676068569502f8e8b195873d8785cce10ae7adb438863",
+      "url": "https://wago.tools/db2/SpellMisc/csv?build=1.15.8.67156"
+    },
+    {
+      "label": "era-11508",
+      "build": "1.15.8.67156",
+      "table": "SpellCooldowns",
+      "rows": 3746,
+      "sha256": "1e9375ace60e2ad43b1012bdf8532480d489fab22f9227f182ca0ba6922a96a4",
+      "url": "https://wago.tools/db2/SpellCooldowns/csv?build=1.15.8.67156"
+    },
+    {
+      "label": "era-11508",
+      "build": "1.15.8.67156",
+      "table": "SpellCategories",
+      "rows": 10093,
+      "sha256": "9a3553e82d4ce06360ae86e6f2f170ab5ac195dd02228396f0e935346764cb81",
+      "url": "https://wago.tools/db2/SpellCategories/csv?build=1.15.8.67156"
+    },
+    {
+      "label": "era-11508",
+      "build": "1.15.8.67156",
+      "table": "SpellDuration",
+      "rows": 116,
+      "sha256": "97ae6d6206d86c2411b564ac4713c4b32d4f58c09fac136faf4ee3f73064b192",
+      "url": "https://wago.tools/db2/SpellDuration/csv?build=1.15.8.67156"
+    },
+    {
+      "label": "era-11508",
+      "build": "1.15.8.67156",
+      "table": "SpellCastTimes",
+      "rows": 64,
+      "sha256": "ac26437be37755199a8b43ca83492e4de08e68c717e45b52dc677195d9c252cf",
+      "url": "https://wago.tools/db2/SpellCastTimes/csv?build=1.15.8.67156"
+    },
+    {
+      "label": "era-11508",
+      "build": "1.15.8.67156",
+      "table": "SpellEffect",
+      "rows": 40249,
+      "sha256": "57b6f47fd36a1a4cdfdf2b1a09142eb37e5f7ed98437cdd262b24a357951e8f4",
+      "url": "https://wago.tools/db2/SpellEffect/csv?build=1.15.8.67156"
+    },
+    {
+      "label": "era-11508",
+      "build": "1.15.8.67156",
+      "table": "ItemEffect",
+      "rows": 16965,
+      "sha256": "6e188d22a1c7efd62843182ce714fa4432c39dd6c002278fbf05c46c1b4a04f9",
+      "url": "https://wago.tools/db2/ItemEffect/csv?build=1.15.8.67156"
+    },
+    {
+      "label": "era-11509",
+      "build": "1.15.9.70576",
+      "table": "ItemSparse",
+      "rows": 24442,
+      "sha256": "eef48b88d1af6ea23872155819dc59342204b2f34c0b613df0405ef06f7a5145",
+      "url": "https://wago.tools/db2/ItemSparse/csv?build=1.15.9.70576"
+    },
+    {
+      "label": "era-11509",
+      "build": "1.15.9.70576",
+      "table": "SpellName",
+      "rows": 31249,
+      "sha256": "5ac8f81bc9b8aae4838c40cceb2e97bf5ca461838d9133eb2dd602cc7b0ebdd8",
+      "url": "https://wago.tools/db2/SpellName/csv?build=1.15.9.70576"
+    },
+    {
+      "label": "era-11509",
+      "build": "1.15.9.70576",
+      "table": "SpellMisc",
+      "rows": 31282,
+      "sha256": "ba4785728e61aef9df2345035873f444f22d372d4d215b8d64df8abe8d4c40eb",
+      "url": "https://wago.tools/db2/SpellMisc/csv?build=1.15.9.70576"
+    },
+    {
+      "label": "era-11509",
+      "build": "1.15.9.70576",
+      "table": "SpellCooldowns",
+      "rows": 3747,
+      "sha256": "fb87aafcf73ee5925a5928785bf364318a4b215c9a82556a61aa4929a2f0dd81",
+      "url": "https://wago.tools/db2/SpellCooldowns/csv?build=1.15.9.70576"
+    },
+    {
+      "label": "era-11509",
+      "build": "1.15.9.70576",
+      "table": "SpellCategories",
+      "rows": 10094,
+      "sha256": "c80bde675afd27282ccc3b2432282bb8a6e1a22a65f465789f1967792f2bc1fb",
+      "url": "https://wago.tools/db2/SpellCategories/csv?build=1.15.9.70576"
+    },
+    {
+      "label": "era-11509",
+      "build": "1.15.9.70576",
+      "table": "SpellDuration",
+      "rows": 116,
+      "sha256": "97ae6d6206d86c2411b564ac4713c4b32d4f58c09fac136faf4ee3f73064b192",
+      "url": "https://wago.tools/db2/SpellDuration/csv?build=1.15.9.70576"
+    },
+    {
+      "label": "era-11509",
+      "build": "1.15.9.70576",
+      "table": "SpellCastTimes",
+      "rows": 64,
+      "sha256": "ac26437be37755199a8b43ca83492e4de08e68c717e45b52dc677195d9c252cf",
+      "url": "https://wago.tools/db2/SpellCastTimes/csv?build=1.15.9.70576"
+    },
+    {
+      "label": "era-11509",
+      "build": "1.15.9.70576",
+      "table": "SpellEffect",
+      "rows": 40250,
+      "sha256": "7f61c558042e0f95045dfcdd54f8bd8df8f33fb1e4e05aa0887871c3ffb7b0d1",
+      "url": "https://wago.tools/db2/SpellEffect/csv?build=1.15.9.70576"
+    },
+    {
+      "label": "era-11509",
+      "build": "1.15.9.70576",
+      "table": "ItemEffect",
+      "rows": 16965,
+      "sha256": "613f2474479fab68b342b60d818f9b0a2d4d60c156026ee8b1830fdc2d2d77f1",
+      "url": "https://wago.tools/db2/ItemEffect/csv?build=1.15.9.70576"
+    },
+    {
+      "label": "tbc-255",
+      "build": "2.5.5.65463",
+      "table": "ItemSparse",
+      "rows": 30042,
+      "sha256": "bb6f9f02284747fc3d8ad591cbd581164d957e1b61e1223513d4044885ad65c2",
+      "url": "https://wago.tools/db2/ItemSparse/csv?build=2.5.5.65463"
+    },
+    {
+      "label": "tbc-255",
+      "build": "2.5.5.65463",
+      "table": "SpellName",
+      "rows": 28645,
+      "sha256": "cd573d1231b57363bd5e7d723d66c4900a217f3beff8bdf3170fad8380faccaf",
+      "url": "https://wago.tools/db2/SpellName/csv?build=2.5.5.65463"
+    },
+    {
+      "label": "tbc-255",
+      "build": "2.5.5.65463",
+      "table": "SpellMisc",
+      "rows": 28711,
+      "sha256": "5cdf9662aa69d084b2df032d91dce0218fc0e0d6a75120f8d1789886110fce7f",
+      "url": "https://wago.tools/db2/SpellMisc/csv?build=2.5.5.65463"
+    },
+    {
+      "label": "tbc-255",
+      "build": "2.5.5.65463",
+      "table": "SpellCooldowns",
+      "rows": 4523,
+      "sha256": "8bc5195707ce7c56429d2fc2870899ae9509147b3b8cf0fda02d6917a4b80caa",
+      "url": "https://wago.tools/db2/SpellCooldowns/csv?build=2.5.5.65463"
+    },
+    {
+      "label": "tbc-255",
+      "build": "2.5.5.65463",
+      "table": "SpellCategories",
+      "rows": 11327,
+      "sha256": "7d9557dc67d31a2ef6043356d41ba47d65c703afabfd7f1f3ee5ab2236378977",
+      "url": "https://wago.tools/db2/SpellCategories/csv?build=2.5.5.65463"
+    },
+    {
+      "label": "tbc-255",
+      "build": "2.5.5.65463",
+      "table": "SpellDuration",
+      "rows": 110,
+      "sha256": "d561bc5bedf39c20153ae4731c974799a02d4882ff146e220670429b089a4cd5",
+      "url": "https://wago.tools/db2/SpellDuration/csv?build=2.5.5.65463"
+    },
+    {
+      "label": "tbc-255",
+      "build": "2.5.5.65463",
+      "table": "SpellCastTimes",
+      "rows": 60,
+      "sha256": "935e225e08c5351de5d55fe9b240eafbe67994d1b3c755bea9b4a763f1d7ab70",
+      "url": "https://wago.tools/db2/SpellCastTimes/csv?build=2.5.5.65463"
+    },
+    {
+      "label": "tbc-255",
+      "build": "2.5.5.65463",
+      "table": "SpellEffect",
+      "rows": 38295,
+      "sha256": "3655682613ea15cf9e7a1524bf7dfc01eb80dd9ed86ba56895f0df495165f8e5",
+      "url": "https://wago.tools/db2/SpellEffect/csv?build=2.5.5.65463"
+    },
+    {
+      "label": "tbc-255",
+      "build": "2.5.5.65463",
+      "table": "ItemEffect",
+      "rows": 17727,
+      "sha256": "0619c512612d139cc0bbbfd676f37d678b8b4f2c5f8094f7dd30eb8110721105",
+      "url": "https://wago.tools/db2/ItemEffect/csv?build=2.5.5.65463"
+    },
+    {
+      "label": "tbc-256",
+      "build": "2.5.6.70577",
+      "table": "ItemSparse",
+      "rows": 30132,
+      "sha256": "e4af4200fa9a125201038563e810ae766d2e6cd8444969c85d09e846e6ea94d1",
+      "url": "https://wago.tools/db2/ItemSparse/csv?build=2.5.6.70577"
+    },
+    {
+      "label": "tbc-256",
+      "build": "2.5.6.70577",
+      "table": "SpellName",
+      "rows": 28695,
+      "sha256": "c897c51b9811c0d457c8bc34813e976d8768f378347ffcac892159f1ce89447c",
+      "url": "https://wago.tools/db2/SpellName/csv?build=2.5.6.70577"
+    },
+    {
+      "label": "tbc-256",
+      "build": "2.5.6.70577",
+      "table": "SpellMisc",
+      "rows": 28761,
+      "sha256": "c218e7f25ca5194ab311e286748d4914a138f348b2693c3e29e6000b07cdd2f0",
+      "url": "https://wago.tools/db2/SpellMisc/csv?build=2.5.6.70577"
+    },
+    {
+      "label": "tbc-256",
+      "build": "2.5.6.70577",
+      "table": "SpellCooldowns",
+      "rows": 4539,
+      "sha256": "41d2341c748a52e0b31be622e97ea9f8c8e9d42c2fe04846a94cffe22914ed67",
+      "url": "https://wago.tools/db2/SpellCooldowns/csv?build=2.5.6.70577"
+    },
+    {
+      "label": "tbc-256",
+      "build": "2.5.6.70577",
+      "table": "SpellCategories",
+      "rows": 11354,
+      "sha256": "5e08791697126c746924999dc56c951f891f4fb51e52c9295b3e354e48a22076",
+      "url": "https://wago.tools/db2/SpellCategories/csv?build=2.5.6.70577"
+    },
+    {
+      "label": "tbc-256",
+      "build": "2.5.6.70577",
+      "table": "SpellDuration",
+      "rows": 111,
+      "sha256": "3bf33ea9528fca44c2972de57b6e07e98593f7d5092ceffe7ffc876f02b9431c",
+      "url": "https://wago.tools/db2/SpellDuration/csv?build=2.5.6.70577"
+    },
+    {
+      "label": "tbc-256",
+      "build": "2.5.6.70577",
+      "table": "SpellCastTimes",
+      "rows": 60,
+      "sha256": "935e225e08c5351de5d55fe9b240eafbe67994d1b3c755bea9b4a763f1d7ab70",
+      "url": "https://wago.tools/db2/SpellCastTimes/csv?build=2.5.6.70577"
+    },
+    {
+      "label": "tbc-256",
+      "build": "2.5.6.70577",
+      "table": "SpellEffect",
+      "rows": 38365,
+      "sha256": "ad2309425c31dd979e3a8682e794178ddd3540f6090c774a12e1bb8432a8e1d7",
+      "url": "https://wago.tools/db2/SpellEffect/csv?build=2.5.6.70577"
+    },
+    {
+      "label": "tbc-256",
+      "build": "2.5.6.70577",
+      "table": "ItemEffect",
+      "rows": 17849,
+      "sha256": "d5699c57bef05d8daebc64eeac463ccda96f07a308ed4d7e146774996c610866",
+      "url": "https://wago.tools/db2/ItemEffect/csv?build=2.5.6.70577"
+    },
+    {
+      "label": "forever-16001",
+      "build": "1.60.1.70938",
+      "table": "ItemSparse",
+      "rows": 19325,
+      "sha256": "fdc65396e8a1103ea5f552ea59aaebc0e73ba572612a3412c50e636b54c90b41",
+      "url": "https://wago.tools/db2/ItemSparse/csv?build=1.60.1.70938"
+    },
+    {
+      "label": "forever-16001",
+      "build": "1.60.1.70938",
+      "table": "SpellName",
+      "rows": 32491,
+      "sha256": "bd8dc963dd691c69aff531464636e7b5a944efeedb773895e7b2c4a0fb7c38b4",
+      "url": "https://wago.tools/db2/SpellName/csv?build=1.60.1.70938"
+    },
+    {
+      "label": "forever-16001",
+      "build": "1.60.1.70938",
+      "table": "SpellMisc",
+      "rows": 32470,
+      "sha256": "4500fb0dae7f8f14d1db826801ab7e1ea4af33c5dd0ba6505f4012030bcff376",
+      "url": "https://wago.tools/db2/SpellMisc/csv?build=1.60.1.70938"
+    },
+    {
+      "label": "forever-16001",
+      "build": "1.60.1.70938",
+      "table": "SpellCooldowns",
+      "rows": 4545,
+      "sha256": "3bf0324f17269592c1771ca2927ccc5bd414ee381d98e80e67156a4c54cb0613",
+      "url": "https://wago.tools/db2/SpellCooldowns/csv?build=1.60.1.70938"
+    },
+    {
+      "label": "forever-16001",
+      "build": "1.60.1.70938",
+      "table": "SpellCategories",
+      "rows": 10822,
+      "sha256": "0ecd2ea2c3a0073ca9bf4c7703bac4ac9ecd184b7a2463b41d77acdd648b9b7c",
+      "url": "https://wago.tools/db2/SpellCategories/csv?build=1.60.1.70938"
+    },
+    {
+      "label": "forever-16001",
+      "build": "1.60.1.70938",
+      "table": "SpellDuration",
+      "rows": 134,
+      "sha256": "4787f303fe8487cd67e5f9e8574fdc6fa2a03516dcfaabba23d9944f937223f5",
+      "url": "https://wago.tools/db2/SpellDuration/csv?build=1.60.1.70938"
+    },
+    {
+      "label": "forever-16001",
+      "build": "1.60.1.70938",
+      "table": "SpellCastTimes",
+      "rows": 72,
+      "sha256": "f94e1e3a3495d11af875fd7b007124fdd660a19ba626bc1de00a609da81f25d8",
+      "url": "https://wago.tools/db2/SpellCastTimes/csv?build=1.60.1.70938"
+    },
+    {
+      "label": "forever-16001",
+      "build": "1.60.1.70938",
+      "table": "SpellEffect",
+      "rows": 43519,
+      "sha256": "f419db3f95ef93b2cf052d9c3996ec355df60846f1fa24c671822aacfa8f59a3",
+      "url": "https://wago.tools/db2/SpellEffect/csv?build=1.60.1.70938"
+    },
+    {
+      "label": "forever-16001",
+      "build": "1.60.1.70938",
+      "table": "ItemEffect",
+      "rows": 12696,
+      "sha256": "02b66eca6ae40a0ec67f972999456ce1d950e316c6f1f078b03f3d267d8ce420",
+      "url": "https://wago.tools/db2/ItemEffect/csv?build=1.60.1.70938"
+    },
+    {
+      "label": "forever-16001",
+      "build": "1.60.1.70938",
+      "table": "ItemXItemEffect",
+      "rows": 12682,
+      "sha256": "4a0604e047f72390991e3a7914fe3e309829fb8773c36f5e4aff5628b7913f88",
+      "url": "https://wago.tools/db2/ItemXItemEffect/csv?build=1.60.1.70938"
+    }
+  ]
+}

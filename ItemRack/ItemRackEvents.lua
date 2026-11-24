@@ -27,7 +27,7 @@ end
 -- private to this file and compare the exact event name, trigger, and source at
 -- every registration/dispatch boundary. This is a consent and persistence
 -- guard, not an addon sandbox: all WoW addons still share one Lua environment.
-local scriptEventPrelude = "local event,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9,arg10 = ...;local EquipEventSet = function(setname, disableSound) return ItemRack.ScriptEventEquip(event, setname, disableSound) end;local UnequipEventSet = function(disableSound) return ItemRack.ScriptEventUnequip(event, disableSound) end;local EquipSet = function(setname, disableSound) return EquipEventSet(setname, disableSound) end;local UnequipSet = function(setname, disableSound) local activeSet = ItemRack.GetEventSet(event) if setname and (not activeSet or setname ~= activeSet) then return ItemRack.UnequipSet(setname, disableSound) end return UnequipEventSet(disableSound) end;"
+local scriptEventPrelude = "local event,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9,arg10 = ...;local EquipEventSet = function(setname, disableSound) return ItemRack.ScriptEventEquip(event, setname, disableSound) end;local UnequipEventSet = function(disableSound) return ItemRack.ScriptEventUnequip(event, disableSound) end;local ToggleEventSet = function(setname, disableSound) return ItemRack.ScriptEventToggle(event, setname, disableSound) end;local EquipSet = function(setname, disableSound) return EquipEventSet(setname, disableSound) end;local UnequipSet = function(setname, disableSound) local activeSet = ItemRack.GetEventSet(event) if setname and (not activeSet or setname ~= activeSet) then return ItemRack.UnequipSet(setname, disableSound) end return UnequipEventSet(disableSound) end;local ToggleSet = function(setname, disableSound) return ToggleEventSet(setname, disableSound) end;"
 local maxScriptEventLength = 4096
 local maxScriptTriggerLength = 128
 local approvedScriptEvents = {}
@@ -290,6 +290,86 @@ ItemRack.EventsVersion = 20
 ItemRack.LegacySwimmingScript = "local set = \"Name of set\"\nif IsSwimming() and not IsSetEquipped(set) then\n  EquipSet(set)\n  if not SwimmingEvent then\n    function SwimmingEvent()\n      if not IsSwimming() then\n        ItemRack.StopTimer(\"SwimmingEvent\")\n        UnequipSet(set)\n      end\n    end\n    ItemRack.CreateTimer(\"SwimmingEvent\",SwimmingEvent,.5,1)\n  end\n  ItemRack.StartTimer(\"SwimmingEvent\")\nend\n--[[Equips a set when swimming and breath gauge appears and unequips soon after you stop swimming.]]"
 ItemRack.StackedSwimmingScript = "local set = \"Name of set\"\nif IsSwimming() and not IsSetEquipped(set) then\n  EquipEventSet(set)\n  if not SwimmingEvent then\n    function SwimmingEvent()\n      if not IsSwimming() then\n        ItemRack.StopTimer(\"SwimmingEvent\")\n        UnequipEventSet()\n      end\n    end\n    ItemRack.CreateTimer(\"SwimmingEvent\",SwimmingEvent,.5,1)\n  end\n  ItemRack.StartTimer(\"SwimmingEvent\")\nend\n--[[Equips a set when swimming and breath gauge appears and unequips soon after you stop swimming.]]"
 
+-- Match unmodified or set-customized default Swimming scripts without rewriting
+-- user scripts or breaking ScriptApprovals compatibility.
+local function ParseCanonicalSwimmingScript(script)
+	if type(script) ~= "string" then return nil end
+	local normalized = script:gsub("\r\n", "\n")
+	local setName, rest = normalized:match('^local%s+set%s*=%s*"([^"\r\n\\]*)"\n(.*)$')
+	if not setName then
+		setName, rest = normalized:match("^local%s+set%s*=%s*'([^'\r\n\\]*)'\n(.*)$")
+	end
+	if not rest then return nil end
+	return 'local set = "__ITEMRACK_SWIM_SET__"\n' .. rest, setName
+end
+
+local canonicalSwimmingTemplates = {}
+do
+	for _, sourceScript in ipairs({ ItemRack.StackedSwimmingScript, ItemRack.LegacySwimmingScript }) do
+		local template = ParseCanonicalSwimmingScript(sourceScript)
+		if template then
+			canonicalSwimmingTemplates[template] = true
+			local body = template:gsub("%s*%-%-%[%[.-%]%]%s*$", "")
+			canonicalSwimmingTemplates[body] = true
+			canonicalSwimmingTemplates[template:gsub("%s+$", "")] = true
+			canonicalSwimmingTemplates[body:gsub("%s+$", "")] = true
+		end
+	end
+end
+
+function ItemRack.ExtractSwimmingScriptSetName(script)
+	local template, setName = ParseCanonicalSwimmingScript(script)
+	if not template then return nil end
+	if not canonicalSwimmingTemplates[template] and not canonicalSwimmingTemplates[template:gsub("%s+$", "")] then
+		return nil
+	end
+	return setName
+end
+
+local function MatchCanonicalSwimmingScript(eventData)
+	if type(eventData) ~= "table" or eventData.Type ~= "Script" or eventData.Trigger ~= "MIRROR_TIMER_START" then
+		return false, nil
+	end
+	local setName = ItemRack.ExtractSwimmingScriptSetName(eventData.Script)
+	if not setName then
+		return false, nil
+	end
+	return true, setName
+end
+
+function ItemRack.ResolveSwimmingSetName(eventName, eventData)
+	eventData = eventData or (ItemRackEvents and ItemRackEvents[eventName])
+	local isCanonical, scriptSet = MatchCanonicalSwimmingScript(eventData)
+	if not isCanonical then
+		return nil
+	end
+	local sets = ItemRackUser and ItemRackUser.Sets
+	local assigned = ItemRackUser and ItemRackUser.Events and ItemRackUser.Events.Set and ItemRackUser.Events.Set[eventName]
+	if type(assigned) == "string" and assigned ~= "" then
+		if sets and sets[assigned] then
+			return assigned
+		end
+		return nil
+	end
+	if type(scriptSet) == "string" and scriptSet ~= "" and scriptSet ~= "Name of set"
+		and sets and sets[scriptSet] then
+		return scriptSet
+	end
+	return nil
+end
+
+function ItemRack.CanUseSetPickerForEvent(eventName)
+	local eventData = ItemRackEvents and ItemRackEvents[eventName]
+	if not eventData then return false end
+	if eventData.Type ~= "Script" then
+		return true
+	end
+	if not MatchCanonicalSwimmingScript(eventData) then
+		return false
+	end
+	return IsScriptEventApproved(eventName, eventData)
+end
+
 -- default events, loaded when no events exist or ItemRack.EventsVersion is increased
 ItemRack.DefaultEvents = {
 	["PVP"] = {
@@ -551,6 +631,7 @@ function ItemRack.InitEvents()
 	for eventName, eventData in pairs(ItemRackEvents) do
 		eventData.Active = nil
 		eventData.LastZoneMatched = nil
+		eventData.LastSwimmingMatched = nil
 		eventData.ManualOverride = nil
 		eventData.LastZoneSignature = nil
 	end
@@ -577,7 +658,8 @@ function ItemRack.InitEvents()
 	for _,frameId in ipairs(eventState.order) do
 		local frame = eventState.frames[frameId]
 		local eventData = frame and ItemRackEvents[frame.eventName]
-		if eventData and enabled[frame.eventName] and eventData.Type ~= "Script" then
+		if eventData and enabled[frame.eventName]
+			and (eventData.Type ~= "Script" or (MatchCanonicalSwimmingScript(eventData) and IsScriptEventApproved(frame.eventName, eventData))) then
 			eventData.Active = true
 			ItemRack.EventGenerations = ItemRack.EventGenerations or {}
 			ItemRack.EventGenerations[frame.eventName] = frame.eventGeneration or 0
@@ -650,6 +732,9 @@ function ItemRack.RegisterEvents()
 				if not frame:IsEventRegistered("PLAYER_TALENT_UPDATE") then
 					frame:RegisterEvent("PLAYER_TALENT_UPDATE")
 				end
+				if ItemRack.IsForever and ItemRack.IsForever() and not frame:IsEventRegistered("ACTIVE_COMBAT_CONFIG_CHANGED") then
+					pcall(frame.RegisterEvent, frame, "ACTIVE_COMBAT_CONFIG_CHANGED")
+				end
 			elseif eventType=="Script" then
 				local approved = IsScriptEventApproved(eventName,eventData)
 				if approved and not frame:IsEventRegistered(eventData.Trigger) then
@@ -670,6 +755,7 @@ function ItemRack.RegisterEvents()
 	ItemRack.ProcessZoneEvent()
 	ItemRack.ProcessBuffEvent()
 	ItemRack.ProcessSpecializationEvent()
+	ItemRack.ProcessSwimmingEvent()
 end
 
 -- Public helpers bridge the load-on-demand options UI to the private runtime
@@ -805,6 +891,7 @@ function ItemRack.SpinDownEvent(eventName)
 		eventData.Active = nil
 		eventData.LastZoneMatched = nil
 		eventData.LastZoneSignature = nil
+		eventData.LastSwimmingMatched = nil
 		eventData.ManualOverride = nil
 	end
 
@@ -823,6 +910,9 @@ function ItemRack.SpinUpEvent(eventName)
 	ItemRack.Debug("Events", "SpinUpEvent requested for:", eventName)
 	if ItemRackUser.EnableEvents ~= "ON" then return end
 	local eventData = ItemRackEvents and ItemRackEvents[eventName]
+	if eventData then
+		eventData.LastSwimmingMatched = nil
+	end
 	ItemRack.RunAllEvents("Event enabled: " .. eventName, eventData and eventData.Type == "Specialization")
 end
 
@@ -844,6 +934,7 @@ function ItemRack.SpinDownAllEvents()
 			eventData.Active = nil
 			eventData.LastZoneMatched = nil
 			eventData.LastZoneSignature = nil
+			eventData.LastSwimmingMatched = nil
 			eventData.ManualOverride = nil
 		end
 		ItemRack.PopEvent(eventName)
@@ -851,6 +942,7 @@ function ItemRack.SpinDownAllEvents()
 	ItemRack.EndEventFrameBatch()
 	if ItemRackEvents then
 		for eventName, eventData in pairs(ItemRackEvents) do
+			eventData.LastSwimmingMatched = nil
 			if eventData.Active then
 				eventData.Active = nil
 				eventData.LastZoneMatched = nil
@@ -888,7 +980,15 @@ function ItemRack.GetEventSet(eventName)
 	if ItemRack.ScriptEventSets and ItemRack.ScriptEventSets[eventName] then
 		return ItemRack.ScriptEventSets[eventName]
 	end
-	return ItemRackUser.Events.Set[eventName]
+	local assigned = ItemRackUser and ItemRackUser.Events and ItemRackUser.Events.Set and ItemRackUser.Events.Set[eventName]
+	if type(assigned) == "string" and assigned ~= "" then
+		return assigned
+	end
+	local eventData = ItemRackEvents and ItemRackEvents[eventName]
+	if ItemRack.ResolveSwimmingSetName then
+		return ItemRack.ResolveSwimmingSetName(eventName, eventData)
+	end
+	return assigned
 end
 
 function ItemRack.GetEventDisableSound(eventName)
@@ -1043,6 +1143,9 @@ function ItemRack.EnsureEventFrameState()
 	if ItemRack.EventFrames.IsState(existingState) and #existingState.order > 0 then
 		-- Canonical frames created by an earlier development build are already
 		-- more authoritative than legacy set history; adopt them without replay.
+		if ItemRack.EventFrames.PruneEmptySpecializationFrames then
+			ItemRack.EventFrames.PruneEmptySpecializationFrames(existingState)
+		end
 		ItemRackUser.EventStateMigrationVersion = EVENT_STATE_MIGRATION_VERSION
 		ItemRackUser.EventStateMigrationReport = { source="existing_canonical" }
 		ItemRackUser.EventStack = ItemRack.EventFrames.ProjectStack(existingState)
@@ -1066,6 +1169,9 @@ function ItemRack.EnsureEventFrameState()
 			return target == current
 		end,
 	})
+	if ItemRack.EventFrames.PruneEmptySpecializationFrames then
+		ItemRack.EventFrames.PruneEmptySpecializationFrames(state)
+	end
 	ItemRackUser.EventState = state
 	ItemRackUser.EventStateMigrationVersion = EVENT_STATE_MIGRATION_VERSION
 	ItemRackUser.EventStateMigrationReport = report
@@ -1088,19 +1194,46 @@ function ItemRack.GetTopEventFrame()
 	return frameId and state.frames[frameId]
 end
 
+function ItemRack.GetTopOwnedEventFrame()
+	local state = ItemRack.EnsureEventFrameState()
+	if ItemRack.EventFrames and ItemRack.EventFrames.TopOwnedFrame then
+		return ItemRack.EventFrames.TopOwnedFrame(state)
+	end
+	return ItemRack.GetTopEventFrame()
+end
+
 function ItemRack.ReleaseEventSlotsForManualChange(slots)
 	local state = ItemRack.EnsureEventFrameState()
-	local changed = ItemRack.EventFrames.ReleaseSlots(state,slots)
+	local changed, pruned = ItemRack.EventFrames.ReleaseSlots(state,slots)
+	if pruned and ItemRackEvents then
+		for eventName in pairs(pruned) do
+			if ItemRackEvents[eventName] then
+				ItemRackEvents[eventName].Active = nil
+			end
+		end
+	end
 	ItemRack.EventFramePendingSetName = nil
 	for slot in pairs(slots or {}) do
 		if ItemRack.EventFramePendingTargets then
 			ItemRack.EventFramePendingTargets[slot] = nil
+		end
+		if ItemRack.EventFramePendingRestoredSlots then
+			ItemRack.EventFramePendingRestoredSlots[slot] = nil
 		end
 	end
 	if not changed then return false end
 	ItemRack.RefreshEventStackProjection()
 	ItemRack.Debug("Events", "Manual equipment intent released automatic slot ownership at revision:", state.revision)
 	return true
+end
+
+function ItemRack.SyncOptionsEditingSet()
+	if ItemRackOptFrame and ItemRackOptFrame:IsVisible()
+	and ItemRackOpt and ItemRackOpt.ChangeEditingSet
+	and not (ItemRackOptSubFrame2 and ItemRackOptSubFrame2:IsVisible() and ItemRackOpt.HasUnsavedSetChanges and ItemRackOpt.HasUnsavedSetChanges())
+	and not (ItemRackOptSubFrame5 and ItemRackOptSubFrame5:IsVisible()) then
+		ItemRackOpt.ChangeEditingSet()
+	end
 end
 
 function ItemRack.QueueEventFrameTargets(result, disableSound)
@@ -1116,15 +1249,28 @@ function ItemRack.QueueEventFrameTargets(result, disableSound)
 		ItemRack.CancelPendingQueueEquipSet(pendingSet,"event_frame_revision_changed")
 	end
 	ItemRack.EventFramePendingTargets = ItemRack.EventFramePendingTargets or {}
+	ItemRack.EventFramePendingRestoredSlots = ItemRack.EventFramePendingRestoredSlots or {}
 	for slot,target in pairs(result.targets) do
 		ItemRack.EventFramePendingTargets[slot] = target
+		if result.removed then
+			ItemRack.EventFramePendingRestoredSlots[slot] = true
+		else
+			ItemRack.EventFramePendingRestoredSlots[slot] = nil
+		end
 	end
 	ItemRack.EventFramePendingRevision = state.revision
 	if disableSound ~= nil then ItemRack.EventFramePendingDisableSound = disableSound end
+	local topOwned
+	if ItemRack.GetTopOwnedEventFrame then
+		topOwned = ItemRack.GetTopOwnedEventFrame()
+	elseif ItemRack.GetTopEventFrame then
+		topOwned = ItemRack.GetTopEventFrame()
+	end
 	if not next(result.targets) and result.restoreLogicalSet and result.restoredSetName
-	and not ItemRack.GetTopEventFrame() then
+	and not topOwned then
 		ItemRackUser.CurrentSet = result.restoredSetName
 		ItemRack.EventFramePendingSetName = nil
+		if ItemRack.SyncOptionsEditingSet then ItemRack.SyncOptionsEditingSet() end
 		if ItemRack.UpdateCurrentSet then C_Timer.After(0,ItemRack.UpdateCurrentSet) end
 	elseif not ItemRack.EventFrameBatchDepth or ItemRack.EventFrameBatchDepth == 0 then
 		ItemRack.TryReconcileEventFrames()
@@ -1158,7 +1304,12 @@ function ItemRack.EventFramePlanFinished(setname, succeeded, reason)
 	else
 		ItemRack.EventFramePlanBlockedReason = nil
 	end
-	local top = ItemRack.GetTopEventFrame()
+	local top
+	if ItemRack.GetTopOwnedEventFrame then
+		top = ItemRack.GetTopOwnedEventFrame()
+	elseif ItemRack.GetTopEventFrame then
+		top = ItemRack.GetTopEventFrame()
+	end
 	if succeeded then
 		if top then
 			ItemRackUser.CurrentSet = top.setName
@@ -1169,11 +1320,58 @@ function ItemRack.EventFramePlanFinished(setname, succeeded, reason)
 		end
 	end
 	ItemRack.RefreshEventStackProjection()
+	if succeeded and ItemRack.SyncOptionsEditingSet then
+		ItemRack.SyncOptionsEditingSet()
+	end
 	if next(ItemRack.EventFramePendingTargets or {}) and (succeeded or plan.revision ~= state.revision) then
 		C_Timer.After(0,function() ItemRack.TryReconcileEventFrames(true) end)
-	elseif ItemRack.UpdateCurrentSet then
-		C_Timer.After(0,ItemRack.UpdateCurrentSet)
+	else
+		if ItemRack.UpdateCurrentSet then
+			C_Timer.After(0,ItemRack.UpdateCurrentSet)
+		end
+		if succeeded and ItemRackUser and ItemRackUser.EnableQueues == "ON" and ItemRack.PeriodicQueueCheck then
+			ItemRack.PeriodicQueueCheck()
+			if C_Timer and C_Timer.After then
+				C_Timer.After(0, ItemRack.PeriodicQueueCheck)
+			end
+		end
 	end
+end
+
+function ItemRack.ResolveRestoredQueueSlotTarget(slot, restoredID, targetOwnerSet)
+	if not restoredID or restoredID == 0 or not ItemRackUser or ItemRackUser.EnableQueues ~= "ON" then
+		return restoredID
+	end
+	if not ItemRack.GetQueueContext or not ItemRack.AutoQueueItemToEquip
+	or not ItemRack.FindItemInBags or not ItemRack.GetIRString then
+		return restoredID
+	end
+	local context = ItemRack.GetQueueContext(slot, targetOwnerSet)
+	if not context or not context.enabled or type(context.list) ~= "table" or #context.list == 0 then
+		return restoredID
+	end
+	local baseID = ItemRack.GetIRString(restoredID, true)
+	if not baseID or baseID == 0 then
+		return restoredID
+	end
+	local customReadyTime
+	if ItemRack.FindQueueEntryIndex then
+		local idx = ItemRack.FindQueueEntryIndex(context.list, restoredID)
+		if idx and context.list[idx] and context.list[idx].swapInEnabled then
+			customReadyTime = context.list[idx].swapIn
+		end
+	end
+	local ready = ItemRack.ShouldHoldEquippedItem
+		and ItemRack.ShouldHoldEquippedItem(slot, restoredID, baseID, customReadyTime)
+		or false
+	local _, desiredID = ItemRack.AutoQueueItemToEquip(slot, baseID, 0, ready, targetOwnerSet, context, restoredID)
+	if desiredID and desiredID ~= 0
+	and not (ItemRack.MatchesStoredItemID and ItemRack.MatchesStoredItemID(desiredID, restoredID))
+	and (ItemRack.FindItemInBags(desiredID)
+		or (ItemRack.MatchesStoredItemID and ItemRack.GetID and ItemRack.MatchesStoredItemID(desiredID, ItemRack.GetID(slot)))) then
+		return desiredID
+	end
+	return restoredID
 end
 
 function ItemRack.TryReconcileEventFrames(force)
@@ -1189,7 +1387,23 @@ function ItemRack.TryReconcileEventFrames(force)
 	local state = ItemRack.EnsureEventFrameState()
 	local revision = state.revision
 	local setname = "~EventFrame:"..tostring(revision)
+	local restoredSlots = ItemRack.EventFramePendingRestoredSlots
+	ItemRack.EventFramePendingRestoredSlots = {}
 	local targets = CopyTable(pending)
+	local top
+	if ItemRack.GetTopOwnedEventFrame then
+		top = ItemRack.GetTopOwnedEventFrame()
+	elseif ItemRack.GetTopEventFrame then
+		top = ItemRack.GetTopEventFrame()
+	end
+	local postTargetOwner = (top and top.setName) or ItemRack.EventFramePendingSetName
+	if type(restoredSlots) == "table" and next(restoredSlots) and ItemRack.ResolveRestoredQueueSlotTarget then
+		for slot, target in pairs(targets) do
+			if restoredSlots[slot] then
+				targets[slot] = ItemRack.ResolveRestoredQueueSlotTarget(slot, target, postTargetOwner)
+			end
+		end
+	end
 	ItemRack.EventFramePendingTargets = {}
 	ItemRack.EventFramePendingRevision = nil
 	ItemRack.EventFramePlans = ItemRack.EventFramePlans or {}
@@ -1303,6 +1517,31 @@ function ItemRack.ScriptEventUnequip(eventName, disableSound, expectedGeneration
 	return ItemRack.PopEvent(eventName,expectedGeneration)
 end
 
+function ItemRack.ScriptEventToggle(eventName, setname, disableSound)
+	if not eventName or not setname then
+		return
+	end
+	local isActive = false
+	local state = ItemRackUser and ItemRackUser.EventState
+	local frameId = state and state.byEvent and state.byEvent[eventName]
+	local frame = frameId and state.frames and state.frames[frameId]
+	if frame and frame.setName == setname then
+		isActive = true
+	elseif not frame and ItemRackUser and ItemRackUser.EventStack then
+		for _, activeEvent in ipairs(ItemRackUser.EventStack) do
+			if activeEvent == eventName then
+				isActive = true
+				break
+			end
+		end
+	end
+	if isActive then
+		return ItemRack.ScriptEventUnequip(eventName, disableSound)
+	else
+		return ItemRack.ScriptEventEquip(eventName, setname, disableSound)
+	end
+end
+
 function ItemRack.PushEvent(eventName, belowEventName)
 	if ItemRackUser.EnableEvents == "OFF" then return end
 	ItemRack.Debug("Events", "PushEvent: "..(eventName or "nil"))
@@ -1314,10 +1553,6 @@ function ItemRack.PushEvent(eventName, belowEventName)
 	if existing and existing.setName == setname then
 		ItemRack.RefreshEventStackProjection()
 		return { changed=false, frameId=existingId, targets={} }
-	end
-	if existing then
-		local removed = ItemRack.EventFrames.Pop(state,eventName,existing.eventGeneration)
-		ItemRack.QueueEventFrameTargets(removed,ItemRack.GetEventDisableSound(eventName))
 	end
 
 	ItemRack.EventGenerations = ItemRack.EventGenerations or {}
@@ -1348,7 +1583,7 @@ function ItemRack.PushEvent(eventName, belowEventName)
 		eventGeneration=generation,
 		setName=setname,
 		origin=eventData and eventData.Type,
-		restoreOnExit=eventData and eventData.Unequip and true or false,
+		restoreOnExit=eventData and (eventData.Unequip or (eventData.Type == "Script" and eventData.Unequip ~= false)) and true or false,
 		baseSetName=ItemRackUser.CurrentSet,
 		beforeFrameId=beforeFrameId,
 		slots=slots,
@@ -1462,12 +1697,21 @@ local function ProcessScriptTriggers(event,args)
 	local events = ItemRackEvents
 	local a1,a2,a3,a4,a5 = args[1],args[2],args[3],args[4],args[5]
 	local a6,a7,a8,a9,a10 = args[6],args[7],args[8],args[9],args[10]
+	local handledCanonicalSwimming = false
 	for eventName in pairs(enabled) do
 		local eventData = events[eventName]
 		if eventData and eventData.Type=="Script" and eventData.Trigger==event then
 			local approved,reason = IsScriptEventApproved(eventName,eventData)
 			if not approved then
 				BlockScriptEvent(eventName,reason,false)
+			elseif MatchCanonicalSwimmingScript(eventData) then
+				-- Canonical Swimming events share the managed water-state processor so
+				-- surface swimming, submerged seabed movement, and exit restoration
+				-- all behave consistently without spawning a colliding global timer.
+				if not handledCanonicalSwimming then
+					handledCanonicalSwimming = true
+					ItemRack.ProcessSwimmingEvent()
+				end
 			else
 				local method, compileErr = loadstring(scriptEventPrelude .. eventData.Script)
 				if not method then
@@ -1539,7 +1783,7 @@ function ItemRack.ProcessingFrameOnEvent(self,event,...)
 
 	local enabled = ItemRackUser.Events.Enabled
 	local events = ItemRackEvents
-	local startBuff, startZone, startStance, eventType
+	local startBuff, startZone, startStance, startSpec, eventType
 	local arg1, arg2 = ...;
 
 	if event == "UNIT_AURA" and arg1 == "player" then
@@ -1572,13 +1816,16 @@ function ItemRack.ProcessingFrameOnEvent(self,event,...)
 			elseif event == "ZONE_CHANGED_INDOORS" and eventType == "Zone" and select(2, IsInInstance()) == "raid" then -- if player change subzone in raid instance, toggle set change, else not.
 				startZone = 1
 				ItemRack.LastZoneChangeTime = GetTime()
-			elseif event == "ACTIVE_TALENT_GROUP_CHANGED" and eventType == "Specialization" then
-				ItemRack.StartTimer("SpecChangeTimer")
+			elseif (event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_COMBAT_CONFIG_CHANGED") and eventType == "Specialization" then
+				startSpec = 1
 			end
 		end
 	end
 	if HasEnabledScriptTrigger(event) then
 		ProcessScriptTriggers(event,CaptureScriptEventArguments(event,...))
+	end
+	if startSpec then
+		ItemRack.StartTimer("SpecChangeTimer")
 	end
 	if startStance then
 		ItemRack.ProcessStanceEvent()
@@ -2426,6 +2673,91 @@ local function scheduleMountEquipCheck()
 	end)
 end
 
+function ItemRack.ProcessSwimmingEvent()
+	if ItemRackUser.EnableEvents == "OFF" then
+		return
+	end
+	if ItemRack.IsAutomaticSwapBlocked and ItemRack.IsAutomaticSwapBlocked() then
+		ItemRack.Debug("Events", "ProcessSwimmingEvent deferred while automatic swaps are suspended")
+		return
+	end
+	if UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") then
+		return
+	end
+	local enabled = ItemRackUser and ItemRackUser.Events and ItemRackUser.Events.Enabled
+	local events = ItemRackEvents
+	if not enabled or not events then
+		return
+	end
+	local state = ItemRack.EnsureEventFrameState()
+	local inWater = ((IsSwimming and IsSwimming()) or (IsSubmerged and IsSubmerged())) and true or false
+	local instanceType
+	if IsInInstance then
+		local _, instType = IsInInstance()
+		instanceType = instType
+	end
+	local names = {}
+	for eventName in pairs(enabled) do
+		local eventData = events[eventName]
+		if eventData and MatchCanonicalSwimmingScript(eventData) then
+			table.insert(names,eventName)
+		end
+	end
+	if #names == 0 then
+		return
+	end
+	table.sort(names)
+
+	local exits,entries = {},{}
+	for _,eventName in ipairs(names) do
+		local eventData = events[eventName]
+		local approved,reason = IsScriptEventApproved(eventName,eventData)
+		local ownsFrame = state.byEvent[eventName] ~= nil
+		if not approved then
+			eventData.LastSwimmingMatched = nil
+			eventData.Active = nil
+			if ownsFrame then
+				table.insert(exits,eventName)
+			end
+			BlockScriptEvent(eventName,reason,false)
+		else
+			local excluded = eventData.NotInPVP and (instanceType=="arena" or instanceType=="pvp")
+			local setName = not excluded and ItemRack.ResolveSwimmingSetName(eventName,eventData)
+			local desired = inWater and not excluded and setName ~= nil
+			if desired then
+				local existingFrame = ownsFrame and state.frames[state.byEvent[eventName]]
+				if not ownsFrame and not eventData.LastSwimmingMatched then
+					table.insert(entries,eventName)
+					eventData.Active = nil
+				elseif existingFrame and existingFrame.setName ~= setName then
+					table.insert(entries,eventName)
+				elseif ownsFrame then
+					eventData.Active = true
+				end
+				eventData.LastSwimmingMatched = true
+			else
+				eventData.LastSwimmingMatched = nil
+				eventData.Active = nil
+				if ownsFrame then
+					table.insert(exits,eventName)
+				end
+			end
+		end
+	end
+	if #exits == 0 and #entries == 0 then
+		return
+	end
+	ItemRack.BeginEventFrameBatch()
+	for _,eventName in ipairs(exits) do
+		ItemRack.PopEvent(eventName)
+	end
+	for _,eventName in ipairs(entries) do
+		ItemRack.PushEvent(eventName)
+		events[eventName].Active = state.byEvent[eventName] and true or nil
+	end
+	ItemRack.EndEventFrameBatch()
+end
+
 function ItemRack.CheckForMountedEvents()
 	if ItemRack.IsAutomaticSwapBlocked and ItemRack.IsAutomaticSwapBlocked() then
 		return
@@ -2460,6 +2792,7 @@ function ItemRack.CheckForMountedEvents()
 	elseif _refreshMountState > 1 then
 		_refreshMountState = _refreshMountState - 1
 	end
+	ItemRack.ProcessSwimmingEvent()
 end
 
 -- A single generation-bound debounce recomputes every OnMovement event. A
@@ -2537,7 +2870,7 @@ function ItemRack.ProcessBuffEvent()
 			if eventData.Anymount then
 				underlyingBuff = currentlyMounted
 			else
-				underlyingBuff = eventData.Buff and (ItemRack.FindPlayerAura and ItemRack.FindPlayerAura(eventData.Buff) or (AuraUtil and AuraUtil.FindAuraByName and AuraUtil.FindAuraByName(eventData.Buff,"player"))) and true or false
+				underlyingBuff = eventData.Buff and ItemRack.FindPlayerAura(eventData.Buff) and true or false
 			end
 		end
 		local ownsFrame = state.byEvent[eventName] ~= nil

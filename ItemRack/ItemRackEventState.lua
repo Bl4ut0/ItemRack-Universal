@@ -54,6 +54,28 @@ local function EffectiveTarget(state, slot)
 	end
 end
 
+local function HasAnyOwnedSlots(state, excludeFrameId)
+	for _,frameId in ipairs(state.order) do
+		if frameId ~= excludeFrameId then
+			local frame = state.frames[frameId]
+			if frame and next(frame.slots or {}) ~= nil then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+function EventFrames.TopOwnedFrame(state)
+	if not EventFrames.IsState(state) then return nil end
+	for index=#state.order,1,-1 do
+		local frame = state.frames[state.order[index]]
+		if frame and next(frame.slots or {}) ~= nil then
+			return frame
+		end
+	end
+end
+
 function EventFrames.NewState()
 	return {
 		schema = 1,
@@ -96,7 +118,9 @@ function EventFrames.Activate(state, activation)
 	or type(activation.slots) ~= "table" then
 		return { changed=false, targets={}, reason="invalid_activation" }
 	end
-	if #state.order == 0 and state.baseSetName == nil then
+	local preservedBaseSetName = state.baseSetName
+	if not HasAnyOwnedSlots(state) then
+		preservedBaseSetName = activation.baseSetName
 		state.baseSetName = activation.baseSetName
 	end
 
@@ -200,6 +224,9 @@ function EventFrames.Activate(state, activation)
 	state.frames[frameId] = frame
 	state.byEvent[activation.eventName] = frameId
 	table.insert(state.order,insertIndex,frameId)
+	if state.baseSetName == nil and preservedBaseSetName ~= nil and HasAnyOwnedSlots(state) then
+		state.baseSetName = preservedBaseSetName
+	end
 	state.revision = state.revision + 1
 	return { changed=true, frameId=frameId, targets=targets, revision=state.revision }
 end
@@ -248,11 +275,12 @@ function EventFrames.Pop(state, eventName, eventGeneration)
 		end
 	end
 
-	local restoredSetName = #state.order == 1 and state.baseSetName or nil
+	local remainingOwned = HasAnyOwnedSlots(state, frameId)
+	local restoredSetName = (not remainingOwned) and state.baseSetName or nil
 	table.remove(state.order,removedIndex)
 	state.frames[frameId] = nil
 	state.byEvent[eventName] = nil
-	if #state.order == 0 then state.baseSetName = nil end
+	if #state.order == 0 or not remainingOwned then state.baseSetName = nil end
 	state.revision = state.revision + 1
 	return { removed=true, frameId=frameId, targets=targets,
 		restoredSetName=restoredSetName, revision=state.revision }
@@ -260,6 +288,28 @@ end
 
 function EventFrames.SnapshotSet(set)
 	return CopySlots(set and set.equip)
+end
+
+function EventFrames.PruneEmptySpecializationFrames(state)
+	if not EventFrames.IsState(state) then return nil end
+	local pruned
+	for index=#state.order,1,-1 do
+		local frameId = state.order[index]
+		local frame = state.frames[frameId]
+		if frame and frame.origin == "Specialization" and not next(frame.slots or {}) then
+			table.remove(state.order, index)
+			state.frames[frameId] = nil
+			if frame.eventName and state.byEvent[frame.eventName] == frameId then
+				state.byEvent[frame.eventName] = nil
+				pruned = pruned or {}
+				pruned[frame.eventName] = true
+			end
+		end
+	end
+	if not HasAnyOwnedSlots(state) then
+		state.baseSetName = nil
+	end
+	return pruned
 end
 
 function EventFrames.ReleaseSlots(state, slots)
@@ -276,8 +326,10 @@ function EventFrames.ReleaseSlots(state, slots)
 			end
 		end
 	end
+	local pruned = EventFrames.PruneEmptySpecializationFrames(state)
+	if pruned then changed = true end
 	if changed then state.revision = state.revision + 1 end
-	return changed
+	return changed, pruned
 end
 
 local function SortedListRecords(list)

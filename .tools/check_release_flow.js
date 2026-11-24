@@ -7,6 +7,7 @@ const { execFileSync } = require('child_process');
 const releaseTools = require('./create_release');
 const curseForge = require('./curseforge_upload');
 const deploymentLedger = require('./curseforge_deployment');
+const distributionPolicy = require('./release_distribution');
 
 const read = (filePath) => fs.readFileSync(filePath, 'utf8');
 const createRelease = read('.tools/create_release.js');
@@ -20,6 +21,18 @@ function check(condition, message) {
   assert.ok(condition, message);
   checks += 1;
 }
+
+const normalToc='## Version: 4.59-beta11\n';
+const githubToc=distributionPolicy.tocWithDistribution(normalToc,true);
+check(distributionPolicy.distributionFromToc(githubToc)==='github-only' &&
+  distributionPolicy.tocWithDistribution(githubToc,false)===normalToc,
+  'github-only-candidate: explicit immutable policy must be added for a candidate and removed for normal development/releases.');
+check(distributionPolicy.distributionFromToc(normalToc)==='curseforge',
+  'Ordinary beta and stable releases must retain automatic CurseForge distribution.');
+assert.throws(()=>distributionPolicy.distributionFromToc('## X-ItemRack-Distribution: unknown\n'),/Unknown/); checks++;
+assert.throws(()=>distributionPolicy.distributionFromToc(githubToc+'## X-ItemRack-Distribution: github-only\n'),/duplicate/); checks++;
+check(releaseTools.renderReleasePosts('beta','4.59-beta11','- Test','github-only').github.includes('not distributed through CurseForge'),
+  'GitHub-only release notes must disclose distribution without relying on editable notes as the upload guard.');
 
 // User's Universal/Anniversary naming complaint: both publication channels
 // must use the same product title without changing archive/module identifiers.
@@ -347,6 +360,20 @@ async function checkCurseForgeDeployment() {
       return { ok: true, json: async () => ({ id: 54321 }) };
     });
     check(betaReceipt.fileId === 54321 && betaReceipt.sha256 === betaHash, 'Beta receipt must retain exact published hash.');
+    // A real immutable GitHub-only fixture must stop before preflight/network.
+    for (const folder of ['ItemRack','ItemRackOptions']) {
+      const specialToc=toc.replace('4.53','4.54-beta2');
+      fs.writeFileSync(path.join(root,folder,`${folder}.toc`),folder==='ItemRack'
+        ? distributionPolicy.tocWithDistribution(specialToc,true) : specialToc);
+    }
+    git(['-c','core.autocrlf=false','add','ItemRack','ItemRackOptions']);
+    git(['-c','user.name=Deployment Test','-c','user.email=test@example.invalid','-c','commit.gpgsign=false','commit','-qm','GitHub-only fixture']);
+    git(['tag','v4.54-beta2']);
+    const onlyArchive=path.join(root,'ItemRack-universal-4.54-beta2.zip');
+    git(['-c','core.autocrlf=false','archive','--format=zip',`--output=${onlyArchive}`,'v4.54-beta2','--','ItemRack','ItemRackOptions']);
+    fs.writeFileSync(`${onlyArchive}.sha256`,`${crypto.createHash('sha256').update(fs.readFileSync(onlyArchive)).digest('hex')}  ItemRack-universal-4.54-beta2.zip\n`);
+    assert.throws(()=>curseForge.verifyRelease({tag:'v4.54-beta2',archive:onlyArchive,checksum:`${onlyArchive}.sha256`,
+      notes:'# ItemRack Universal v4.54-beta2\n\nEdited release notes cannot remove immutable policy.\n',repo:root}),/GitHub-only candidate/); checks++;
     let uploads = 0;
     const receipt = await curseForge.upload(checked, archive, 'fixture-token', async (url, request) => {
       uploads++;
@@ -365,9 +392,13 @@ async function checkCurseForgeDeployment() {
     await assert.rejects(curseForge.upload(checked, archive, 'fixture-token', async () => { throw new Error('Network must not run'); }), /changed after/); checks++;
     const automation = read('.github/workflows/curseforge-release.yml');
     const releaseJob = between(automation, '  verify-and-deploy:', '    runs-on:');
-    check(automation.includes('types: [published]') && !/^\s+if:/m.test(releaseJob) &&
+    check(automation.includes('types: [published]') && releaseJob.includes('needs: release-policy') &&
+      releaseJob.includes("if: needs.release-policy.outputs.curseforge == 'true'") &&
+      automation.includes('ref: ${{ github.event.release.tag_name || inputs.tag }}') &&
+      automation.includes('node .tools/release_distribution.js') &&
+      automation.includes('Unsupported tagged distribution policy') &&
       automation.includes("if: github.event_name == 'release' || inputs.upload == true"),
-    'curseforge-auto-beta-published: both stable and prerelease published events must reach verification/upload without a stable-only job filter.');
+    'github-only-candidate: normal stable/beta events retain automatic upload; immutable policy gates automatic and manual jobs before secret access.');
     check(automation.includes('default: false') && automation.includes('types: [published]') &&
       automation.includes('npm test') && automation.includes('curseforge_deployment.js reserve') &&
       automation.includes('curseforge_deployment.js success') && automation.includes('deployments: write') &&

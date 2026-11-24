@@ -26,11 +26,6 @@ ItemRack.TransactionSettleDelay = 0.05
 ItemRack.TransactionTimeout = 5
 
 local function NormalizeLocation(bag, slot)
-	-- Classic reports the ammo equipment destination inconsistently.  ItemRack
-	-- has historically routed it through the ranged slot for pickup operations.
-	if not slot and bag == INVSLOT_AMMO then
-		bag = INVSLOT_RANGED
-	end
 	return { bag = bag, slot = slot }
 end
 
@@ -57,6 +52,14 @@ local function LocationLocked(location)
 		return select(3, GetContainerItemInfo(location.bag, location.slot)) and true or false
 	end
 	return IsInventoryItemLocked(location.bag) and true or false
+end
+
+local function LocationIsEquipmentSlot(location, slotId)
+	return location and location.bag == slotId and location.slot == nil
+end
+
+local function IsAmmoStep(step)
+	return LocationIsEquipmentSlot(step.to, 0) or LocationIsEquipmentSlot(step.from, 0)
 end
 
 local function PickupLocation(location)
@@ -152,7 +155,12 @@ local function PrepareSteps(request)
 	return true
 end
 
-local function SubmitStep(step)
+local function SubmitStep(request, step)
+	-- Start the window only when this move is about to reach the client,
+	-- including batched moves, retries, and rollback moves.
+	if request.disableSound or ItemRackSettings.DisableSwapSound == "ON" then
+		pcall(ItemRack.MuteSwapSounds, step.sourceBefore, step.destinationBefore)
+	end
 	step.status = "submitting"
 	local sourceOK, sourceError = pcall(PickupLocation, step.from)
 	if not sourceOK then
@@ -166,11 +174,24 @@ local function SubmitStep(step)
 	-- cursor is rejected above and is never cleared by this service.
 	step.cursorOwned = CursorHasItem() and true or false
 	if step.cursorOwned then
+		local heldBefore = nil
+		if GetCursorInfo then
+			local cType, cID = GetCursorInfo()
+			if cType == "item" then heldBefore = cID end
+		end
 		local destinationOK, destinationError = pcall(PickupLocation, step.to)
 		if not destinationOK then
 			step.submitError = tostring(destinationError)
 		end
 		if CursorHasItem() then
+			-- If the destination rejected the move synchronously, the cursor
+			-- still holds the exact source item that was picked up.
+			if heldBefore and GetCursorInfo then
+				local postType, postID = GetCursorInfo()
+				if postType == "item" and postID == heldBefore then
+					step.submitError = "destination_rejected"
+				end
+			end
 			-- A successful swap leaves the displaced destination item on the cursor;
 			-- a rejected destination leaves the original source there.  Returning it
 			-- to the exact source is safe in both cases.  Observation distinguishes
@@ -224,9 +245,12 @@ local function SubmitCurrentStep(request)
 		return
 	end
 
+	local touchedAmmo = LocationIsEquipmentSlot(step.from, 0) or LocationIsEquipmentSlot(step.to, 0)
+	local touchedRanged = LocationIsEquipmentSlot(step.from, 18) or LocationIsEquipmentSlot(step.to, 18)
+
 	request.status = "submitting"
 	local usedLocations = {}
-	SubmitStep(step)
+	SubmitStep(request, step)
 	usedLocations[LocationKey(step.from)] = true
 	usedLocations[LocationKey(step.to)] = true
 
@@ -245,6 +269,11 @@ local function SubmitCurrentStep(request)
 		if usedLocations[fromKey] or usedLocations[toKey] then
 			break -- dependency on an inflight unconfirmed step
 		end
+		local nextTouchesAmmo = LocationIsEquipmentSlot(nextStep.from, 0) or LocationIsEquipmentSlot(nextStep.to, 0)
+		local nextTouchesRanged = LocationIsEquipmentSlot(nextStep.from, 18) or LocationIsEquipmentSlot(nextStep.to, 18)
+		if (touchedAmmo and nextTouchesRanged) or (touchedRanged and nextTouchesAmmo) then
+			break -- slot 18 (Ranged) and slot 0 (Ammo) are co-dependent and must not be submitted in the same frame
+		end
 		if LocationLocked(nextStep.from) or LocationLocked(nextStep.to) then
 			break -- endpoint locked
 		end
@@ -255,9 +284,11 @@ local function SubmitCurrentStep(request)
 			break -- prestate changed
 		end
 
-		SubmitStep(nextStep)
+		SubmitStep(request, nextStep)
 		usedLocations[fromKey] = true
 		usedLocations[toKey] = true
+		if nextTouchesAmmo then touchedAmmo = true end
+		if nextTouchesRanged then touchedRanged = true end
 		idx = idx + 1
 	end
 
@@ -337,16 +368,29 @@ function ItemRack.ReconcileEquipmentTransaction(reason)
 
 		local sourceState = ReadLocation(step.from)
 		local destinationState = ReadLocation(step.to)
-		if SameIdentity(sourceState, step.expectedSourceState)
-		and SameIdentity(destinationState, step.expectedDestinationState) then
+		local isAmmo = IsAmmoStep(step)
+		local isAmmoEquip = LocationIsEquipmentSlot(step.to, 0)
+		local destinationMatches = SameIdentity(destinationState, step.expectedDestinationState)
+		local sourceMatches = SameIdentity(sourceState, step.expectedSourceState)
+
+		if destinationMatches and (isAmmoEquip or sourceMatches) then
+			if isAmmoEquip then
+				step.ammoConfirmedSamples = (step.ammoConfirmedSamples or 0) + 1
+				if step.ammoConfirmedSamples < 2 then
+					ScheduleObservation(request)
+					return false
+				end
+			end
 			step.status = "confirmed"
 			step.confirmedAt = GetTime()
 			request.stepIndex = request.stepIndex + 1
 		elseif SameIdentity(sourceState, step.sourceBefore)
 		and SameIdentity(destinationState, step.destinationBefore) then
+			step.ammoConfirmedSamples = 0
 			step.unchangedSamples = (step.unchangedSamples or 0) + 1
-			if step.unchangedSamples >= 2
-			and GetTime() - step.submittedAt >= ItemRack.TransactionSettleDelay then
+			if step.submitError == "destination_rejected"
+			or (not isAmmo and step.unchangedSamples >= 2 and GetTime() - step.submittedAt >= ItemRack.TransactionSettleDelay)
+			or (isAmmo and GetTime() >= request.deadline) then
 				if request.rollbackReason then
 					FinishRequest(request, "partial_failure", request.rollbackReason..":rollback_rejected")
 				else
@@ -364,6 +408,7 @@ function ItemRack.ReconcileEquipmentTransaction(reason)
 			end
 			return false
 		else
+			step.ammoConfirmedSamples = 0
 			ScheduleObservation(request)
 			return false
 		end
@@ -415,10 +460,6 @@ function ItemRack.StartEquipmentTransaction(spec)
 		return "failed", request, preflightReason
 	end
 
-	if request.disableSound or ItemRackSettings.DisableSwapSound == "ON" then
-		-- Sound muting is optional and must never prevent or alter a transaction.
-		pcall(ItemRack.MuteSwapSounds, 1.5)
-	end
 	ItemRack.ActiveEquipmentTransaction = request
 	SubmitCurrentStep(request)
 	return request.finished and request.status or "submitted", request, request.reason

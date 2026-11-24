@@ -25,6 +25,7 @@ function ItemRack.PeriodicQueueCheck()
 	if ItemRack.QueueStateReady ~= true then
 		return
 	end
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.Poll() end
 	if ItemRack.IsAutomaticSwapBlocked and ItemRack.IsAutomaticSwapBlocked() then
 		if ItemRack.QueueDiagnostic then ItemRack.QueueDiagnostic("autoqueue_skipped", { reason = "automatic_swap_suspended" }) end
 		return
@@ -52,11 +53,15 @@ function ItemRack.PeriodicQueueCheck()
 end
 
 function ItemRack.ClearManualQueueChoice(slot)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.CancelIntent(slot) end
 	if ItemRack.ManualQueueChoice then
 		ItemRack.ManualQueueChoice[slot] = nil
 	end
 	if ItemRack.ManualQueueChoiceOwner then
 		ItemRack.ManualQueueChoiceOwner[slot] = nil
+	end
+	if ItemRack.ManualQueueHold then
+		ItemRack.ManualQueueHold[slot] = nil
 	end
 end
 
@@ -117,33 +122,99 @@ function ItemRack.IsManualQueueChoice(slot, exactID, baseID, setname, list, owne
 	end
 	local recordedOwner = ItemRack.ManualQueueChoiceOwner and ItemRack.ManualQueueChoiceOwner[slot]
 	if recordedOwner ~= nil and recordedOwner ~= owner then return false end
-	local choiceIndex = ItemRack.FindQueueEntryIndex(list,choice)
-	if not choiceIndex or not ItemRack.IsQueueEntryUnambiguous(list,choiceIndex) then
-		return false
+	if list then
+		local choiceIndex = ItemRack.FindQueueEntryIndex(list,choice)
+		if choiceIndex and not ItemRack.IsQueueEntryUnambiguous(list,choiceIndex) then
+			return false
+		end
 	end
 	return ItemRack.MatchesStoredItemID(choice, exactID)
 end
 
 function ItemRack.SetManualQueueChoice(slot, id, setname)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.CancelIntent(slot) end
 	if not slot or not id or id == 0 then
 		ItemRack.ClearManualQueueChoice(slot)
 		return
 	end
 	local context = ItemRack.GetQueueContext(slot,setname)
-	local list = context.list
-	if not list then
-		ItemRack.ClearManualQueueChoice(slot)
-		return
+	local list = context and context.list
+	local choiceID = id
+	if list then
+		local matchIndex = ItemRack.FindQueueEntryIndex(list,id)
+		if matchIndex then
+			choiceID = list[matchIndex].id
+		end
 	end
-	local matchIndex = ItemRack.FindQueueEntryIndex(list,id)
-	if matchIndex then
-		ItemRack.ManualQueueChoice = ItemRack.ManualQueueChoice or {}
-		ItemRack.ManualQueueChoiceOwner = ItemRack.ManualQueueChoiceOwner or {}
-		ItemRack.ManualQueueChoice[slot] = list[matchIndex].id
-		ItemRack.ManualQueueChoiceOwner[slot] = context.owner
-		return
+	ItemRack.ManualQueueChoice = ItemRack.ManualQueueChoice or {}
+	ItemRack.ManualQueueChoiceOwner = ItemRack.ManualQueueChoiceOwner or {}
+	ItemRack.ManualQueueChoice[slot] = choiceID
+	ItemRack.ManualQueueChoiceOwner[slot] = context and context.owner
+end
+
+function ItemRack.HoldSlot(slot, id)
+	slot = tonumber(slot)
+	if not slot or slot < 0 or slot > 19 then
+		if ItemRack.Print then ItemRack.Print("Usage: ItemRack.HoldSlot(slot, [itemID]) - slot must be 0-19") end
+		return false
+	end
+	if id and type(id) == "string" then
+		local numericID = id:match("(%d+)")
+		if numericID then id = tonumber(numericID) end
+	end
+	if not id or id == "" or id == 0 then
+		id = ItemRack.GetID(slot)
+	end
+	if not id or id == 0 or id == "0" then
+		if ItemRack.Print then ItemRack.Print("No equipped item found in slot " .. slot .. " to hold.") end
+		return false
+	end
+	ItemRack.SetManualQueueChoice(slot, id)
+	ItemRack.ManualQueueHold = ItemRack.ManualQueueHold or {}
+	ItemRack.ManualQueueHold[slot] = true
+	if ItemRack.ManualToggledSet then
+		ItemRack.ManualToggledSet = nil
+	end
+	local name = (ItemRack.GetInfoByID and select(1, ItemRack.GetInfoByID(id))) or tostring(id)
+	if ItemRack.Print then ItemRack.Print("Manual hold active for slot " .. slot .. ": " .. name) end
+	return true
+end
+
+function ItemRack.ClearHoldSlot(slot)
+	slot = tonumber(slot)
+	if not slot or slot < 0 or slot > 19 then
+		if ItemRack.Print then ItemRack.Print("Usage: ItemRack.ClearHoldSlot(slot) - slot must be 0-19") end
+		return false
 	end
 	ItemRack.ClearManualQueueChoice(slot)
+	if ItemRack.ManualQueueHold then
+		ItemRack.ManualQueueHold[slot] = nil
+	end
+	if ItemRack.ManualToggledSet then
+		ItemRack.ManualToggledSet = nil
+	end
+	if ItemRack.Print then ItemRack.Print("Manual hold cleared for slot " .. slot .. ". AutoQueue resumed.") end
+	return true
+end
+
+function ItemRack.IsSlotProtectedByManualToggle(slot)
+	if not slot or not ItemRack.ManualToggledSet or not ItemRackUser or not ItemRackUser.Sets then
+		return false
+	end
+	local set = ItemRackUser.Sets[ItemRack.ManualToggledSet]
+	if not set or not set.equip or not set.equip[slot] or set.equip[slot] == 0 then
+		return false
+	end
+	local exactID = ItemRack.GetID(slot)
+	if not ItemRack.MatchesStoredItemID(set.equip[slot], exactID) then
+		return false
+	end
+	-- If the toggled set defines a per-set queue for this slot and has queues enabled,
+	-- allow AutoQueue to follow the set's own queue rules.
+	if ItemRackUser.EnablePerSetQueues == "ON" and set.QueuesEnabled and set.QueuesEnabled[slot] and set.Queues and set.Queues[slot] then
+		return false
+	end
+	return true
 end
 
 function ItemRack.GetQueueBurnKey(id, baseID)
@@ -500,7 +571,8 @@ end
 
 function ItemRack.ResolveProxy(itemID)
 	local numericID = tonumber(ItemRack.GetIRString and ItemRack.GetIRString(itemID,true) or itemID)
-	return numericID and ItemRack.CooldownProxies and ItemRack.CooldownProxies[numericID]
+	return (numericID and ItemRack.CooldownProxies and ItemRack.CooldownProxies[numericID])
+		or (ItemRack.SpecialItems and ItemRack.SpecialItems.GetProxy(itemID))
 end
 local ResolveProxy = ItemRack.ResolveProxy
 
@@ -534,7 +606,7 @@ function ItemRack.GetProxyBuff(itemID)
 	local proxy = ItemRack.ResolveProxy(itemID)
 	if not proxy or not proxy.buff then return nil end
 	if type(proxy.buff) == "number" then
-		return (GetSpellInfo(proxy.buff))
+		return (GetSpellInfo(proxy.buff)),proxy.buff
 	end
 	return proxy.buff
 end
@@ -583,11 +655,16 @@ function ItemRack.IsCandidateReady(slot, candidateID, customReadyTime)
 	local threshold = tonumber(customReadyTime)
 	if threshold == nil then threshold = ItemRack.GetDefaultSwapIn(slot) end
 	local timeLeft = ItemRack.GetItemCooldownLeft(candidateID)
+	if ItemRack.SpecialItems and ItemRack.SpecialItems.IsCooldownPending(candidateID) then return false end
 	if timeLeft == nil then return false end -- nil-safe: unknown cooldown state -> retry later (not ready)
 	return timeLeft <= threshold
 end
 
 function ItemRack.ShouldHoldEquippedItem(slot, exactID, baseID, customReadyTime)
+	if ItemRack.SpecialItems then
+		if ItemRack.SpecialItems.ShouldHoldEffect(slot,exactID) then return true end
+		if ItemRack.SpecialItems.IsCooldownPending(exactID) then return false end
+	end
 	if ItemRack.IsQueueItemBurnt(slot, exactID, baseID) then
 		if ItemRack.QueueDiagnostic then ItemRack.QueueDiagnostic("hold_decision", { hold = false, reason = "burnt", slot = slot }) end
 		return false
@@ -618,7 +695,7 @@ function ItemRack.ProcessAutoQueue(slot)
 		if ItemRack.QueueDiagnostic then ItemRack.QueueDiagnostic("autoqueue_skipped", { reason = "state_not_ready", slot = slot }) end
 		return
 	end
-	if not slot then return end
+	if not slot or ItemRack.NowCasting then return end
 	if not ItemRack.IsEquippedSlotStateReady(slot) then
 		if ItemRack.QueueDiagnostic then ItemRack.QueueDiagnostic("autoqueue_skipped", { reason = "slot_unresolved", slot = slot }) end
 		return
@@ -650,6 +727,7 @@ function ItemRack.ProcessAutoQueue(slot)
 	local queueContext = ItemRack.GetQueueContext(slot)
 	local list = queueContext.list
 	if not queueContext.enabled then return end
+	if ItemRack.SpecialItems and ItemRack.SpecialItems.ShouldHoldEffect(slot,exactID) then return end
 	local keepValue, delayValue, priorityValue
 	
 	-- Find the equipped item in the queue to get its priority/keep/delay settings
@@ -664,8 +742,9 @@ function ItemRack.ProcessAutoQueue(slot)
 	end
 	
 	-- Visual updates logic (keep/delay/buff checks)
-	local buff = ItemRack.GetProxyBuff(baseID) or GetItemSpell(baseID)
-	if buff and (ItemRack.FindPlayerAura and ItemRack.FindPlayerAura(buff) or (AuraUtil and AuraUtil.FindAuraByName and AuraUtil.FindAuraByName(buff,"player"))) then
+	local buff,spellID = ItemRack.GetProxyBuff(baseID)
+	if not buff then buff,spellID=GetItemSpell(baseID) end
+	if buff and ItemRack.FindPlayerAura(buff,spellID) then
 		if icon then icon:SetDesaturated(true) end
 		return
 	end
@@ -706,9 +785,8 @@ function ItemRack.ProcessAutoQueue(slot)
 	-- Burn-on-use is 100% event-driven via ReflectItemUse() upon actual player activation.
 
 	if ItemRack.ManualQueueChoice and ItemRack.ManualQueueChoice[slot]
-	and not ItemRack.FindQueueEntryIndex(list,exactID) then
-		-- Runtime processing may retire a hold that no longer belongs to the
-		-- active queue. Read-only predicates never perform this cleanup.
+	and not ItemRack.MatchesStoredItemID(ItemRack.ManualQueueChoice[slot], exactID) then
+		-- Runtime processing may retire a hold that is no longer equipped.
 		ItemRack.ClearManualQueueChoice(slot)
 	end
 	local nextItem, nextItemID = ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, nil, queueContext)
@@ -725,13 +803,16 @@ function ItemRack.ProcessAutoQueue(slot)
 	end
 end
 
-function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, queueContext)
+function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, queueContext, assumedExactID)
 	if ItemRack.QueueStateReady ~= true then
 		return nil
 	end
 	if not ItemRack.IsEquippedSlotStateReady(slot) then
 		return nil
 	end
+	-- Casting/channeling already blocks ordinary equipment actions. Keep queue
+	-- prediction and set recognition on that same shared state for every item.
+	if ItemRack.NowCasting then return nil end
 	queueContext = queueContext or ItemRack.GetQueueContext(slot,setname)
 	local list = queueContext.list
 	local candidate
@@ -744,7 +825,8 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 	-- Without these checks, IsSetEquipped would falsely report the set as "not equipped"
 	-- whenever a kept/delayed item is worn, causing movement events to re-equip the set
 	-- and the set display to flip to "Custom".
-	local exactID = ItemRack.GetID(slot)
+	local exactID = assumedExactID or ItemRack.GetID(slot)
+	if ItemRack.SpecialItems and ItemRack.SpecialItems.ShouldHoldEffect(slot,exactID) then return nil end
 	local currentBurnt = ItemRack.IsQueueItemBurnt(slot, exactID, baseID)
 	local manualHold = ItemRack.IsManualQueueChoice(slot, exactID, baseID,
 		setname,list,queueContext.owner)
@@ -752,8 +834,9 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 	local matchedCurrent = currentMatchIndex ~= nil
 	if currentMatchIndex then
 		local currentEntry = list[currentMatchIndex]
-		local buff = ItemRack.GetProxyBuff(baseID) or GetItemSpell(baseID)
-		if buff and (ItemRack.FindPlayerAura and ItemRack.FindPlayerAura(buff) or (AuraUtil and AuraUtil.FindAuraByName and AuraUtil.FindAuraByName(buff,"player"))) then
+		local buff,spellID = ItemRack.GetProxyBuff(baseID)
+		if not buff then buff,spellID=GetItemSpell(baseID) end
+		if buff and ItemRack.FindPlayerAura(buff,spellID) then
 			return nil
 		end
 		-- Pause Queue: item is flagged to stay equipped indefinitely
@@ -773,6 +856,18 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 	end
 	if currentBurnt then
 		ready = nil
+	end
+
+	if ItemRack.IsSlotProtectedByManualToggle and ItemRack.IsSlotProtectedByManualToggle(slot) then
+		if ItemRack.QueueDiagnostic then
+			ItemRack.QueueDiagnostic("autoqueue_candidate_skipped", {
+				item = exactID,
+				reason = "manual_toggled_set_hold",
+				slot = slot,
+				toggledSet = ItemRack.ManualToggledSet,
+			})
+		end
+		return nil
 	end
 
 	-- reuse the loop structure but optimized for auto-queue logic (priority checks etc)
@@ -805,7 +900,7 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 			local isEquippedActive = itemSpell ~= nil or (hasObservedCooldown and hasObservedCooldown.duration and hasObservedCooldown.duration > 1.5)
 			if not isEquippedActive and tonumber(enable) == 1 then
 				isEquippedActive = true
-			elseif not isEquippedActive and GetInventoryItemCooldown and slot then
+			elseif not isEquippedActive and not assumedExactID and GetInventoryItemCooldown and slot then
 				local _, _, slotEnable = GetInventoryItemCooldown("player", slot)
 				if tonumber(slotEnable) == 1 then
 					isEquippedActive = true
@@ -814,8 +909,11 @@ function ItemRack.AutoQueueItemToEquip(slot, baseID, enable, ready, setname, que
 
 			local isEquippedInQueue = currentMatchIndex ~= nil
 			local canSwap = not ready or (not isEquippedInQueue) or (not isEquippedActive) or list[i].priority
-			if manualHold and ready and i ~= currentMatchIndex then
-				canSwap = false
+			local isPersistentHold = manualHold and ItemRack.ManualQueueHold and ItemRack.ManualQueueHold[slot]
+			if manualHold and i ~= currentMatchIndex then
+				if isPersistentHold or ready then
+					canSwap = false
+				end
 			end
 			if canSwap then
 				local candidateCustomTime = list[i].swapInEnabled and list[i].swapIn or nil
@@ -861,7 +959,7 @@ function ItemRack.SetQueue(slot,newQueue)
 		ItemRack.GetQueues()[slot] = fresh
 		if ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
 			if ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot==slot then
-				ItemRackOpt.SetupQueue(slot)
+				ItemRackOpt.SetupQueue(slot, ItemRackUser and ItemRackUser.CurrentSet)
 			else
 				ItemRackOpt.UpdateInv()
 			end

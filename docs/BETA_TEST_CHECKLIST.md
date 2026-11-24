@@ -2,6 +2,13 @@
 
 Use the packaged build from `.versions/Release/v{Version}`. Reload the UI after installation and test with Lua errors enabled. Capture `/itemrack dump` output whenever a failure occurs.
 
+## Dev: optional full diagnostic window
+
+- With enough recorded data, regular `/itemrack dump` should keep its one-view recent report. `/itemrack dump full` should show Previous/Next and a page counter; CTRL+C each selected page in order into one text file. Check first/last retained entries, UTF-8 text, scrollability and no blank/oversized page on Era/TBC/Forever.
+- Move forward/backward, close/reopen and switch full to normal. Normal report controls/scroll area must return; closing the window must preserve the underlying logs/trace.
+- Confirm special capture still lasts 120 seconds. Normal exports show at most 256 special records; full exports show all retained records, up to 2,048, plus accurate omitted/dropped counts. Previously evicted data cannot be recovered.
+- In combat, opening/navigating must retain the existing restriction on automatically focusing the copy box. No new release or installation is part of this dev change.
+
 ## Supported-client smoke matrix
 
 Use the same universal archive for every row; do not build or test separate Forever and TBC packages.
@@ -12,6 +19,52 @@ Use the same universal archive for every row; do not build or test separate Fore
 - On every client, confirm the TOC version, `ItemRack.Version`, and `ItemRack.BuildID` identify the same candidate.
 - On Forever 1.60.1, log in twice with a saved set key and verify no SaveBindings usage error, working set hotkeys, and persisted keys after relog (PR #28).
 - Test Auto/Up/Down/Left/Right minimap flyouts with the stock button and any minimap collector. Verify direction, item clicks, and dropdown layout. EllesmereUI 9.3 collector layering requires its upstream PR #2305 fix according to the contributor; ItemRack's dock tests do not verify that external fix (PR #26).
+
+## Next candidate: reporter #33 use/cooldown fixes (dev, not deployed)
+
+- Repeat the original Slayer's Crest / Priority queue / Swap In 120 macro without `/unhold`. Text and numeric equipment-slot inputs must follow the same receipt; buff end permits replacement OOC or queues until combat ends. Deliberate persistent holds remain held.
+- With a basic Dragonling already owned, verify its own successful use permits replacement while native cooldown is pending. Arcanite wrapper 23074 is confirmed in the Era reporter capture; Mechanical/Mithril wrapper capture remains community acceptance.
+- Use an existing book or Chicken to trigger a legitimate shared lockout. A rejected Dragonling click during it must not mark/burn/confirm the Dragonling. Each item keeps its own full cooldown/receipt; native game lockout still affects readiness. Do not buy items just to exhaust the matrix.
+- Capture with `/itemrack debug specialitems` and dump within 120 seconds. Read the dedicated special trace even if the ordinary 500-line logs rolled over. Include actual macro and hold settings if behavior differs.
+
+## Next candidate: ordinary on-use defaults (dev, not deployed)
+
+- Confirm only four Era/Hardcore/SoD, two TBC or two Forever exceptions load, with no runtime bag-only records. Ordinary SoD variants need no entry.
+- Try Mortar and ordinary native cooldown items: verified use should release temporary protection without a catalog row. Charges alone must not add a hold.
+- Try available Boots, Skull, Pouch, Fetish or Pendant: a matching active player effect protects the item, then permits a ready Priority replacement. Repeat OOC/combat and with global/per-set/mirrored queues where available.
+- Try normal channels: automatic selection and set recognition must wait for channel end. Deliberate manual actions and Pause/Delay/persistent-hold policies remain in effect.
+- Collect `/itemrack dump` with client/build, item and event/effect timing on failure. Automated checks model API responses; live checks remain community acceptance. The maintainer need not own these items.
+- No new build or local install is requested for this cleanup. The beta12 section below describes the published, unchanged build.
+
+## 4.59-beta12: collective catalog and unified debug (GitHub only)
+
+- `/itemrack debug` alone must start a silent 120-second special-item capture; the dedicated `/itemrack debug specialitems` must work independently. After expiry, one dedicated invocation starts a fresh window. Disabling master debugging stops capture; `debug status` reports the actual window. `debug clear` clears evidence without discarding pending use.
+- Try available entries from the selected client catalog: Era's three Dragonlings, native TBC/Forever controls, exact-channel items, head/feet/off-hand items and the cap's specific pet charm. Automatic holds must end with the matching channel/aura; unrelated pets and spells must not hold an item. Ordinary combat restrictions and explicit manual actions remain in effect.
+- Check `/itemrack dump` includes the selected catalog's rules, source and bag-only references. Only active SoD gets its five gear variants and seasonal reference. Bag-only references must never enter gear queues. No fake items or in-game harness are included; the maintainer need not own these items before candidate publication.
+
+## 4.59-beta11: special-item community candidate (#33, GitHub only)
+
+This candidate is verified through the production-Lua gate and exact-ref archive checks. The owner does not have the special items; the following live checks are for community users who do. No fake item, in-game simulator or test-mode command is required.
+
+- On Era/Forever, enable `/itemrack debug specialitems`, manually equip Arcanite Dragonling in slot 13 or 14, use it and let a ready Priority replacement take over. Check the actual summon and queue result while the native cooldown is delayed. Buffs, Pause/Delay and persistent holds still apply; restricted gear changes wait for combat to end.
+- Try a failed use during equip/existing cooldown. It must retain temporary protection. Repeat a successful use OOC and in combat; the other trinket's shared cooldown must not be treated as its successful use.
+- Collect `/itemrack dump` before reload while native cooldown is still pending, then reload and collect another dump. Check the receipt survives without replayed actions or early reselection. Repeat during a published cooldown and after its expiration where practical. `/itemrack special status` shows the receipt phase; unresolved evidence can be discarded with `/itemrack special reset 16022` if necessary.
+- Capture a full lifetime and early summon death where available; report the action sequence, installed version, client build and actual summon behavior. TBC Arcanite remains on its native path; its Braid proxy is a control. No owner character/item inventory is a release prerequisite.
+- Verify the GitHub release says GitHub-only, its source TOC carries the immutable distribution field, the archive matches the tag, and the CurseForge upload job is skipped. No local installs are part of this deployment.
+
+## 4.59-beta10: Protect Until Used and Swap In (#33)
+
+- Put Priority Kiss of the Spider above Slayer's Crest in slot 13, enable Crest's Swap In at 120 seconds, reset the set through button 20, manually equip Crest and use it. After the 20-second buff expires, the ready Kiss should take over OOC or queue until combat ends. Repeat with 119, 100 and 99 seconds and with 115 seconds while clicking the buff off before/at/after five seconds.
+- Repeat with global, per-set and mirrored queues. Preserve each set's saved switch and item policies. Check active buffs, Pause Queue and delay settings still retain the used item; clearing/expiring them should allow the Priority replacement. Explicit persistent holds should remain after use until cleared.
+- Attempt use during equip cooldown, against an existing cooldown, and through paired /use 13 + /use 14. Failed use/shared cooldown on the other trinket must not release that item's protection. Repeat an actual OOC use to confirm combat is not required. These remain live-client acceptance checks; collect fresh version/build and `/itemrack dump` if behavior differs.
+
+## 4.59-beta9: mirrored queue switches and quiet toggles
+
+- With **Use per-set queues** ON, link followers to masters whose Auto Queue state is ON and OFF. Verify the initial checkbox matches the chosen master, then toggle each follower independently through Alt-click and Options (including an inactive edited set). Changing the master switch must leave follower choices intact; master item order, stop markers, policies and icons must still propagate.
+- Upgrade an existing mirrored profile, save sets, reload and relog. Verify the formerly effective master switch is copied once and subsequent local choices persist. Retarget a link without losing its choice; unsync and link again to copy the newly chosen master's current state.
+- Switch between followers sharing one master while an automatic combat request is pending. Confirm stale automatic requests clear; explicit pending manual requests still execute after combat. Verify manual holds do not follow into the other set.
+- Turn **Use per-set queues** OFF, edit the global queue's order and ON/OFF normally, then turn it ON and confirm the saved mirror links and local states return.
+- Toggle with debug disabled: no routine ON/OFF chat. Enable silent Queue debugging and collect a dump; enable `/itemrack debug chat` for visible feedback. Confirm pending icons and input diagnostics still work. These checks require live-client acceptance.
 
 ## 1. Tooltip safety and layout
 

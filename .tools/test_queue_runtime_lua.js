@@ -1,4 +1,52 @@
 const { extractFunction, runLua } = require('./lib/lua_harness');
+const specialFiles = ['ItemRack/ItemRackSpecialItems.lua','ItemRack/ItemRackSpecialItemsEra.lua',
+  'ItemRack/ItemRackSpecialItemsTBC.lua','ItemRack/ItemRackSpecialItemsForever.lua'];
+const loadSpecialCatalog = specialFiles.map(file =>
+  `assert((loadstring or load)([====[${require('fs').readFileSync(file,'utf8')}]====]))()`).join('\n');
+
+runLua(String.raw`
+ItemRack={IsEngravingActive=function() return seasonal end}
+function GetTime() return 100 end
+local interface
+function GetBuildInfo() return 'fixture','70938','fixture',interface end
+local function loadCatalog(toc,sod)
+ interface=toc; seasonal=sod
+ ${loadSpecialCatalog}
+end
+local checks=0
+local function check(value,message) assert(value,message);checks=checks+1 end
+for _,toc in ipairs({11508,11509,20505,20506,16001,11601,120100}) do
+ loadCatalog(toc,false)
+ local s=ItemRack.SpecialItems
+ if toc==120100 then
+  check(next(s.Rules)==nil and next(s.SpellIndex)==nil,'unsupported client must allocate no item rules')
+ else
+  local tbc=toc==20505 or toc==20506
+  check((s.Rules[30720]~=nil)==tbc,'special-client-data-isolation: only TBC loads the mana-gem rule')
+  check((s.GetRule(16022)==nil)==tbc,'TBC Dragonling must use ordinary native handling without an exception')
+  check(s.Rules[228955]==nil,'nonseasonal clients must not allocate SoD variant rows')
+  check(s.Rules[34430]==nil,'ordinary TBC channels must not need item-specific entries')
+  check(tbc or (s.GetRule(16022,13) and s.GetRule(16022,14) and not s.GetRule(16022,17)),
+   'item slot maps must use runtime equipment slots, not inventory-type IDs')
+  check(not s.GetRule(10645) and not s.GetRule(10577) and not s.GetRule(7189) and not s.GetRule(10724),
+   'ordinary-on-use-not-special: channels, Mortar and Rocket Boots must use default handling')
+  for id,rule in pairs(s.Rules) do
+   check(type(id)=='number' and id>0 and type(rule.name)=='string' and type(rule.slots)=='table','catalog identity must be explicit')
+   for slot,allowed in pairs(rule.slots) do check(slot>=0 and slot<=19 and slot==math.floor(slot) and allowed==true,'catalog slots must be valid') end
+   if rule.enabled and rule.cooldown and rule.cooldown.start=='deferred' then
+    local expectedSpell=({[23074]=19804,[23075]=12749,[23076]=4073,[19804]=19804})[rule.useSpell]
+    check(rule.activation.successSpells[expectedSpell] and not rule.activation.successSpells[19830],
+     'summon proof must not accidentally match the crafting recipe')
+   end
+  end
+ end
+end
+loadCatalog(11509,true)
+check(not ItemRack.SpecialItems.Rules[228955] and not ItemRack.SpecialItems.Rules[213347]
+ and ItemRack.SpecialItems.Rules[10726],
+ 'SoD ordinary variants must use default handling while true Era exceptions remain loaded')
+print(string.format('[SPECIAL ITEM CATALOG LUA] %d client-isolation, item-ID, slot and disabled-rule checks passed.',checks))
+`, 'special-client-data-isolation');
 
 const queueFile = 'ItemRack/ItemRackQueue.lua';
 const equipFile = 'ItemRack/ItemRackEquip.lua';
@@ -12,10 +60,19 @@ const shouldHold = extractFunction(queueFile, 'ItemRack.ShouldHoldEquippedItem')
 const isSetEquipped = extractFunction(equipFile, 'ItemRack.IsSetEquipped');
 const itemRackFile = 'ItemRack/ItemRack.lua';
 const findPlayerAura = extractFunction(itemRackFile, 'ItemRack.FindPlayerAura');
+const findAuraByName = extractFunction(itemRackFile, 'ItemRack.FindAuraByName');
 const recordEquipTime = extractFunction(queueFile, 'ItemRack.RecordEquipTime');
 const isRecentEquip = extractFunction(queueFile, 'ItemRack.IsRecentEquip');
 const toggleSet = extractFunction(equipFile, 'ItemRack.ToggleSet');
+const isProtectedByManualToggle = extractFunction(queueFile, 'ItemRack.IsSlotProtectedByManualToggle');
+const isSetPendingInCombatQueue = extractFunction(equipFile, 'ItemRack.IsSetPendingInCombatQueue');
+const cancelCombatQueueSet = extractFunction(equipFile, 'ItemRack.CancelCombatQueueSet');
+const purgeAutomaticSetsWaiting = extractFunction(equipFile, 'ItemRack.PurgeAutomaticSetsWaiting');
 const endSetSwap = extractFunction(equipFile, 'ItemRack.EndSetSwap');
+const holdSlot = extractFunction(queueFile, 'ItemRack.HoldSlot');
+const clearHoldSlot = extractFunction(queueFile, 'ItemRack.ClearHoldSlot');
+const updateCurrentSet = extractFunction(itemRackFile, 'ItemRack.UpdateCurrentSet');
+const setButton20Visual = extractFunction(itemRackFile, 'ItemRack.SetButton20Visual');
 const optionsFile = 'ItemRackOptions/ItemRackOptions.lua';
 const hasUnsavedSetChanges = extractFunction(optionsFile, 'ItemRackOpt.HasUnsavedSetChanges');
 const changeEditingSet = extractFunction(optionsFile, 'ItemRackOpt.ChangeEditingSet');
@@ -73,6 +130,7 @@ ${resolveProxy}
 ${shouldHold}
 ${isSetEquipped}
 ${findPlayerAura}
+${findAuraByName}
 ${recordEquipTime}
 ${isRecentEquip}
 
@@ -103,6 +161,32 @@ check(ItemRack.ManualQueueChoice[13] == "100" and ItemRack.ManualQueueChoiceOwne
 ItemRack.ClearManualQueueChoice(13)
 check(ItemRack.ManualQueueChoice[13] == nil and ItemRack.ManualQueueChoiceOwner[13] == nil,
   "manual choice cleanup must clear identity and provenance together")
+
+-- Issue #33 follow-up: Foreign item manual hold and clearance
+-- When a player Right-Clicks an item not in the queue, SetManualQueueChoice must still hold it.
+ItemRack.SetManualQueueChoice(13,"888")
+check(ItemRack.ManualQueueChoice[13] == "888" and ItemRack.ManualQueueChoiceOwner[13] == "Active",
+  "manual hold on foreign item must store requested ID and owner")
+check(ItemRack.IsManualQueueChoice(13,"888","888",nil,activeList,"Active"),
+  "manual hold on foreign item must validate as held when equipped")
+
+-- AutoQueueItemToEquip must honor the manual hold on the foreign item
+ItemRack.GetID = function(s) return s == 13 and "888" or "0" end
+ItemRack.FindItemInBags = function(id) return 0, 1 end
+ItemRack.IsCandidateReady = function() return true end
+ItemRack.GetObservedItemCooldown = function() return nil end
+local foreignHoldCandidate = ItemRack.AutoQueueItemToEquip(13,"888",1,true,nil,contexts.Active)
+check(foreignHoldCandidate == nil,
+  "AutoQueueItemToEquip must not evict foreign item while manual hold is active")
+
+-- When cleared (e.g. Left-Click normal swap), AutoQueue resumes
+ItemRack.ClearManualQueueChoice(13)
+check(ItemRack.IsManualQueueChoice(13,"888","888",nil,activeList,"Active") == false,
+  "IsManualQueueChoice must return false once manual hold is cleared")
+local resumedCandidate = ItemRack.AutoQueueItemToEquip(13,"888",1,true,nil,contexts.Active)
+check(resumedCandidate == "100",
+  "AutoQueueItemToEquip must resume selecting preferred candidate once manual hold is cleared")
+ItemRack.GetID = function() return "999" end
 
 local cooldownList = { { id="200" }, { id="999" } }
 local cooldownContext = { owner="Cooldown", list=cooldownList, enabled=true }
@@ -154,6 +238,40 @@ check(safeAuraResult == nil, "FindPlayerAura must return nil safely when aura lo
 -- Restore safe mock for AuraUtil
 AuraUtil.FindAuraByName = function(name) if name == "ActiveBuff" then return "ActiveBuff" end return nil end
 check(ItemRack.FindPlayerAura("ActiveBuff") == "ActiveBuff", "FindPlayerAura must return active buff when present")
+
+-- Anti-taint and secret value regressions (modern clients Patch 11.0+ / 12.0)
+local secretVal = { __secret = true }
+issecretvalue = function(v) return v == secretVal end
+C_UnitAuras = {
+  GetPlayerAuraBySpellName = function(buff)
+    if buff == "SecretBuff" then return secretVal end
+    if buff == "SecretTable" then return { name = secretVal } end
+    return nil
+  end
+}
+check(ItemRack.FindPlayerAura("SecretBuff") == "SecretBuff", "FindPlayerAura must safely return buff name when C_UnitAuras returns an opaque secret value")
+check(ItemRack.FindPlayerAura("SecretTable") == "SecretTable", "FindPlayerAura must safely return buff name when aura.name is a secret value")
+
+-- Safe self-contained aura search across units
+check(ItemRack.FindAuraByName("ActiveBuff", "player") == "ActiveBuff", "FindAuraByName must return player buff when unit is player")
+UnitBuff = function(unit, idx)
+  if unit == "target" and idx == 1 then return "TargetBuff" end
+  return nil
+end
+check(ItemRack.FindAuraByName("TargetBuff", "target") == "TargetBuff", "FindAuraByName must locate aura on non-player unit safely")
+
+-- Verify that existing global AuraUtil table is preserved and untainted
+local existingBlizzardAuraUtil = { ForEachAura = function() return true end }
+_G.AuraUtil = existingBlizzardAuraUtil
+if not _G.AuraUtil then _G.AuraUtil = { FindAuraByName = ItemRack.FindAuraByName } end
+check(_G.AuraUtil.FindAuraByName == nil, "Existing AuraUtil must never be mutated or assigned FindAuraByName")
+check(_G.AuraUtil == existingBlizzardAuraUtil, "Existing AuraUtil reference must remain unmodified")
+
+-- Clean up test mocks
+issecretvalue = nil
+C_UnitAuras = nil
+UnitBuff = nil
+_G.AuraUtil = AuraUtil
 
 -- Issue #33 regression: Trinket Queue behavior for passive trinkets when switching sets
 -- Set 1 had Hand of Justice (11815, passive) equipped in slot 14.
@@ -495,5 +613,1634 @@ ItemRack.ToggleSet("Flask")
 check(toggledUnequipTarget == "Flask",
   "ToggleSet must call UnequipSet on second click when Flask set is equipped and old gear exists")
 
+-- E. Manual Toggle Handler:
+${isProtectedByManualToggle}
+${isSetPendingInCombatQueue}
+${cancelCombatQueueSet}
+${purgeAutomaticSetsWaiting}
+
+-- 1. Manual toggle hold protects explicitly equipped items from AutoQueue eviction
+ItemRack.ManualToggledSet = "Flask"
+check(ItemRack.IsSlotProtectedByManualToggle(13) == true,
+  "IsSlotProtectedByManualToggle must be true for slot 13 when Flask set is manually toggled and worn")
+check(ItemRack.IsSlotProtectedByManualToggle(14) == false,
+  "IsSlotProtectedByManualToggle must be false for slot not defined in toggled set")
+
+-- Calling AutoQueueItemToEquip on a slot protected by manual toggle must return nil (hold)
+${autoQueue}
+local autoCandidate = ItemRack.AutoQueueItemToEquip(13, "19993", 1, false, "Flask", { list = { { id = "23206" } } })
+check(autoCandidate == nil,
+  "AutoQueueItemToEquip must hold explicitly toggled set item even when queue has ready candidate")
+
+-- Calling ToggleSet again when already equipped calls UnequipSet and clears ManualToggledSet
+toggledUnequipTarget = nil
+ItemRack.ToggleSet("Flask")
+check(toggledUnequipTarget == "Flask" and ItemRack.ManualToggledSet == nil,
+  "ToggleSet unequip must clear ManualToggledSet")
+check(ItemRack.IsSlotProtectedByManualToggle(13) == false,
+  "IsSlotProtectedByManualToggle must be false after toggling off")
+
+-- 2. In-Combat Toggle Handler (CombatQueue Toggling / Canceling)
+InCombatLockdown = function() return true end
+ItemRack.CombatQueue = { [13] = "19993" }
+ItemRack.CombatSet = "Flask"
+ItemRack.RemoveFromCombatQueue = function(slot) ItemRack.CombatQueue[slot] = nil end
+ItemRack.UpdateCombatQueue = function() end
+
+check(ItemRack.IsSetPendingInCombatQueue("Flask") == true,
+  "IsSetPendingInCombatQueue must be true when set items are pending in CombatQueue")
+
+local cancelTriggered = false
+local origCancel = ItemRack.CancelCombatQueueSet
+ItemRack.CancelCombatQueueSet = function(name)
+  cancelTriggered = true
+  origCancel(name)
+end
+
+-- Second toggle click in combat must cancel the pending combat queue
+ItemRack.ToggleSet("Flask")
+check(cancelTriggered == true, "ToggleSet in combat must trigger CancelCombatQueueSet")
+check(ItemRack.CombatQueue[13] == nil and ItemRack.CombatSet == nil,
+  "CancelCombatQueueSet must clear pending combat queue slots and CombatSet")
+check(ItemRack.IsSetPendingInCombatQueue("Flask") == false,
+  "IsSetPendingInCombatQueue must be false after combat queue is cancelled")
+
+-- 3. Purge automatic sets waiting
+ItemRack.SetsWaiting = {
+  { "AutoSet", function() end, nil, nil, true, nil },
+  { "ManualSet", function() end, nil, nil, false, false },
+  { "DeferredAuto", function() end, nil, nil, nil, true },
+}
+ItemRack.PurgeAutomaticSetsWaiting()
+check(#ItemRack.SetsWaiting == 1 and ItemRack.SetsWaiting[1][1] == "ManualSet",
+  "PurgeAutomaticSetsWaiting must remove automatic waiting sets and retain manual sets")
+
+InCombatLockdown = function() return false end
+
+-- 4. Hybrid Set Detection and Split Visual
+ItemRack.GetTextureBySlot = function(slot) return "MockTexture" end
+${setButton20Visual}
+${updateCurrentSet}
+
+local visualCalls = {}
+local origVisual = ItemRack.SetButton20Visual
+ItemRack.SetButton20Visual = function(activeOwner, hybridSet)
+  checks = checks + 1
+  table.insert(visualCalls, { activeOwner = activeOwner, hybridSet = hybridSet })
+  origVisual(activeOwner, hybridSet)
+end
+
+ItemRackUser.EnableQueues = "ON"
+ItemRackUser.EnablePerSetQueues = "ON"
+ItemRackUser.Sets = {
+  ["Trash Other"] = { icon = "Icon1", equip = { [1] = "1001", [13] = "HOJ" } },
+  ["Trash Undead"] = { icon = "Icon2", equip = { [1] = "1001", [13] = "MOTC" } },
+}
+_G.CUSTOM = "Custom"
+ItemRack.Broker = { icon = "", text = "" }
+local mockMainIcon = {
+  ClearAllPoints = function() end, SetPoint = function() end, SetTexCoord = function() end,
+  SetTexture = function(self, tex) self.texture = tex end, Show = function() end,
+}
+local mockSplitIcon = {
+  ClearAllPoints = function() end, SetPoint = function() end, SetTexCoord = function() end,
+  SetTexture = function(self, tex) self.texture = tex end, Show = function(self) self.shown = true end,
+  Hide = function(self) self.shown = false end,
+}
+local mockDivider = {
+  ClearAllPoints = function() end, SetPoint = function() end, SetWidth = function() end,
+  SetTexture = function() end, SetVertexColor = function() end, SetDrawLayer = function() end,
+  Show = function(self) self.shown = true end, Hide = function(self) self.shown = false end,
+}
+ItemRackButton20 = { GetWidth = function() return 36 end, CreateTexture = function() return mockSplitIcon end }
+ItemRackButton20ItemRackIcon = mockMainIcon
+ItemRackButton20SplitIcon = mockSplitIcon
+ItemRackButton20Divider = mockDivider
+
+-- Scenario A: Player is wearing Trash Other
+ItemRackUser.CurrentSet = "Trash Other"
+ItemRack.IsSetEquipped = function(name) return name == "Trash Other" end
+ItemRack.UpdateCurrentSet()
+
+check(ItemRackUser.CurrentSet == "Trash Other", "Active set must remain Trash Other when equipped")
+check(ItemRack.HybridSet == nil and ItemRack.CustomHybridOwner == nil, "HybridSet must be nil when active set is fully equipped")
+
+-- Scenario B: Player manually equips Mark of the Champion (gear now matches Trash Undead)
+ItemRack.IsSetEquipped = function(name) return name == "Trash Undead" end
+ItemRack.UpdateCurrentSet()
+
+check(ItemRackUser.CurrentSet == "Trash Other", "Active CurrentSet must NOT be hijacked to Trash Undead during manual swap")
+check(ItemRack.HybridSet == "Trash Undead", "HybridSet must record detected Trash Undead")
+check(#visualCalls > 0 and visualCalls[#visualCalls].activeOwner == "Trash Other" and visualCalls[#visualCalls].hybridSet == "Trash Undead",
+  "SetButton20Visual must receive activeOwner and hybridSet for split icon rendering")
+check(mockMainIcon.texture == "Icon1" and mockSplitIcon.texture == "Icon2" and mockSplitIcon.shown,
+  "Per-set Hybrid split must show active queue set on left and detected gear set on right")
+
+-- Scenario B2: With Per-Set Queues ON, wearing unrecognized Custom gear shows Custom Hybrid split (Queue Set | ItemRackIcon)
+ItemRack.IsSetEquipped = function() return false end
+ItemRack.UpdateCurrentSet()
+check(ItemRack.HybridSet == nil and ItemRack.CustomHybridOwner == "Trash Other",
+  "Custom gear with Per-Set Queues ON must track CustomHybridOwner without setting HybridSet")
+check(#visualCalls > 0 and visualCalls[#visualCalls].activeOwner == "Trash Other" and visualCalls[#visualCalls].hybridSet == "Custom",
+  "Per-set Custom gear must pass activeOwner and _G.CUSTOM to SetButton20Visual for Custom split")
+check(mockMainIcon.texture == "Icon1"
+  and mockSplitIcon.texture == "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+  and mockSplitIcon.shown,
+  "Custom Hybrid split must show active queue set icon on left and Custom ItemRackIcon on right")
+
+-- Scenario B3: With Global Queues (EnablePerSetQueues == OFF), there are NO Hybrid splits:
+-- matching another full set adopts it directly, and Custom gear renders solid ItemRackIcon
+ItemRackUser.EnablePerSetQueues = "OFF"
+ItemRackUser.CurrentSet = "Trash Other"
+ItemRack.IsSetEquipped = function(name) return name == "Trash Undead" end
+ItemRack.UpdateCurrentSet()
+check(ItemRackUser.CurrentSet == "Trash Undead" and ItemRack.HybridSet == nil and ItemRack.CustomHybridOwner == nil,
+  "Global queue mode must adopt matched full sets without entering Hybrid state")
+check(mockMainIcon.texture == "Icon2" and not mockSplitIcon.shown,
+  "Global queue mode must render solid set icon without split")
+ItemRack.IsSetEquipped = function() return false end
+ItemRack.UpdateCurrentSet()
+check(ItemRack.HybridSet == nil and ItemRack.CustomHybridOwner == nil
+  and mockMainIcon.texture == "Interface\\AddOns\\ItemRack\\ItemRackIcon" and not mockSplitIcon.shown,
+  "Global queue Custom state must render solid Custom ItemRackIcon instead of holding previous set icon")
+
+ItemRackUser.EnablePerSetQueues = "ON"
+ItemRackUser.CurrentSet = "Trash Other"
+
+-- Scenario C: Player switches back to Trash Other
+ItemRack.IsSetEquipped = function(name) return name == "Trash Other" end
+ItemRack.UpdateCurrentSet()
+
+check(ItemRackUser.CurrentSet == "Trash Other", "CurrentSet remains Trash Other")
+check(ItemRack.HybridSet == nil, "HybridSet must clear when returning to active set gear")
+
+-- Scenario D: Startup recovery (CurrentSet is nil on launch)
+ItemRackUser.CurrentSet = nil
+ItemRack.IsSetEquipped = function(name) return name == "Trash Undead" end
+ItemRack.UpdateCurrentSet()
+
+check(ItemRackUser.CurrentSet == "Trash Undead", "Startup recovery must adopt detected set when CurrentSet is nil")
+check(ItemRack.HybridSet == nil, "HybridSet must be nil on startup recovery")
+
+-- 5. HoldSlot and ClearHoldSlot
+${holdSlot}
+${clearHoldSlot}
+
+ItemRack.GetID = function(slot) return slot == 13 and "20130" or "0" end
+ItemRack.HoldSlot(13)
+check(ItemRack.ManualQueueChoice and ItemRack.ManualQueueChoice[13] == "20130",
+  "HoldSlot must record equipped item as manual hold for slot")
+check(ItemRack.ManualQueueHold and ItemRack.ManualQueueHold[13] == true,
+  "HoldSlot must set ManualQueueHold for persistent hold")
+
+ItemRack.HoldSlot(14, "item:23047")
+check(ItemRack.ManualQueueChoice and ItemRack.ManualQueueChoice[14] == 23047,
+  "HoldSlot with explicit item link/string must record item ID")
+check(ItemRack.ManualQueueHold and ItemRack.ManualQueueHold[14] == true,
+  "HoldSlot must set ManualQueueHold for slot 14")
+
+ItemRack.ClearHoldSlot(13)
+check(ItemRack.ManualQueueChoice[13] == nil,
+  "ClearHoldSlot must clear the manual hold for slot 13")
+check(ItemRack.ManualQueueHold[13] == nil,
+  "ClearHoldSlot must clear ManualQueueHold for slot 13")
+check(ItemRack.ManualQueueChoice[14] == 23047,
+  "ClearHoldSlot for slot 13 must preserve slot 14 hold")
+check(ItemRack.ManualQueueHold[14] == true,
+  "ClearHoldSlot for slot 13 must preserve slot 14 ManualQueueHold")
+
+-- 6. SetButton20Visual text alignment and external manual equip hold
+local mockTexture = {
+  ClearAllPoints = function() end,
+  SetPoint = function() end,
+  SetWidth = function() end,
+  SetTexture = function() end,
+  SetVertexColor = function() end,
+  SetTexCoord = function() end,
+  SetDrawLayer = function() end,
+  Show = function() end,
+  Hide = function() end,
+}
+ItemRackButton20 = {
+  GetWidth = function() return 36 end,
+  CreateTexture = function() return mockTexture end,
+}
+ItemRackButton20ItemRackIcon = mockTexture
+local button20Name = {
+  points = {},
+  ClearAllPoints = function(self) self.points = {} end,
+  SetPoint = function(self, point, rel, relPoint, x, y) table.insert(self.points, {point=point, rel=rel, relPoint=relPoint, x=x, y=y}) end,
+  SetWidth = function(self, w) self.width = w end,
+  SetJustifyH = function(self, j) self.justify = j end,
+  SetDrawLayer = function(self, l, sub) self.layer = l; self.sublayer = sub end,
+}
+_G["ItemRackButton20Name"] = button20Name
+ItemRack.SetButton20Visual("Trash Other", "Trash Undead")
+check(button20Name.points[1] and button20Name.points[1].point == "BOTTOM" and button20Name.points[1].y == 2,
+  "SetButton20Visual must anchor ItemRackButton20Name to BOTTOM, 0, 2")
+check(button20Name.justify == "CENTER",
+  "SetButton20Visual must keep ItemRackButton20Name center-justified")
+check(button20Name.width == 36,
+  "SetButton20Visual must constrain ItemRackButton20Name width to button")
+
 print(string.format("[QUEUE RUNTIME LUA] %d purity and provenance checks passed.",checks))
 `, 'queue-runtime');
+
+// #32: run the production caller as well as its guarded helper. A nil result
+// (absent aura or failed API) must not invoke the unsafe global a second time.
+runLua(String.raw`
+local calls=0
+ItemRack={QueueStateReady=true,
+ IsEquippedSlotStateReady=function() return true end,
+ GetID=function() return '123' end,
+ IsQueueItemBurnt=function() return false end,
+ IsManualQueueChoice=function() return false end,
+ FindQueueEntryIndex=function() return 1 end,
+ GetProxyBuff=function() return 'TestAura' end,
+ IsQueueEntryUnambiguous=function() return true end}
+ItemRackSettings={}
+AuraUtil={FindAuraByName=function() calls=calls+1; error('AuraUtil.lua:25: attempt to call a nil value') end}
+${findPlayerAura}
+${findAuraByName}
+${autoQueue}
+local context={owner='A',list={{id='123'}}}
+assert(ItemRack.AutoQueueItemToEquip(13,'123',1,true,nil,context)==nil,
+ 'issue-32-aura-caller-containment: failed aura lookup must not escape the queue caller')
+assert(calls==1,'the failing global lookup must not be called again after the safe helper returns nil')
+-- Legacy shim points back to ItemRack; do not recursively query our own shim.
+AuraUtil={FindAuraByName=ItemRack.FindAuraByName}
+local scans=0
+UnitBuff=function() scans=scans+1; return nil end
+assert(ItemRack.FindPlayerAura('MissingAura')==nil and scans==1,'legacy shim must perform one bounded scan')
+UnitBuff=function(_,i) return i==1 and 'TestAura' or nil end
+assert(ItemRack.FindPlayerAura('TestAura')=='TestAura','legacy aura presence must remain supported')
+print('[AURA CALLER LUA] Guarded caller failures and nonrecursive legacy lookup passed.')
+`, 'issue-32-aura-caller-containment');
+
+// Source-backed ordinary on-use examples exercise the default path after pruning.
+const ordinaryMetrics=parseMetrics(require('fs').readFileSync('docs/research/special-item-usage-metrics.csv','utf8'));
+const ordinaryUseCases=[];
+for(const [toc,label] of [[11509,'era-11509'],[20506,'tbc-256'],[16001,'forever-16001']]) {
+  for(const id of [10577,7189,10724,4984,16768,21647,28727]) {
+    const row=ordinaryMetrics.find(r=>r.label===label && Number(r.item_id)===id && r.trigger==='0');
+    if(!row) continue;
+    const own=Number(row.item_cd_ms)>=0 ? Number(row.item_cd_ms):Number(row.spell_cd_ms);
+    ordinaryUseCases.push({toc,id,slot:({8:8,12:13,23:17})[row.slot],spell:Number(row.spell_id),name:row.spell_name,
+      seconds:own/1000,hasAura:id!==10577});
+  }
+}
+
+// #33 / neferens: genuine use must end temporary protection independently of
+// the item's Swap In threshold. Exercise real use hooks, retry, cooldown
+// authority and queue processing; only client APIs/equipment endpoints are modeled.
+runLua(String.raw`
+local now,combat,buff,timers,equipment,cooldowns,requests,events
+ItemRack={}
+ItemRackSettings={}
+function GetTime() return now end
+function InCombatLockdown() return combat end
+function UnitAffectingCombat() return combat end
+function CursorHasItem() return false end
+function IsInventoryItemLocked() return false end
+function GetInventoryItemCooldown(_,slot)
+ local cd=cooldowns[slot] or {0,0,1}; return cd[1],cd[2],cd[3]
+end
+function GetItemCooldown(id)
+ if tonumber(id)==100 then return GetInventoryItemCooldown('player',13) end
+ if tonumber(id)==300 then return GetInventoryItemCooldown('player',14) end
+ return 0,0,1
+end
+function GetItemSpell(id) if tonumber(id)==100 then return 'ReportedBuff' end end
+C_Timer={After=function(delay,callback) timers[#timers+1]={at=now+delay,callback=callback} end}
+local function advance(target)
+ while true do
+  local earliest
+  for i,timer in ipairs(timers) do
+   if timer.at<=target and (not earliest or timer.at<timers[earliest].at) then earliest=i end
+  end
+  if not earliest then break end
+  local timer=table.remove(timers,earliest); now=timer.at; timer.callback()
+ end
+ now=target
+end
+ItemRack.GetID=function(slot) return equipment[slot] or 0 end
+ItemRack.GetEquippedSlotState=function(slot)
+ return equipment[slot] and 'resolved' or 'empty',equipment[slot]
+end
+ItemRack.GetIRString=function(id) return tostring(id):match('^(%d+)') end
+ItemRack.IsEquippedSlotStateReady=function() return true end
+ItemRack.MatchesStoredItemFields=function(a,b) return a==b end
+ItemRack.MatchesStoredItemID=ItemRack.MatchesStoredItemFields
+ItemRack.SameExactID=ItemRack.MatchesStoredItemFields
+ItemRack.IsBareItemID=function() return false end
+ItemRack.IsQueueEntryUnambiguous=function() return true end
+ItemRack.IsQueueItemBurnt=function() return false end
+ItemRack.GetProxyBuff=function() return nil end
+ItemRack.GetProxyCooldownLeft=function() return nil end
+ItemRack.ResolveProxy=function() return nil end
+ItemRack.GetDefaultSwapIn=function() return 30 end
+ItemRack.FindPlayerAura=function() return buff end
+ItemRack.FindItemInBags=function(id) if id=='200' then return 0,1 end end
+ItemRack.IsOffhandBlocked=function() return false end
+ItemRack.IsPlayerReallyDead=function() return false end
+ItemRack.GetInfoByID=function(id) return id end
+ItemRack.Debug=function() end
+ItemRack.UpdateCombatQueue=function() end
+ItemRack.QueueDiagnostic=function(event) events[event]=(events[event] or 0)+1 end
+ItemRack.ClearEquipTimer=function(slot) ItemRack.EquipTimers[slot]=nil end
+${require('fs').readFileSync('ItemRack/ItemRackCooldownState.lua','utf8')}
+${require('fs').readFileSync('ItemRack/ItemRackQueuePolicy.lua','utf8')}
+${['ItemRack.GetQueueContext','QueueFieldProxy','ItemRack.GetQueues','ItemRack.GetQueuesEnabled',
+ 'ItemRack.GetActiveQueueOwner','ItemRack.ScheduleReflectItemUseRetry','ItemRack.ReflectItemUse',
+ 'ItemRack.newUseInventoryItem','ItemRack.ClearCombatQueueMetadata','ItemRack.AddToCombatQueue',
+ 'ItemRack.RemoveFromCombatQueue','ItemRack.ProcessCombatQueue'].map(n=>extractFunction(itemRackFile,n)).join('\n')}
+${clearManual}
+${findQueueEntry}
+${isManual}
+${setManual}
+${isRecentEquip}
+${extractFunction(queueFile,'ItemRack.MarkEquippedItemUsed')}
+${extractFunction(queueFile,'ItemRack.GetItemCooldownLeft')}
+${extractFunction(queueFile,'ItemRack.IsCandidateReady')}
+${shouldHold}
+${autoQueue}
+${extractFunction(queueFile,'ItemRack.ProcessAutoQueue')}
+ItemRack.EquipItemByID=function(id,slot,isAutoQueue)
+ requests[#requests+1]=id
+ if combat then ItemRack.AddToCombatQueue(slot,id,isAutoQueue) else equipment[slot]=id end
+end
+ItemRack.EquipSet=function(name)
+ assert(not combat,'ordinary gear must not equip in combat')
+ for slot,id in pairs(ItemRackUser.Sets[name].equip) do equipment[slot]=id end
+end
+local function reset(mode,inCombat,threshold)
+ now,combat,buff,timers,requests,events=100,inCombat,false,{},{},{}
+ equipment={[13]='100',[14]='300'}; cooldowns={[13]={0,0,1}}
+ local list={{id='200',priority=true},{id='100',swapInEnabled=true,swapIn=threshold}}
+ ItemRackUser={EnableQueues='ON',EnablePerSetQueues=mode=='global' and 'OFF' or 'ON',
+  CurrentSet='Active',Buttons={},ItemsUsed={},EquipTimers={[13]={id='100',time=70,hasPenalty=true,used=false}},
+  Queues={[13]=list},QueuesEnabled={[13]=true},Sets={
+   Active={equip={},Queues={[13]=list},QueuesEnabled={[13]=true}},
+   Master={equip={},Queues={[13]=list},QueuesEnabled={[13]=true}},['~CombatQueue']={equip={}}}}
+ if mode=='mirrored' then
+  ItemRackUser.Sets.Active.QueueSync={[13]='Master'}
+  ItemRackUser.Sets.Active.QueueSyncInitialized={[13]=true}
+  ItemRackUser.Sets.Active.Queues=nil
+ end
+ ItemRack.EquipTimers=ItemRackUser.EquipTimers
+ ItemRack.QueueStateReady=true; ItemRack.QueueStateGeneration=1
+ ItemRack.CooldownObservations=nil; ItemRack.PendingReflectItemUse=nil
+ ItemRack.LastProcessedItemUse=nil; ItemRack.LastActivation=nil
+ ItemRack.ManualQueueChoice={}; ItemRack.ManualQueueChoiceOwner={}; ItemRack.ManualQueueHold={}
+ ItemRack.CombatQueue={}; ItemRack.AutoQueueFlag={}; ItemRack.AutoQueueOwner={}; ItemRack.AutoQueueList={}
+ ItemRack.RunAfterCombat={}; ItemRack.ItemsUsedCooldownGeneration={}
+ ItemRack.SetManualQueueChoice(13,'100')
+ return list
+end
+local checks=0
+local function check(value,message) assert(value,message); checks=checks+1 end
+local function use()
+ cooldowns[13]={100,120,1}; buff=true
+ ItemRack.newUseInventoryItem(13); advance(100.06)
+end
+for _,mode in ipairs({'global','per-set','mirrored'}) do
+ for _,inCombat in ipairs({false,true}) do
+  for _,threshold in ipairs({120,119,100,99,115}) do
+   local list=reset(mode,inCombat,threshold)
+   ItemRack.ProcessAutoQueue(13)
+   check(#requests==0 and equipment[13]=='100','unused manual choice must remain protected against Priority')
+   use()
+   check(events.use_accepted==1 and ItemRack.EquipTimers[13].used,
+    'fixture must pass real verified-use detection before testing hold release')
+   ItemRack.ProcessAutoQueue(13)
+   check(#requests==0 and equipment[13]=='100','active buff must still protect the used item')
+   advance(120); buff=false; ItemRack.ProcessAutoQueue(13)
+   if inCombat then
+    check(equipment[13]=='100' and ItemRack.CombatQueue[13]=='200','combat must queue the prioritized replacement')
+    combat=false; ItemRack.ProcessCombatQueue()
+   end
+   check(equipment[13]=='200' and #requests==1,
+    'issue-33-swap-in-temporary-hold: verified use plus expired buff must yield to Priority regardless of Swap In')
+   check(not ItemRack.ManualQueueChoice[13] and not ItemRack.ManualQueueChoiceOwner[13],
+    'verified use must retire temporary choice identity and owner')
+   check(list[2].swapIn==threshold and not next(ItemRack.CombatQueue) and ItemRackUser.CurrentSet=='Active',
+    'retain saved policy/context and finish without pending gear requests')
+  end
+ end
+end
+-- Premature buff removal on each side of the reporter's 115-second boundary.
+for _,elapsed in ipairs({4,5,6}) do
+ reset('global',false,115); use(); advance(100+elapsed); buff=false
+ ItemRack.ProcessAutoQueue(13)
+ check(equipment[13]=='200','early buff removal must release on either side of the Swap In boundary')
+end
+reset('global',false,120); use(); advance(120); buff=false
+check(not ItemRack.IsCandidateReady(13,'100',99) and ItemRack.IsCandidateReady(13,'100',100),
+ 'Swap In must still gate candidate eligibility at its inclusive remaining-cooldown boundary')
+-- A duplicate hook cannot release a fresh choice created after the accepted use.
+reset('global',false,120); use(); ItemRack.SetManualQueueChoice(13,'100')
+ItemRack.newUseInventoryItem(13); advance(100.12)
+check(events.use_accepted==1 and events.use_ignored_duplicate==1 and ItemRack.ManualQueueChoice[13]=='100',
+ 'duplicate use evidence must not release a newer manual choice')
+-- Identity changes while the settled trinket sample is pending cancel that receipt.
+reset('global',false,120); cooldowns[13]={100,120,1}; ItemRack.newUseInventoryItem(13)
+equipment[13]='999'; ItemRack.SetManualQueueChoice(13,'999'); advance(100.8)
+check(not events.use_accepted and ItemRack.ManualQueueChoice[13]=='999',
+ 'a delayed receipt must not release the replacement item manual choice')
+-- The explicit persistent hold remains distinct, including after accepted use.
+reset('per-set',false,120); ItemRack.ManualQueueHold[13]=true; use(); advance(120); buff=false
+ItemRack.ProcessAutoQueue(13)
+check(events.use_accepted==1 and equipment[13]=='100' and #requests==0 and ItemRack.ManualQueueHold[13]
+ and ItemRack.ManualQueueChoice[13]=='100','verified use must retain explicit persistent holds')
+for _,policy in ipairs({'keep','delay'}) do
+ local list=reset('global',false,120)
+ if policy=='keep' then list[2].keep=true else list[2].delay=25 end
+ use(); advance(120); buff=false; ItemRack.ProcessAutoQueue(13)
+ check(equipment[13]=='100' and #requests==0 and not ItemRack.ManualQueueChoice[13],
+  'use must release temporary protection while retaining '..policy..' policy')
+ if policy=='keep' then list[2].keep=false else advance(126) end
+ ItemRack.ProcessAutoQueue(13)
+ check(equipment[13]=='200','rotation must resume after '..policy..' restriction ends')
+end
+-- Rejected signals must never clear the temporary choice.
+for _,kind in ipairs({'equip-penalty','no-cooldown','stale-cooldown','shared-follower'}) do
+ reset('global',false,120)
+ if kind=='equip-penalty' then
+  ItemRack.EquipTimers[13].time=100; cooldowns[13]={100,30,1}
+ elseif kind=='stale-cooldown' then cooldowns[13]={90,120,1}
+ elseif kind=='shared-follower' then
+  cooldowns[13]={100,20,1}; cooldowns[14]={100,120,1}
+  ItemRack.LastActivation={time=100,primarySlot=14,primaryExactID='300',primaryStart=100,primaryDuration=120,
+   followerSlot=13,followerExactID='100',followerStart=100,followerDuration=20}
+ end
+ ItemRack.newUseInventoryItem(13); advance(100.8)
+ check(not events.use_accepted and ItemRack.ManualQueueChoice[13]=='100' and not ItemRack.EquipTimers[13].used,
+  'rejected '..kind..' must preserve temporary protection')
+end
+-- A newer choice or another set's hold is not the activation being accepted.
+for _,kind in ipairs({'different-item','different-owner'}) do
+ reset('per-set',false,120)
+ if kind=='different-item' then ItemRack.ManualQueueChoice[13]='999'
+ else ItemRack.ManualQueueChoiceOwner[13]='Other' end
+ use()
+ check(events.use_accepted==1 and ItemRack.ManualQueueChoice[13]~=nil,
+  'accepted use must not erase a '..kind..' manual choice')
+end
+print(string.format('[SWAP IN HOLD LUA] %d verified-use, threshold, buff, scope and deferred-gear checks passed.',checks))
+
+-- Reporter dump: use hooks receive text slots; snapshots/reconciliation use
+-- numbers. Exercise production readiness and retry, not the always-ready stub.
+local fixtureReady,fixtureState,fixtureID=ItemRack.IsEquippedSlotStateReady,ItemRack.GetEquippedSlotState,ItemRack.GetID
+ItemRack.GetID=function(slot) return fixtureID(tonumber(slot) or slot) end
+function GetInventoryItemID(_,slot) local id=equipment[tonumber(slot)]; return id and tonumber(ItemRack.GetIRString(id)) end
+function GetInventoryItemTexture(_,slot) return equipment[tonumber(slot)] and 'texture' end
+${extractFunction(itemRackFile,'ItemRack.GetEquippedSlotState')}
+${extractFunction(itemRackFile,'ItemRack.IsEquippedSlotStateReady')}
+${extractFunction(itemRackFile,'ItemRack.ReconcileEquippedSnapshot')}
+for _,mode in ipairs({'global','per-set','mirrored'}) do
+ for _,inCombat in ipairs({false,true}) do
+  for _,hookSlot in ipairs({'13',13}) do
+   reset(mode,inCombat,120)
+   ItemRack.EquippedSnapshot={[13]='100',[14]='300'}
+   for slot=0,19 do if not ItemRack.EquippedSnapshot[slot] then ItemRack.EquippedSnapshot[slot]=0 end end
+   ItemRack.UnresolvedEquippedSlots={['13']=true,['14']=true,['17']=true}
+   ItemRack.PendingEquipTransitionTimes={['13']=90,['14']=90,['17']=90}
+   cooldowns[13]={100,120,1};buff=true
+   ItemRack.newUseInventoryItem(hookSlot);advance(100.06)
+   check(events.use_accepted==1 and ItemRack.EquipTimers[13].used and not ItemRack.ManualQueueChoice[13],
+    'issue-33-text-slot-use-receipt: actual readiness and settled use must accept numeric/text hook slots identically')
+   ItemRack.ReconcileEquippedSnapshot(false)
+   for _,slot in ipairs({13,14,17}) do
+    check(ItemRack.IsEquippedSlotStateReady(tostring(slot)) and not ItemRack.UnresolvedEquippedSlots[tostring(slot)]
+     and not ItemRack.PendingEquipTransitionTimes[tostring(slot)],'stale text-slot quarantines must recover without losing numeric identity authority')
+   end
+   check(not ItemRack.PendingReflectItemUse['13'] and not ItemRack.EquipTimers['13'],
+    'text hooks must not allocate separate retry/timer records')
+   ItemRack.ProcessAutoQueue(13);check(equipment[13]=='100','real readiness must retain an active buff')
+   advance(120);buff=false;ItemRack.ProcessAutoQueue(13)
+   if inCombat then combat=false;ItemRack.ProcessCombatQueue() end
+   check(equipment[13]=='200','reported text-hook use must yield after buff end despite Swap In 120')
+  end
+ end
+end
+reset('global',false,120);ItemRack.EquippedSnapshot={[13]='100'};ItemRack.UnresolvedEquippedSlots={[13]=true,['13']=true}
+check(not ItemRack.IsEquippedSlotStateReady('13'),'canonicalization must retain a genuine numeric quarantine')
+for _,slot in ipairs({false,{},-1,20,13.5,'bag:13','nan'}) do
+ check(not ItemRack.IsEquippedSlotStateReady(slot),'invalid equipment slots must not become ready')
+ ItemRack.newUseInventoryItem(slot)
+end
+ItemRack.IsEquippedSlotStateReady,ItemRack.GetEquippedSlotState,ItemRack.GetID=fixtureReady,fixtureState,fixtureID
+GetInventoryItemID,GetInventoryItemTexture=nil,nil
+print('[REPORTER TEXT SLOT LUA] Actual readiness/reconciliation/use/retry and scope/combat flow passed.')
+
+-- #33 Dragonling follow-up: API cooldown stays zero during the summon. Feed
+-- the real item hook and UNIT_SPELLCAST_SUCCEEDED dispatch, not a guessed CD.
+local function specialCatalog(toc)
+ function GetBuildInfo() return 'fixture','70938','fixture',toc end
+ ItemRack.IsEngravingActive=function() return false end
+ ${loadSpecialCatalog}
+end
+${extractFunction(itemRackFile,'ItemRack.OnCastingStop')}
+${resolveProxy}
+local nativeSpecialCooldown
+local specialItemID=16022
+local epochBase=1800000000
+function GetServerTime() return epochBase+now end
+function GetItemCooldown(id)
+ if tonumber(id)==specialItemID then return nativeSpecialCooldown[1],nativeSpecialCooldown[2],nativeSpecialCooldown[3] end
+ return 0,0,1
+end
+function GetItemSpell(id) if tonumber(ItemRack.GetIRString(id))==specialItemID then return 'Special item',23074 end end
+local function resetSpecial(toc,inCombat,mode)
+ specialItemID=16022
+ specialCatalog(toc)
+ reset(mode or 'global',inCombat,30)
+ equipment[13]='16022:1'; nativeSpecialCooldown={0,0,1}
+ ItemRack.GetQueues(mode=='per-set' and 'Active' or nil)[13]={{id='200',priority=true},{id='16022:1'}}
+ -- A mirrored list is owned by Master, but its activation token belongs to Active.
+ if mode=='mirrored' then ItemRackUser.Sets.Master.Queues[13]={{id='200',priority=true},{id='16022:1'}} end
+ ItemRack.EquipTimers[13]={id='16022:1',time=70,hasPenalty=true,used=false}
+ ItemRack.SetManualQueueChoice(13,'16022:1')
+ ItemRack.NowCasting=nil
+ buff=false
+end
+local function success(spellID,cast)
+ ItemRack.OnCastingStop(nil,'UNIT_SPELLCAST_SUCCEEDED','player',cast or 'Cast-Dragonling',spellID or 19804)
+end
+local specialChecks=0
+local function verify(value,message) assert(value,message);specialChecks=specialChecks+1 end
+for _,toc in ipairs({11508,11509,16001,11601}) do
+ for _,mode in ipairs({'global','per-set','mirrored'}) do
+  for _,inCombat in ipairs({false,true}) do
+   resetSpecial(toc,inCombat,mode)
+   ItemRack.newUseInventoryItem(13)
+   success()
+   verify(ItemRack.SpecialItems.IsCooldownPending('16022:1') and not ItemRack.ManualQueueChoice[13]
+    and ItemRack.EquipTimers[13].used,
+    'issue-33-dragonling-delayed-cooldown: confirmed summon must release temporary protection with native cooldown still zero')
+   ItemRack.ProcessAutoQueue(13)
+   if inCombat then
+    verify(equipment[13]=='16022:1' and ItemRack.CombatQueue[13]=='200','special use must retain combat deferral')
+    combat=false; ItemRack.ProcessCombatQueue()
+   end
+   verify(equipment[13]=='200' and not next(ItemRack.CombatQueue),'special use must finish with the preferred gear and no pending request')
+   verify(not ItemRack.IsCandidateReady(13,'16022:1',5000),'zero native cooldown must not make a used pending item eligible again')
+   verify(not ItemRackUser.ItemsUsed[16022],'pending use must not generate a false ready notification')
+   advance(101); nativeSpecialCooldown={101,60,1}
+   ItemRack.GetItemCooldownLeft('16022:1')
+   verify(ItemRack.SpecialItems.IsCooldownPending('16022:1'),'short shared cooldown must not be mistaken for the real item cooldown')
+   advance(160); nativeSpecialCooldown={160,3600,1}; ItemRack.GetItemCooldownLeft('16022:1')
+   verify(not ItemRack.SpecialItems.IsCooldownPending('16022:1') and not ItemRack.IsCandidateReady(13,'16022:1',30),
+    'late native cooldown must reconcile and retain normal candidate thresholds')
+   verify(ItemRackUser.ItemsUsed[16022]==1,'the real native cooldown must start normal notification tracking')
+   advance(3761); nativeSpecialCooldown={0,0,1}
+   verify(ItemRack.IsCandidateReady(13,'16022:1',30) and not ItemRack.SpecialItems.Used[16022],
+    'native cooldown completion must restore eligibility and clean the receipt')
+   verify(ItemRackUser.CurrentSet=='Active' and ItemRack.GetQueues()[13][2].id=='16022:1',
+    'item rules must not change selected set or saved queue contents')
+  end
+ end
+end
+resetSpecial(16001,false); success(); advance(100.05); ItemRack.newUseInventoryItem(13)
+verify(not ItemRack.SpecialItems.IsCooldownPending('16022:1') and ItemRack.ManualQueueChoice[13],
+ 'standalone success must not be reused by a later item hook')
+success(19804,'Cast-New')
+verify(ItemRack.SpecialItems.IsCooldownPending('16022:1'),'a fresh success after the compatible hook must be accepted')
+for _,kind in ipairs({'attempt-only','wrong-spell','recipe','failure','interrupted','changed-item','changed-owner','generation','new-choice','late','ambiguous'}) do
+ resetSpecial(16001,false,'per-set'); ItemRack.newUseInventoryItem(13)
+ if kind=='wrong-spell' then success(23074)
+ elseif kind=='recipe' then success(19830)
+ elseif kind=='failure' or kind=='interrupted' then
+  ItemRack.OnCastingStop(nil,kind=='failure' and 'UNIT_SPELLCAST_FAILED' or 'UNIT_SPELLCAST_INTERRUPTED','player','Cast-X',19804)
+ elseif kind=='changed-item' then equipment[13]='16022:2'; success()
+ elseif kind=='changed-owner' then ItemRackUser.CurrentSet='Master'; success()
+ elseif kind=='generation' then ItemRack.QueueStateGeneration=2; success()
+ elseif kind=='new-choice' then ItemRack.SetManualQueueChoice(13,'16022:1'); success()
+ elseif kind=='late' then advance(101); success()
+ elseif kind=='ambiguous' then
+  equipment[14]='16022:1'; ItemRack.SpecialItems.BeginUse(14); success()
+ end
+ advance(101.1)
+ verify(not ItemRack.SpecialItems.IsCooldownPending('16022:1') and ItemRack.ManualQueueChoice[13]=='16022:1',
+  'unverified '..kind..' must not release a manual choice')
+end
+resetSpecial(16001,false); ItemRack.ManualQueueHold[13]=true; ItemRack.newUseInventoryItem(13); success()
+ItemRack.ProcessAutoQueue(13)
+verify(equipment[13]=='16022:1' and ItemRack.ManualQueueHold[13] and ItemRack.ManualQueueChoice[13],
+ 'confirmed special use must preserve explicit persistent holds')
+for _,restriction in ipairs({'buff','keep','delay'}) do
+ resetSpecial(16001,false)
+ local entry=ItemRack.GetQueues()[13][2]
+ if restriction=='keep' then entry.keep=true
+ elseif restriction=='delay' then entry.delay=25; cooldowns[13]={100,60,1}
+ else buff=true end
+ ItemRack.newUseInventoryItem(13); success(); ItemRack.ProcessAutoQueue(13)
+ verify(equipment[13]=='16022:1' and not ItemRack.ManualQueueChoice[13],
+  'special verified use must release temporary choice while respecting '..restriction)
+ entry.keep=nil; entry.delay=nil; buff=false
+ ItemRack.ProcessAutoQueue(13)
+ verify(equipment[13]=='200','special rotation must resume after '..restriction..' is removed')
+end
+resetSpecial(16001,false); ItemRack.newUseInventoryItem(13); success()
+ItemRack.SetManualQueueChoice(13,'16022:1'); success()
+verify(ItemRack.ManualQueueChoice[13]=='16022:1','duplicate activation must not clear a later manual choice')
+advance(191)
+verify(ItemRack.SpecialItems.IsCooldownPending('16022:1') and ItemRack.SpecialItems.Used[16022].phase=='pending',
+ 'readiness queries must not mutate the pending review phase')
+ItemRack.SpecialItems.Poll()
+verify(ItemRack.SpecialItems.IsCooldownPending('16022:1') and ItemRack.SpecialItems.Used[16022].phase=='unresolved',
+ 'a missing cooldown must become diagnostic uncertainty rather than fabricated readiness')
+for _,toc in ipairs({20505,20506}) do
+ resetSpecial(toc,false); ItemRack.newUseInventoryItem(13); success()
+ verify(not ItemRack.SpecialItems.IsCooldownPending('16022:1') and ItemRack.ManualQueueChoice[13],
+  'TBC must not inherit the Era/Forever deferred exception')
+ verify(ItemRack.ResolveProxy(30720).id==22044 and ItemRack.ResolveProxy(30720).buff==37445,
+  'the TBC dependency rule must preserve mana-gem gating and localized buff semantics')
+end
+resetSpecial(16001,false)
+verify(not ItemRack.ResolveProxy(30720),'the TBC built-in proxy must not load on Forever')
+ItemRack.CooldownProxies={[30720]={id=9999,buff='Custom'}}
+verify(ItemRack.ResolveProxy(30720).id==9999,'explicit compatibility proxy overrides must retain precedence')
+ItemRack.CooldownProxies={}
+-- The same engine supports a data-only rule in another equipment slot.
+local s=ItemRack.SpecialItems
+s.Rules[999]={enabled=true,name='Synthetic off-hand',slots={[17]=true},
+ activation={successSpells={[123456]=true},windowSeconds=0.75},cooldown={start='deferred',minimumOwnSeconds=120}}
+s.BuildIndex(); equipment[17]='999'; s.BeginUse(17)
+s.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Cast-Offhand',123456)
+verify(s.IsCooldownPending('999') and not s.GetRule('999',13),'new slot/item assignments must not require queue-engine changes')
+-- Data-defined effect holds query the exact channel/aura, never any unrelated pet.
+s.Rules[999].effect={kind='channel',spells={[123456]=true},hold=true}
+UnitChannelInfo=function() return 'Channel',nil,nil,nil,nil,nil,nil,123456 end
+verify(s.ShouldHoldEffect(17,'999'),'channel mechanics must match the configured spell')
+UnitChannelInfo=function() return 'Other',nil,nil,nil,nil,nil,nil,777 end
+verify(not s.ShouldHoldEffect(17,'999'),'an unrelated channel must not match the item rule')
+s.Rules[999].effect={kind='aura',unit='pet',spells={[123456]=true},hold=true}
+GetSpellInfo=function(id) return id==123456 and 'Specific aura' end
+ItemRack.FindAuraByName=function(name,unit) return name=='Specific aura' and unit=='pet' end
+verify(s.ShouldHoldEffect(17,'999'),'aura mechanics must use the configured unit and spell')
+s.Rules[999].enabled=false
+verify(not s.ShouldHoldEffect(17,'999') and not s.GetRule('999'),'disabling a table row must disable the handler')
+local report=s.GetDiagnostics()
+verify(not report.intents[13] and #report.history<=24 and report.catalog[999].enabled==false,
+ 'diagnostics must stay bounded and reflect rule enablement without serializing queue tables')
+s.Rules[998]={name='Malformed rule',enabled=true,slots={[17]=true},cooldown={start='deferred'}}
+s.Rules[997]='Malformed record'
+s.BuildIndex()
+verify(not s.GetRule(998) and s.GetDiagnostics().invalidRules[998] and not s.GetRule(997),
+ 'incomplete enabled rules must fail closed with diagnostics rather than break queue processing')
+for _,bad in ipairs({
+ {cooldown=true}, {activation=true}, {effect=true}, {proxy=true},
+ {activation={successSpells=true}}, {activation={itemSpell='19804'}},
+ {cooldown={start='deferred',minimumOwnSeconds='120'},activation={successSpells={[19804]=true}}},
+ {cooldown={start='deferred',minimumOwnSeconds=120,reviewAfterSeconds='90'},activation={successSpells={[19804]=true}}},
+ {activation={windowSeconds='0.75'}}, {activation={windowSeconds=math.huge}},
+ {effect={kind='aura',hold=true,unit='target',spells={[123456]=true}}},
+ {effect={kind='channel',hold=true,spells=true}}, {proxy={id=22044,buff=true}},
+}) do
+ bad.name='Malformed nested rule'; bad.enabled=true; bad.slots={[17]=true}; s.Rules[996]=bad
+ s.BuildIndex()
+ verify(not s.GetRule(996) and s.GetDiagnostics().invalidRules[996],
+  'malformed nested item data must be rejected without crashing the selected catalog')
+end
+-- Native CD sampling cannot depend on whether candidate selection reaches the item.
+resetSpecial(16001,false); ItemRack.newUseInventoryItem(13); success(); ItemRack.ProcessAutoQueue(13)
+advance(160); nativeSpecialCooldown={160,3600,1}
+ItemRack.SpecialItems.Poll()
+verify(not ItemRack.SpecialItems.IsCooldownPending('16022:1') and equipment[13]=='200',
+ 'closed-menu sampling must reconcile the bagged item while the equipped Priority item remains ready')
+advance(3761); nativeSpecialCooldown={0,0,1}; ItemRack.SpecialItems.Poll()
+verify(not ItemRack.SpecialItems.Used[16022],'background sampling must retire an expired real cooldown')
+-- The collective delayed-use list must execute the same production hook,
+-- queue selection and combat drain for every enabled Era Dragonling.
+for _,toc in ipairs({11508,11509}) do
+ for _,item in ipairs({4396,10576,16022}) do
+  for _,mode in ipairs({'global','per-set','mirrored'}) do
+   for _,inCombat in ipairs({false,true}) do
+    resetSpecial(toc,inCombat,mode); specialItemID=item
+    local exact=tostring(item)..':1'
+    equipment[13]=exact; ItemRack.GetQueues()[13][2].id=exact
+    ItemRack.EquipTimers[13].id=exact; ItemRack.SetManualQueueChoice(13,exact)
+    local rule=ItemRack.SpecialItems.GetRule(item,13)
+    local spell=next(rule.activation.successSpells)
+    ItemRack.newUseInventoryItem(13); success(spell,'Cast-'..item)
+    verify(ItemRack.SpecialItems.IsCooldownPending(exact) and not ItemRack.ManualQueueChoice[13],
+     'collective-dragonling-use: every enabled entry must release only its confirmed temporary choice')
+    ItemRack.ProcessAutoQueue(13)
+    if inCombat then
+     verify(equipment[13]==exact and ItemRack.CombatQueue[13]=='200','collective delayed items must retain combat deferral')
+     combat=false; ItemRack.ProcessCombatQueue()
+    end
+    verify(equipment[13]=='200' and not ItemRack.IsCandidateReady(13,exact,5000),
+     'collective delayed entries must finish with the replacement and prevent zero-CD reselection')
+    advance(160); nativeSpecialCooldown={160,rule.cooldown.seconds,1}; ItemRack.GetItemCooldownLeft(exact)
+    verify(not ItemRack.SpecialItems.IsCooldownPending(exact),'all deferred entries must reconcile their own native publication')
+   end
+  end
+ end
+end
+-- Exact live Era capture: Chicken 23133 succeeds, then Arcanite wrapper
+-- 23074 succeeds 52ms after its hook. Each receipt belongs only to its item.
+local standardItemCooldown=GetItemCooldown
+for _,mode in ipairs({'global','per-set','mirrored'}) do
+ for _,inCombat in ipairs({false,true}) do
+  resetSpecial(11509,inCombat,mode)
+  equipment[14]='10725:1';ItemRack.EquipTimers[14]={id='10725:1',time=70,hasPenalty=true,used=false}
+  ItemRack.GetQueues()[14]={{id='200',priority=true},{id='10725:1'}}
+  ItemRack.SetManualQueueChoice(14,'10725:1')
+  local cds={[16022]={100,60,1},[10725]={100,1800,1},[4396]={0,0,1}}
+  GetItemCooldown=function(id) local c=cds[tonumber(id)] or {0,0,1};return c[1],c[2],c[3] end
+  cooldowns[14]={100,1800,1};cooldowns[13]={100,60,1}
+  local burnt={};ItemRack.MarkEquippedQueueItemBurnt=function(slot) burnt[slot]=(burnt[slot] or 0)+1 end
+  ItemRack.newUseInventoryItem('14');ItemRack.newUseInventoryItem('13')
+  ItemRack.OnCastingStop(nil,'UNIT_SPELLCAST_SUCCEEDED','player','Chicken',23133)
+  advance(100.8)
+  verify(ItemRackUser.ItemsUsed[10725] and not ItemRackUser.ItemsUsed[16022] and not burnt[13]
+   and not ItemRack.EquipTimers[13].used and not ItemRack.SpecialItems.Used[16022],
+   'issue-33-shared-guardian-not-own-use: rejected Dragonling hook on 60s shared lockout must not mark/burn/confirm it')
+  verify(not ItemRack.IsCandidateReady(13,'16022:1',30),'game shared lockout must still block readiness')
+  local chicken=ItemRack.GetObservedItemCooldown('10725:1',10725)
+  verify(chicken and chicken.duration==1800,'Chicken own cooldown must remain on Chicken')
+  advance(161);cds[16022]={0,0,1};cooldowns[13]={0,0,1}
+  ItemRack.newUseInventoryItem('13');advance(161.052);success(23074,'Era-Arcanite')
+  verify(ItemRack.SpecialItems.IsCooldownPending(16022) and not ItemRack.ManualQueueChoice[13]
+   and ItemRack.EquipTimers[13].used and burnt[13]==1,
+   'issue-33-era-wrapper-success: actual 23074 success must confirm only its bounded Arcanite intent')
+  verify(not ItemRack.SpecialItems.Used[10725] and not ItemRack.SpecialItems.Used[4396],
+   'activation receipts must never spread to other guardian items sharing a category')
+  ItemRack.ProcessAutoQueue(13)
+  if inCombat then verify(ItemRack.CombatQueue[13]=='200','wrapper success must retain combat deferral');combat=false;ItemRack.ProcessCombatQueue() end
+  verify(equipment[13]=='200','actual Era wrapper success must yield to preferred trinket')
+  advance(236);cds[16022]={236,3600,1};ItemRack.GetItemCooldownLeft('16022:1')
+  verify(not ItemRack.SpecialItems.IsCooldownPending(16022) and ItemRack.GetObservedItemCooldown('16022:1',16022).duration==3600
+   and ItemRack.GetObservedItemCooldown('10725:1',10725).duration==1800 and ItemRack.GetItemCooldownLeft('4396:1')==0,
+   'distinct IDs must retain independent own cooldowns even when guardian lockout categories match')
+  ItemRack.MarkEquippedQueueItemBurnt=nil
+ end
+end
+-- Two pending Dragonlings: one activation/reconciliation cannot complete the other.
+resetSpecial(11509,false);equipment[14]='4396:1'
+ItemRack.GetQueues()[14]={{id='200'},{id='4396:1'}};ItemRack.EquipTimers[14]={id='4396:1',time=70,used=false}
+local cds={[16022]={0,0,1},[4396]={0,0,1}}
+GetItemCooldown=function(id) local c=cds[tonumber(id)] or {0,0,1};return c[1],c[2],c[3] end
+ItemRack.newUseInventoryItem('13');ItemRack.newUseInventoryItem('14');success(23074,'Arc')
+verify(ItemRack.SpecialItems.Used[16022] and not ItemRack.SpecialItems.Used[4396],
+ 'issue-33-distinct-special-receipts: one summon success must not consume another item intent')
+success(23076,'Mechanical')
+verify(ItemRack.SpecialItems.IsCooldownPending(16022) and ItemRack.SpecialItems.IsCooldownPending(4396),'different Dragonlings need separate confirmed receipts')
+advance(175);cds[16022]={175,3600,1};cds[4396]={175,60,1}
+ItemRack.GetItemCooldownLeft('16022:1');ItemRack.GetItemCooldownLeft('4396:1')
+verify(not ItemRack.SpecialItems.IsCooldownPending(16022) and ItemRack.SpecialItems.IsCooldownPending(4396),
+ 'one native hour cooldown must not resolve another item shared-minute observation')
+GetItemCooldown=standardItemCooldown
+-- Failure/interruption of the Era wrapper cannot turn into a later success.
+for _,event in ipairs({'UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED'}) do
+ resetSpecial(11509,false);ItemRack.newUseInventoryItem('13')
+ ItemRack.OnCastingStop(nil,event,'player','Failed-Wrapper',23074)
+ success(23074,'Late-After-Failure')
+ verify(not ItemRack.SpecialItems.Used[16022] and ItemRack.ManualQueueChoice[13],
+  'Era wrapper failures must cancel intent without releasing temporary protection')
+ local h=ItemRack.SpecialItems.History
+ verify(h[#h].event=='UNIT_SPELLCAST_SUCCEEDED' and h[#h-1].event==event,
+  'bounded history must retain success/failure/interruption event identity')
+end
+print('[REPORTER GUARDIAN IDENTITY LUA] Live wrapper event, failed shared use, separate receipts/cooldowns and combat flow passed.')
+
+-- Ordinary channels use the shared production casting controller, without item rules.
+${extractFunction(itemRackFile,'ItemRack.OnCastingStart')}
+CastingInfo=function() return nil end
+ChannelInfo=function() return UnitChannelInfo('player') end
+ItemRack.SetsWaiting={}
+ItemRack.OnSpellSucceed=function() end
+for _,case in ipairs({{11509,10645,13278},{11509,10727,13183},{11509,11808,17447},
+ {11509,213347,435167},{11509,227973,462858},{20506,34430,45052},{16001,10645,13278},{16001,999999,888888}}) do
+ resetSpecial(case[1],false); specialItemID=case[2]
+ if case[2]>200000 then ItemRack.IsEngravingActive=function() return true end; ItemRack.SpecialItems.RefreshCatalog() end
+ local exact=tostring(case[2])..':1'; equipment[13]=exact
+ local slot=(case[2]==11808 or case[2]==227973) and 1 or 13
+ -- Process this policy in its actual equipment slot (head or trinket).
+ equipment[13]=nil; equipment[slot]=exact
+ ItemRack.GetQueues()[slot]={{id='200',priority=true},{id=exact}}
+ ItemRackUser.QueuesEnabled[slot]=true
+ cooldowns[slot]={100,300,1}; nativeSpecialCooldown={100,300,1}
+ UnitChannelInfo=function() return 'Channel',nil,nil,nil,nil,nil,nil,case[3] end
+ verify(not ItemRack.SpecialItems.GetRule(case[2]),'ordinary channels must not have per-item rules')
+ ItemRack.OnCastingStart(nil,'UNIT_SPELLCAST_CHANNEL_START','player','Channel-Ordinary',case[3])
+ local before=#requests; ItemRack.ProcessAutoQueue(slot)
+ verify(equipment[slot]==exact and #requests==before,'actual channel entry must hold its current item')
+ local context=ItemRack.GetQueueContext(slot)
+ verify(not ItemRack.AutoQueueItemToEquip(slot,tostring(case[2]),1,false,nil,context),
+  'set recognition must share the same channel guard')
+ UnitChannelInfo=function() return nil end
+ ItemRack.OnCastingStop(nil,'UNIT_SPELLCAST_CHANNEL_STOP','player','Channel-Ordinary',case[3])
+ ItemRack.ProcessAutoQueue(slot)
+ verify(equipment[slot]=='200','channel end must allow the normal replacement')
+end
+-- Real item identities/slots/spells from pinned exports; only API responses and
+-- equipment endpoints are modeled. No fake item/test mode ships in the addon.
+${findPlayerAura}
+${extractFunction(queueFile,'ItemRack.GetProxyBuff')}
+local ordinaryChecks=0
+for _,case in ipairs(${luaData(ordinaryUseCases)}) do
+ for _,mode in ipairs({'global','per-set','mirrored'}) do
+  for _,inCombat in ipairs({false,true}) do
+   for _,api in ipairs({'legacy','legacy-harmful','modern-exact','modern-named','modern-indexed','modern-named-harmful','modern-indexed-harmful'}) do
+    resetSpecial(case.toc,inCombat,mode); specialItemID=case.id
+    local slot,exact=case.slot,tostring(case.id)..':1'
+    equipment[13]=nil; equipment[slot]=exact
+    ItemRack.GetQueues()[slot]={{id='200',priority=true},{id=exact}}
+    if mode=='mirrored' and slot==13 then ItemRackUser.Sets.Master.Queues[slot]={{id='200',priority=true},{id=exact}} end
+    ItemRack.GetQueuesEnabled()[slot]=true
+    ItemRack.EquipTimers[slot]={id=exact,time=70,hasPenalty=false,used=false}
+    ItemRack.SetManualQueueChoice(slot,exact)
+    GetItemSpell=function(id) if tonumber(ItemRack.GetIRString(id))==case.id then return case.name,case.spell end end
+    local active=false
+    UnitBuff=nil; UnitDebuff=nil; C_UnitAuras=nil; AuraUtil=nil
+    if api=='legacy' then UnitBuff=function(unit,index) if active and unit=='player' and index==1 then return case.name end end
+    elseif api=='legacy-harmful' then UnitDebuff=function(unit,index) if active and unit=='player' and index==1 then return case.name end end
+    elseif api=='modern-exact' then C_UnitAuras={GetUnitAuraBySpellID=function(unit,id)
+     if active and unit=='player' and id==case.spell then return {spellId=id} end
+    end}
+    elseif api=='modern-named' or api=='modern-named-harmful' then C_UnitAuras={GetAuraDataBySpellName=function(unit,name,filter)
+     if active and unit=='player' and name==case.name and filter==(api=='modern-named' and 'HELPFUL' or 'HARMFUL') then return {name=name} end
+    end}
+    else C_UnitAuras={GetAuraDataByIndex=function(unit,index,filter)
+     if active and unit=='player' and index==1 and filter==(api=='modern-indexed' and 'HELPFUL' or 'HARMFUL') then return {spellId=case.spell} end
+    end} end
+    verify(not ItemRack.SpecialItems.GetRule(case.id),'ordinary-on-use-not-special: defaults must not need catalog entries')
+    ItemRack.ProcessAutoQueue(slot)
+    verify(equipment[slot]==exact and #requests==0,'unused ordinary items retain temporary protection')
+    cooldowns[slot]={100,case.seconds,1}; nativeSpecialCooldown={100,case.seconds,1}
+    active=case.hasAura
+    ItemRack.newUseInventoryItem(slot); advance(100.06)
+    verify(ItemRack.EquipTimers[slot].used and not ItemRack.ManualQueueChoice[slot],
+     'ordinary-on-use-default-flow: real cooldown proof must release temporary protection in every equipment slot')
+    if active then
+     ItemRack.ProcessAutoQueue(slot)
+     verify(equipment[slot]==exact and #requests==0,'ordinary active player aura must prevent auto replacement')
+     verify(not ItemRack.AutoQueueItemToEquip(slot,tostring(case.id),1,false,nil,ItemRack.GetQueueContext(slot)),
+      'ordinary active aura must also protect set recognition: '..case.id..' '..mode..' '..api)
+    end
+    active=false
+    ItemRack.ProcessAutoQueue(slot)
+    if inCombat then
+     verify(equipment[slot]==exact and ItemRack.CombatQueue[slot]=='200','ordinary use must queue armor swaps during combat')
+     combat=false; ItemRack.ProcessCombatQueue()
+    end
+    verify(equipment[slot]=='200' and #requests==1 and not next(ItemRack.CombatQueue),
+     'ordinary-on-use-default-flow: expired player effect or direct Mortar damage must allow normal replacement')
+    ordinaryChecks=ordinaryChecks+1
+   end
+  end
+ end
+end
+-- Item-only harmful lookups must not change name-only event semantics.
+UnitBuff=nil; C_UnitAuras=nil; AuraUtil=nil
+UnitDebuff=function(_,index) if index==1 then return 'SelfEffect' end end
+verify(ItemRack.FindPlayerAura('SelfEffect',5024) and not ItemRack.FindPlayerAura('SelfEffect'),
+ 'item self-effect lookup must preserve helpful-only name-based event semantics')
+-- Modern failures/secrets cannot invent an effect; an unrelated aura is not a hold.
+UnitBuff=nil; UnitDebuff=nil; AuraUtil=nil
+for _,reader in ipairs({'GetUnitAuraBySpellID','GetAuraDataBySpellName','GetAuraDataByIndex'}) do
+ C_UnitAuras={[reader]=function() error('restricted') end}
+ verify(not ItemRack.FindPlayerAura('Missing',8892),'modern default aura errors must remain contained')
+ local opaque={}; issecretvalue=function(value) return value==opaque end
+ C_UnitAuras={[reader]=function() return opaque end}
+ verify(not ItemRack.FindPlayerAura('Missing',8892),'secret modern records must not invent matching player effects')
+ issecretvalue=nil
+end
+C_UnitAuras={GetAuraDataByIndex=function(_,i) if i==1 then return {name='Other',spellId=999999} end end}
+verify(not ItemRack.FindPlayerAura('Missing',8892),'unrelated modern player aura must not hold the item')
+C_UnitAuras=nil
+print(string.format('[ORDINARY ON-USE DEFAULT FLOW LUA] %d real-item, scope, combat and API scenarios passed.',ordinaryChecks))
+print(string.format('[SPECIAL ITEM RUNTIME LUA] %d delayed-use, slot, context, native cooldown and user-policy checks passed.',specialChecks))
+`, 'issue-33-swap-in-temporary-hold');
+
+// Offline only: each sandbox loads the actual addon modules/functions into
+// independent globals. None of this harness is packaged in the addon ZIP.
+const specialRecoverySource = [
+  require('fs').readFileSync('ItemRack/ItemRackCooldownState.lua', 'utf8'),
+  ...['ItemRack.GetItemCooldownLeft', 'ItemRack.IsCandidateReady', 'ItemRack.ClearManualQueueChoice',
+    'ItemRack.MarkEquippedItemUsed'].map(n => extractFunction(queueFile, n)),
+  extractFunction(itemRackFile, 'ItemRack.TryInitializeQueueState'),
+  ...specialFiles.map(file => `;(function()\n${require('fs').readFileSync(file,'utf8')}\nend)();`),
+].join('\n');
+runLua(String.raw`
+local checks=0
+local function check(value,message) assert(value,message); checks=checks+1 end
+local function serialize(value)
+ if type(value)=='table' then
+  local parts={}
+  for key,v in pairs(value) do parts[#parts+1]='['..serialize(key)..']='..serialize(v) end
+  return '{'..table.concat(parts,',')..'}'
+ elseif type(value)=='string' then return string.format('%q',value)
+ elseif type(value)=='number' or type(value)=='boolean' then return tostring(value)
+ elseif value==nil then return 'nil' end
+ error('non-SavedVariables value in production receipt: '..type(value))
+end
+local function transport(value) return assert(load('return '..serialize(value)))() end
+local function fresh(saved,toc,uptime,epoch,scope)
+ local world={time=uptime or 100,epoch=epoch or 1800000100,sample={0,0,1},equipment={[13]='16022:1'},notifications=0,seasonal=false,chat=0}
+ local env=setmetatable({}, {__index=_G}); env._G=env
+ env.GetTime=function() return world.time end
+ env.GetServerTime=function() return world.epoch end
+ env.GetBuildInfo=function() return 'fixture','70938','fixture',toc or 16001 end
+ env.GetItemCooldown=function() return table.unpack(world.sample) end
+ env.C_Timer={After=function() end}
+ env.ItemRackUser={SpecialItemUsage=saved,EquipTimers={},ItemsUsed={},Sets={Active={Queues={}}}}
+ env.ItemRack={QueueStateReady=false,QueueStateGeneration=1,PendingEquipTransitionTimes={},ManualQueueChoice={[13]='16022:1'},
+  ManualQueueChoiceOwner={[13]=scope or 'Active'},ManualQueueHold={},
+  GetEquippedSlotState=function(slot) return world.equipment[slot] and 'resolved' or 'empty',world.equipment[slot] end,
+  GetID=function(slot) return world.equipment[slot] end,
+  GetQueueContext=function() return {owner=scope or 'Active',list=env.ItemRackUser.Sets.Active.Queues} end,
+  SameExactID=function(a,b) return a==b end,
+  IsManualQueueChoice=function(slot,id) return env.ItemRack.ManualQueueChoice[slot]==id end,
+  GetQueuesEnabled=function() return {} end,
+  GetDefaultSwapIn=function() return 30 end,
+  IsEngravingActive=function() return world.seasonal end,
+  Print=function() world.chat=world.chat+1 end,
+  Debug=function() end,QueueDiagnostic=function() end,
+  NotifyQueueStateReady=function()
+   world.notifications=world.notifications+1
+   if world.expectReceipt then assert(env.ItemRack.SpecialItems.IsCooldownPending(16022),'restore must precede queue-ready notification') end
+  end}
+ assert(load([====[${specialRecoverySource}]====], 'production-special-recovery','t',env))()
+ return env,world,env.ItemRack.SpecialItems
+end
+local function initialize(env,world,special)
+ special.LoadSaved()
+ assert(not next(special.Used),'loading transport must not prematurely activate automation')
+ assert(env.ItemRack.TryInitializeQueueState(false,true))
+end
+local function use(env,special,cast)
+ special.BeginUse(13)
+ special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player',cast or 'Cast-1',19804)
+end
+for _,toc in ipairs({11508,11509,16001,11601}) do
+ for _,scope in ipairs({'Global','Active','Mirror'}) do
+  local env,w,s=fresh(nil,toc,100,1800000100,scope)
+  initialize(env,w,s); use(env,s)
+  local store=transport(env.ItemRackUser.SpecialItemUsage)
+  check(store.records[16022].confirmedAt==w.epoch and store.records[16022].phase=='pending',
+   'special-use-reload-before-native-cooldown: confirmation must persist before native cooldown')
+  check(not store.records[16022].list and not store.records[16022].owner and not store.records[16022].time,
+   'receipt transport must not persist queue references or uptime')
+  local re,rw,rs=fresh(store,toc,7,1800000110,scope)
+  rw.expectReceipt=true; re.ItemRack.ManualQueueHold[13]=true
+  initialize(re,rw,rs)
+  local hasSuccessEvent=false
+  for _,entry in ipairs(rs.PreviousHistory) do if entry.reason=='activation_confirmed' and entry.event=='UNIT_SPELLCAST_SUCCEEDED' then hasSuccessEvent=true end end
+  check(hasSuccessEvent,'special history must retain actual event type across normal reload')
+  check(rs.Used[16022].restored and rs.IsCooldownPending(16022) and not re.ItemRack.IsCandidateReady(13,16022,5000),
+   'special-use-reload-before-native-cooldown: a fresh Lua environment must retain exclusion despite zero API cooldown')
+  check(re.ItemRack.ManualQueueChoice[13]=='16022:1' and re.ItemRack.ManualQueueHold[13] and not next(re.ItemRackUser.ItemsUsed),
+   'special-use-recovery-no-replay: restoration must not release a new hold or create use notifications')
+  rw.sample={7,60,1}; rs.Poll()
+  check(rs.IsCooldownPending(16022),'shared penalty after reload cannot end pending state')
+  rw.time=70; rw.epoch=1800000173; rw.sample={70,3600,1}; rs.Poll()
+  check(rs.Used[16022].phase=='cooldown' and not rs.IsCooldownPending(16022) and re.ItemRackUser.ItemsUsed[16022]==1,
+   'first real native publication after reload must register normal notifications once')
+  re.ItemRackUser.ItemsUsed[16022]=5; rs.Poll()
+  check(re.ItemRackUser.ItemsUsed[16022]==5,'repeated observation must not replay notification registration')
+  local observed=transport(re.ItemRackUser.SpecialItemUsage)
+  local off,ow,os=fresh(observed,toc,2,1800004000,scope)
+  initialize(off,ow,os)
+  check(os.IsCooldownPending(16022),'offline expiry needs stable readable authority, not saved time alone')
+  ow.time=3.1; os.Poll()
+  check(not os.Used[16022] and not off.ItemRackUser.SpecialItemUsage.records[16022],
+   'special-use-relog-native-expiry: stable post-login zero must retire an observed expired cooldown')
+ end
+end
+local env,w,s=fresh(); initialize(env,w,s); use(env,s)
+local seed=transport(env.ItemRackUser.SpecialItemUsage)
+w.time=191; w.epoch=w.epoch+91
+check(s.IsCooldownPending(16022) and s.Used[16022].phase=='pending','special-use-unresolved-recovery: queries are pure')
+s.Poll(); check(s.Used[16022].phase=='unresolved','poll must enter unresolved state explicitly')
+use(env,s,'Cast-New'); check(s.Used[16022].phase=='pending','a new independently confirmed use must replace old uncertainty')
+env.ItemRack.ManualQueueHold[13]=true
+check(s.ResetReceipt(16022) and not s.Used[16022] and not env.ItemRackUser.SpecialItemUsage.records[16022]
+ and env.ItemRack.ManualQueueHold[13], 'explicit receipt reset must leave manual policy unchanged')
+local first,fw,fs=fresh(); initialize(first,fw,fs); use(first,fs)
+fw.time=160; fw.sample={160,3600,1}; fs.Poll()
+local hot,hw,hs=fresh(transport(first.ItemRackUser.SpecialItemUsage),16001,2,1800000200)
+hw.sample={1,3500,1}; initialize(hot,hw,hs)
+check(hs.Used[16022].phase=='cooldown' and not next(hot.ItemRackUser.ItemsUsed),
+ 'restoring an already observed cooldown must not register its notification a second time')
+for _,kind in ipairs({'schema','wrong-family','wrong-ruleset','revision','disabled','scalar','time','identity','slot'}) do
+ local saved=transport(seed)
+ if kind=='schema' then saved.schema=9
+ elseif kind=='wrong-family' then saved.family='tbc'
+ elseif kind=='wrong-ruleset' then saved.ruleset='sod'
+ elseif kind=='revision' then saved.records[16022].revision=9
+ elseif kind=='scalar' then saved.records[16022]=true
+ elseif kind=='time' then saved.records[16022].confirmedAt='bad'
+ elseif kind=='identity' then saved.records[16022].exactID='19830:1'
+ elseif kind=='slot' then saved.records[16022].slot=17 end
+ local re,rw,rs=fresh(saved)
+ if kind=='disabled' then rs.Rules[16022].enabled=false; rs.BuildIndex() end
+ initialize(re,rw,rs)
+ check(not next(rs.Used) and #rs.Rejections>0,'special-use-store-validation: reject '..kind)
+ if kind=='schema' then
+  check(re.ItemRackUser.SpecialItemUsage==saved and saved.schema==9,'future schema must remain unchanged')
+  use(re,rs); check(not next(rs.Used),'unsupported future schema must not execute new exceptions')
+ end
+end
+for _,epoch in ipairs({1800000000,false}) do
+ local re,rw,rs=fresh(transport(seed),16001,5,epoch)
+ if epoch==false then rw.epoch=nil end
+ initialize(re,rw,rs)
+ check(rs.Used[16022].clockUncertain and rs.IsCooldownPending(16022),'backward/unavailable clocks cannot manufacture readiness')
+ rw.sample={5,3600,1}; rs.Poll()
+ check(rs.Used[16022].phase=='cooldown','fresh authoritative cooldown can reconcile an uncertain clock')
+end
+local oversized=transport(seed)
+for id=900000,900200 do oversized.records[id]={bad=true} end
+local big,bw,bs=fresh(oversized); initialize(big,bw,bs)
+check(bs.IsCooldownPending(16022) and #bs.Rejections<=24,
+ 'oversized extraneous records must not crowd out a legitimate pending item; diagnostics stay bounded')
+env,w,s=fresh(); initialize(env,w,s); use(env,s)
+env.ItemRack.CooldownState.BeginArena(env.ItemRack.EnsureCooldownState(),w.time+1)
+w.time=w.time+1; s.Poll()
+check(not s.Used[16022] and not env.ItemRackUser.SpecialItemUsage.records[16022],
+ 'special-use-reset-generation: authority-confirmed arena reset must clear pending receipt')
+env,w,s=fresh(); initialize(env,w,s); use(env,s)
+w.time=160; w.sample={160,3600,1}; s.Poll()
+env.ItemRack.CooldownState.BeginArena(env.ItemRack.EnsureCooldownState(),170)
+w.time=170; s.Poll()
+check(s.Used[16022]~=nil,'stale pre-arena active sample cannot masquerade as a confirmed reset')
+w.sample={0,0,1}; s.Poll()
+check(not s.Used[16022],'readable reset after stale arena data must retire receipt')
+env,w,s=fresh(); initialize(env,w,s)
+s.StartTrace(true)
+for i=1,2200 do s.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Unrelated',900000+i) end
+check(#s.Trace==2048 and s.TraceDropped==152 and not next(s.Used),'unexpected spell IDs must be diagnostic only and bounded')
+w.time=221; s.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Late',19804)
+check(#s.Trace==2048 and s.TraceStop=='expired' and not next(s.Used),'detailed capture must expire without enabling use')
+check(w.chat==0,'diagnostic collection must be quiet by default')
+env,w,s=fresh(); initialize(env,w,s); s.StartTrace(true)
+env.issecretvalue=function(value) return type(value)=='table' end
+s.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player',{}, {})
+check(not next(s.Used) and s.Trace[#s.Trace].spell==nil,'secret/unavailable spell evidence must remain diagnostic and cannot activate an item')
+env,w,s=fresh(transport(seed),11509)
+w.seasonal=nil; s.CatalogLoaded=nil; s.RefreshCatalog(); s.LoadSaved()
+check(not s.PersistenceLoaded,'unknown seasonal detection must defer receipt validation')
+w.seasonal=true; s.RefreshCatalog(); s.LoadSaved()
+check(s.Client.ruleset=='sod' and not s.Rules[228955] and s.Rules[10726] and not s.Rules[30720],
+ 'special-client-late-seasonal-detection: refresh must allocate only the selected seasonal table')
+local rules=s.Rules; s.RefreshCatalog()
+check(s.Rules==rules,'unchanged catalog refresh must be idempotent')
+print(string.format('[SPECIAL RECOVERY LUA] %d isolated-environment recovery, validation, diagnostics and lifecycle checks passed.',checks))
+`, 'special-use-reload-before-native-cooldown');
+
+// Compare the entire live catalog with pinned extracted client records rather
+// than testing only an example row or treating the coverage manifest as truth.
+function parseMetrics(text) {
+  const rows=[]; let row=[],field='',quoted=false;
+  for(let i=0;i<text.length;i++) {
+    const c=text[i];
+    if(c==='"') { if(quoted && text[i+1]==='"') { field+='"'; i++; } else quoted=!quoted; }
+    else if(!quoted && (c===',' || c==='\n')) {
+      row.push(field); field='';
+      if(c==='\n') { rows.push(row); row=[]; }
+    } else if(c!=='\r' || quoted) field+=c;
+  }
+  if(field || row.length) { row.push(field); rows.push(row); }
+  const header=rows.shift(); return rows.map(r=>Object.fromEntries(header.map((h,i)=>[h,r[i]])));
+}
+function luaData(value) {
+  if(value===null || value===undefined) return 'nil';
+  if(typeof value!=='object') return JSON.stringify(value);
+  if(Array.isArray(value)) return `{${value.map(luaData).join(',')}}`;
+  return `{${Object.entries(value).map(([k,v])=>`[${/^\d+$/.test(k)?k:JSON.stringify(k)}]=${luaData(v)}`).join(',')}}`;
+}
+const metrics=parseMetrics(require('fs').readFileSync('docs/research/special-item-usage-metrics.csv','utf8'));
+const seasonalIDs=new Set([213347,213348,215461,227973,228955,233217]);
+const inventorySlots={1:[1],8:[8],12:[13,14],23:[17]};
+const fallbackSlots=new Map(metrics.filter(r=>r.label==='era-11509' && r.trigger==='0').map(r=>[r.item_id,Number(r.slot)]));
+const cases=[];
+for(const [toc,label] of [[11508,'era-11508'],[11509,'era-11509'],[20505,'tbc-255'],[20506,'tbc-256'],[16001,'forever-16001'],[11601,'forever-16001']]) {
+  for(const sod of toc<20000 && toc>=11508 && toc<=11509 ? [false,true] : [false]) {
+    const gear={},references={},defaultHandled={};
+    for(const r of metrics.filter(r=>r.label===label && (r.trigger==='0' || r.item_id==='30720'))) {
+      if(seasonalIDs.has(Number(r.item_id)) && !sod) continue;
+      const slotType=r.slot==='' ? fallbackSlots.get(r.item_id) : Number(r.slot);
+      if(!inventorySlots[slotType]) { references[r.item_id]=true; continue; }
+      const own=Number(r.item_cd_ms)>=0 ? Number(r.item_cd_ms) : Number(r.spell_cd_ms);
+      gear[r.item_id]={spell:Number(r.spell_id),slots:inventorySlots[slotType],seconds:own/1000,
+        channel:r.channel==='True',deferred:r.event_cooldown==='True'||r.alias_event==='True',
+        success:Number(r.legacy_alias||r.spell_id),category:Number(r.item_category),
+        categorySeconds:(Number(r.item_category_cd_ms)>=0 ? Number(r.item_category_cd_ms):Number(r.spell_category_cd_ms))/1000};
+    }
+    for(const [id,source] of Object.entries(gear)) {
+      if(!source.deferred && id!=='10726' && id!=='30720') { defaultHandled[id]=source; delete gear[id]; }
+    }
+    cases.push({toc,sod,gear,references,defaultHandled});
+  }
+}
+runLua(String.raw`
+local now=100
+function GetTime() return now end
+local toc,sod
+function GetBuildInfo() return 'fixture','70938','fixture',toc end
+ItemRack={IsEngravingActive=function() return sod end}
+local activeSpell,activeUnit,channelSpell
+function GetSpellInfo(id) return 'spell:'..id end
+function UnitBuff(unit,index)
+ if activeUnit==unit and index==1 and not (unit=='pet' and activeSpell==13181) then return GetSpellInfo(activeSpell) end
+end
+function UnitDebuff(unit,index)
+ if activeUnit==unit and index==1 and unit=='pet' and activeSpell==13181 then return GetSpellInfo(activeSpell) end
+end
+function UnitChannelInfo() return nil,nil,nil,nil,nil,nil,nil,channelSpell end
+${extractFunction(itemRackFile,'ItemRack.FindPlayerAura')}
+${extractFunction(itemRackFile,'ItemRack.FindAuraByName')}
+local checks=0
+local function check(v,m) assert(v,m); checks=checks+1 end
+local function count(t) local n=0; for _ in pairs(t) do n=n+1 end; return n end
+for _,case in ipairs(${luaData(cases)}) do
+ toc,sod=case.toc,case.sod
+ ${loadSpecialCatalog}
+ local special=ItemRack.SpecialItems
+ check(count(special.Rules)==count(case.gear),'curated-exception-source: only deferred cooldowns, pet charm and dependency proxy belong in the active catalog')
+ check(special.ReferenceItems==nil,'research-only bag records must not allocate runtime tables')
+ for id in pairs(case.defaultHandled) do check(not special.GetRule(id),'ordinary-on-use-not-special: normal source items must use default handling') end
+ check(not next(special.InvalidRules),'all enabled catalog entries must pass production validation')
+ for id,source in pairs(case.gear) do
+  local rule=special.GetRule(id)
+  check(rule and rule.enabled and rule.revision==1,'curated-exception-source: each retained exception must be enabled')
+  check(count(rule.slots)==#source.slots,'equipment slots must come from InventoryType mapping, never from spell target or category')
+  for _,slot in ipairs(source.slots) do check(special.GetRule(id,slot)==rule,'every source equipment slot must match') end
+  if id==30720 then check(rule.proxy.id==22044 and rule.proxy.buff==37445,'Braid must preserve its existing shared proxy')
+  else
+   check(rule.useSpell==source.spell and rule.cooldown.seconds==source.seconds,'spell/cooldown metrics must match the pinned client binding')
+   check(rule.cooldown.category==source.category and rule.cooldown.categorySeconds==source.categorySeconds,'shared cooldown metadata must match this client, not a universal guardian timer')
+   check((rule.cooldown.start=='deferred')==source.deferred,'deferred handling must follow this client effect/alias flags')
+   if source.deferred then check(rule.activation.successSpells[source.success],'matching activation evidence must use the client-specific summon identity') end
+   if source.channel then check(rule.effect.kind=='channel' and rule.effect.spells[source.spell] and rule.effect.hold,'source channels must use the reusable channel guard') end
+  end
+  local effect=rule.effect
+  if effect and effect.hold then
+   local spell=next(effect.spells); local slot=source.slots[1]
+   activeSpell,activeUnit,channelSpell=nil,nil,nil
+   if effect.kind=='channel' then channelSpell=spell else activeSpell,activeUnit=spell,effect.unit end
+   check(special.ShouldHoldEffect(slot,tostring(id)),'catalog-effect-flow: the actual configured channel/aura must hold its item')
+   if effect.kind=='channel' then channelSpell=999999 else activeSpell=999999 end
+   check(not special.ShouldHoldEffect(slot,tostring(id)),'unrelated channel/aura must not hold any catalog item')
+   if effect.kind=='aura' then
+    activeSpell=spell; activeUnit=effect.unit=='pet' and 'player' or 'pet'
+    check(not special.ShouldHoldEffect(slot,tostring(id)),'the same spell on the wrong unit must not satisfy the rule')
+    local oldBuff,oldDebuff=UnitBuff,UnitDebuff; UnitBuff,UnitDebuff=nil,nil
+    activeUnit=effect.unit
+    C_UnitAuras={GetUnitAuraBySpellID=function(unit,id)
+     if unit==activeUnit and id==activeSpell then return {spellId=id} end
+    end}
+    check(special.ShouldHoldEffect(slot,tostring(id)),'exact modern spell-ID lookup must work without legacy aura globals')
+    activeSpell=999999
+    check(not special.ShouldHoldEffect(slot,tostring(id)),'modern lookup must reject other spell IDs')
+    activeSpell=spell
+    C_UnitAuras={GetAuraDataByIndex=function(unit,index,filter)
+     if index==1 and unit==activeUnit and filter==(unit=='pet' and 'HARMFUL' or 'HELPFUL') then return {spellId=activeSpell} end
+    end}
+    check(special.ShouldHoldEffect(slot,tostring(id)),'indexed modern aura lookup must scan the correct helpful/harmful unit data')
+    activeSpell=999999
+    check(not special.ShouldHoldEffect(slot,tostring(id)),'indexed lookup must not hold for an unrelated aura')
+    C_UnitAuras={GetUnitAuraBySpellID=function() error('unavailable') end,GetAuraDataByIndex=function() error('restricted') end}
+    check(not special.ShouldHoldEffect(slot,tostring(id)),'modern API failure must remain contained')
+    local opaque={}; issecretvalue=function(value) return value==opaque end
+    C_UnitAuras={GetUnitAuraBySpellID=function() return opaque end,GetAuraDataByIndex=function() return opaque end}
+    check(not special.ShouldHoldEffect(slot,tostring(id)),'secret aura records must not establish a matching effect')
+    issecretvalue=nil
+    C_UnitAuras=nil; UnitBuff,UnitDebuff=oldBuff,oldDebuff
+   end
+  end
+ end
+ for id in pairs(case.references) do check(not special.GetRule(id),'bag-only reference must never register as an equipment rule') end
+ activeSpell,activeUnit,channelSpell=nil,nil,nil
+ local report=special.GetDiagnostics()
+ check(report.catalog[10726].effect and report.catalogSource.label and not report.referenceItems,
+  'support dumps must include only active exception mechanics and catalog source')
+end
+print(string.format('[CURATED EXCEPTION SOURCE LUA] %d pinned-build coverage, metrics and actual channel/aura checks passed.',checks))
+`, 'curated-exception-source');
+
+runLua(String.raw`
+local now=100
+function GetTime() return now end
+function GetBuildInfo() return 'fixture','70938','fixture',16001 end
+function date() return 'clock' end
+local printed={}
+ItemRack={DebugAll=false,DebugChat=false,DebugTags={Events=false,Equip=false,Queue=false,CombatQueue=false,API=false,UI=false,Combat=false,SpecialItems=false},
+ IsEngravingActive=function() return false end,
+ GetEquippedSlotState=function(slot) return slot==13 and 'resolved' or 'empty',slot==13 and '16022:1' end,
+ Print=function(message) printed[#printed+1]=message end,
+ QueueDiagnostic=function() end,ClearQueueDiagnostics=function() end}
+${loadSpecialCatalog}
+${extractFunction(itemRackFile,'ItemRack.Debug')}
+${extractFunction(itemRackFile,'ItemRack.PrintDebugStatus')}
+${extractFunction(itemRackFile,'ItemRack.SlashHandler')}
+local special=ItemRack.SpecialItems
+local checks=0
+local function check(v,m) assert(v,m); checks=checks+1 end
+ItemRack.SlashHandler('debug')
+check(ItemRack.DebugAll and ItemRack.DebugTags.SpecialItems and special.TraceUntil==220 and special.IsTraceActive(),
+ 'core-debug-starts-special-capture: master debug must start the same 120-second capture as the dedicated command')
+check(special.TraceStop==nil,'active capture must not be reported as already disabled')
+local messages=#printed
+special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Unrelated',999999)
+check(#special.Trace==1 and #printed==messages and #ItemRack.LogBuffer==1,'master capture must record silently with debug chat off')
+now=221
+ItemRack.SlashHandler('debug status')
+check(not special.IsTraceActive() and printed[#printed]:find('OFF/expired',1,true),'status must report actual expired capture, not only its tag')
+ItemRack.SlashHandler('debug specialitems')
+check(special.IsTraceActive() and special.TraceUntil==341 and #special.Trace==0,'dedicated command must rearm in one invocation after expiry')
+ItemRack.SlashHandler('debug specialitems')
+check(not special.IsTraceActive(),'dedicated command must stop capture while master debugging remains enabled')
+ItemRack.SlashHandler('debug')
+check(not ItemRack.DebugAll and not ItemRack.DebugTags.SpecialItems and not special.IsTraceActive(),'master disable must stop the special capture too')
+ItemRack.SlashHandler('debug specialitems')
+check(not ItemRack.DebugAll and ItemRack.DebugTags.SpecialItems and special.IsTraceActive(),'dedicated capture must also work independently')
+ItemRack.SlashHandler('debug specialitems')
+ItemRack.SlashHandler('debug chat')
+check(ItemRack.DebugAll and ItemRack.DebugChat and special.IsTraceActive(),'enabling all layers through debug chat must include special-item capture')
+local deadline=special.TraceUntil
+ItemRack.SlashHandler('debug chat')
+check(not ItemRack.DebugChat and special.TraceUntil==deadline,'turning chat off must not stop or restart silent capture')
+special.Used[16022]={lastSample='old'}; special.History={{reason='test'}}
+special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Unrelated',999999)
+ItemRack.SlashHandler('debug clear')
+check(#special.Trace==0 and #special.History==0 and special.IsTraceActive() and special.Used[16022] and not special.Used[16022].lastSample,
+ 'clearing diagnostics must preserve confirmed use and active capture while allowing the next sample to be recorded')
+print(string.format('[SPECIAL DEBUG COMMAND LUA] %d actual SlashHandler start/stop/expiry/chat and clear checks passed.',checks))
+`, 'core-debug-starts-special-capture');
+
+// Full dumps use the real command, serializer, trace reader and page callbacks.
+// Native widgets are modeled; client rendering/clipboard acceptance stays manual.
+runLua(String.raw`
+local now,combat=100,false
+function GetTime() return now end
+function GetBuildInfo() return 'fixture','70576','fixture',11509 end
+function InCombatLockdown() return combat end
+function date() return 'clock' end
+UIParent={}
+ItemRackSettings={}
+ItemRackUser={Buttons={},Queues={},QueuesEnabled={},Sets={},Events={Enabled={},Set={}}}
+ItemRack={Version='Dev',BuildID='Dev',DebugTags={Queue=true},
+ IsEngravingActive=function() return false end,Print=function() end,
+ GetEquippedSlotState=function(slot) return slot==13 and 'resolved' or 'empty',slot==13 and '16022:1' end,
+ GetMenuDiagnosticReport=function() return {retained='menu-report'} end}
+local methods={}
+function methods:SetScript(event,callback) self.scripts[event]=callback end
+function methods:SetText(text)
+ self.text=text
+ if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end
+end
+function methods:GetText() return self.text end
+function methods:GetParent() return self.parent end
+function methods:GetHeight() return self.height or 420 end
+function methods:SetHeight(value) self.height=value end
+function methods:SetPoint(point,...) self.points[point]={...} end
+function methods:Enable() self.enabled=true end
+function methods:Disable() self.enabled=false end
+function methods:Show() self.shown=true end
+function methods:Hide() self.shown=false;if self.scripts.OnHide then self.scripts.OnHide(self) end end
+function methods:SetFocus() self.focusCount=(self.focusCount or 0)+1 end
+function methods:HighlightText() self.highlighted=true end
+function methods:SetVerticalScroll(value) self.scroll=value end
+function methods:CreateFontString() return CreateFrame('FontString',nil,self) end
+for _,name in ipairs({'SetSize','SetFrameStrata','EnableMouse','SetMovable','RegisterForDrag','SetBackdrop',
+ 'SetBackdropColor','SetMultiLine','SetFontObject','SetWidth','SetAutoFocus','SetMaxLetters',
+ 'UpdateScrollChildRect','SetScrollChild','StartMoving','StopMovingOrSizing'}) do methods[name]=function() end end
+function CreateFrame(kind,name,parent)
+ local frame=setmetatable({kind=kind,name=name,parent=parent,scripts={},points={}},{__index=methods})
+ if name then _G[name]=frame end
+ return frame
+end
+${loadSpecialCatalog}
+${extractFunction(itemRackFile,'ItemRack.Debug')}
+${extractFunction(itemRackFile,'ItemRack.SplitDiagnosticPages')}
+${extractFunction(itemRackFile,'ItemRack.ShowDiagnosticPage')}
+${extractFunction(itemRackFile,'ItemRack.MenuDiagnosticValue')}
+${extractFunction(itemRackFile,'ItemRack.GetTooltipAnchorTraceReport')}
+${extractFunction(itemRackFile,'ItemRack.FormatTooltipAnchorTraceReport')}
+${extractFunction(itemRackFile,'ItemRack.SlashHandler')}
+local checks=0
+local function check(value,message) assert(value,message);checks=checks+1 end
+local special=ItemRack.SpecialItems
+special.StartTrace(true)
+for i=1,2200 do special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Unused',900000+i) end
+local normal=special.GetDiagnostics()
+local full=special.GetDiagnostics(true)
+check(#special.Trace==2048 and full.traceDropped==152 and full.traceCapacity==2048,
+ 'expanded-special-trace: retention must be bounded at 2048 and record overwritten entries')
+check(#normal.trace==256 and normal.traceRetained==2048 and normal.traceOmitted==1792 and normal.traceExported==256,
+ 'normal export must remain at 256 special entries after increasing runtime retention')
+check(#full.trace==2048 and full.traceOmitted==0 and full.traceExported==2048,
+ 'dump-full-special-trace: opt-in export must include every retained special entry')
+check(normal.trace[1].spell==901945 and full.trace[1].spell==900153 and normal.trace[256].spell==902200,
+ 'normal/full trace windows must select the correct ordered boundaries')
+for i=1,5500 do ItemRack.Debug('Queue',string.format('ACTIVITY_%04d_END',i)) end
+check(#ItemRack.LogBuffer==5000,'ordinary retention must remain bounded at 5000')
+local function activityCount(text) local _,n=text:gsub('ACTIVITY_%d+_END','');return n end
+ItemRack.SlashHandler('dump')
+local regular=ItemRackLogEditBox:GetText()
+check(activityCount(regular)==500 and regular:find('ACTIVITY_5001_END',1,true) and not regular:find('ACTIVITY_5000_END',1,true),
+ 'normal-dump-exact-500: ordinary dump must export exactly the latest 500 log entries')
+check(regular:find('retained',1,true) and regular:find('AUTOQUEUE RUNTIME STATE',1,true) and not ItemRackLogFrame.NextPage.shown,
+ 'normal dump must retain state sections and hide full-export controls')
+local originalCount,originalFirst=#ItemRack.LogBuffer,ItemRack.LogBuffer[1]
+ItemRack.SlashHandler('dump full')
+local frame=ItemRackLogFrame
+local joined=table.concat(frame.DumpPages)
+check(activityCount(joined)==5000 and joined:find('ACTIVITY_0501_END',1,true) and joined:find('ACTIVITY_5500_END',1,true),
+ 'dump-full-all-retained-logs: full command must export all retained log entries in order')
+check(joined:find('All 5000 retained lines',1,true) and joined:find('900153',1,true) and joined:find('902200',1,true),
+ 'dump full must include original trace endpoints and label its retained log count')
+check(#frame.DumpPages>1 and frame.NextPage.shown and frame.PageLabel.shown and frame.DumpPage==1
+ and not frame.PreviousPage.enabled and frame.NextPage.enabled,'full export must open at its first copyable page')
+local collected={}
+for i=1,#frame.DumpPages do
+ check(frame.DumpPage==i and ItemRackLogEditBox:GetText()==frame.DumpPages[i] and ItemRackLogEditBox.highlighted,
+  'dump-full-page-copy-order: actual navigation must select every page in order')
+ local page=ItemRackLogEditBox:GetText();local _,lines=page:gsub('\n','')
+ check(#page<=24000 and lines<=400 and ItemRackLogEditBox.height<=6480,
+  'full export must never hand the native EditBox an unbounded page/height')
+ collected[#collected+1]=page
+ if i<#frame.DumpPages then frame.NextPage.scripts.OnClick() end
+end
+check(table.concat(collected)==joined and not frame.NextPage.enabled,'copying every page must reconstruct the full snapshot without missing or duplicating bytes')
+frame.PreviousPage.scripts.OnClick()
+check(frame.DumpPage==#frame.DumpPages-1 and frame.NextPage.enabled,'Previous must preserve the original full snapshot')
+check(#ItemRack.LogBuffer==originalCount and ItemRack.LogBuffer[1]==originalFirst and #special.Trace==2048,
+ 'exporting/navigation must not consume or alter retained diagnostic evidence')
+local focuses=ItemRackLogEditBox.focusCount
+combat=true;frame.NextPage.scripts.OnClick()
+check(ItemRackLogEditBox.focusCount==focuses,'page navigation must preserve the existing combat focus restriction')
+combat=false
+ItemRack.SlashHandler('dump')
+check(activityCount(ItemRackLogEditBox:GetText())==500 and #frame.DumpPages==1 and not frame.NextPage.shown
+ and not frame.PageLabel.shown,'normal-after-full must discard old pages and restore the standard view')
+frame:Hide();check(not frame.DumpPages and ItemRackLogEditBox:GetText()=='','closing must release the large export snapshot')
+-- Long single lines and UTF-8 across byte boundaries still reconstruct exactly.
+local long=string.rep('x',23999)..'é'..string.rep('y',60000)..'\nTAIL\n'
+local pages=ItemRack.SplitDiagnosticPages(long)
+check(table.concat(pages)==long,'long-line/UTF-8 splitting must preserve every byte')
+for _,page in ipairs(pages) do
+ check(#page<=24000 and utf8.len(page)~=nil,'page boundaries must not split UTF-8 characters')
+end
+local malformed=string.rep(string.char(128),25000)
+local malformedPages=ItemRack.SplitDiagnosticPages(malformed)
+check(#malformedPages==2 and table.concat(malformedPages)==malformed,'malformed byte runs must make bounded progress without dropping data')
+check(#ItemRack.SplitDiagnosticPages('')==1,'empty full export must still have one copyable page')
+-- Owner supplied four pages of a ten-page report for a ten-second trace.
+-- Exercise the actual focused command with unrelated retained logs still full.
+local reportGetter,specialGetter=ItemRack.GetMenuDiagnosticReport,special.GetDiagnostics
+ItemRack.GetMenuDiagnosticReport=function() error('focused export must not collect bag/profile diagnostics') end
+special.GetDiagnostics=function() error('focused export must not collect special-item diagnostics') end
+ItemRack.TooltipAnchorTrace={status='limit',started=99,untilTime=109,entries={}}
+for i=1,128 do
+ ItemRack.TooltipAnchorTrace.entries[i]={time=100+i/100,frame='ShoppingTooltip1',event='SetPoint',
+  point='TOP',relative='GameTooltip',anchor='TOP',x=0,y=i%2==0 and -10 or 0,
+  top=300,bottom=110,height=190,scale=0.71111112833023,
+  caller=i%2==0 and 'TipTac layout\nRefreshAnchorShoppingTooltips' or 'Native layout\nAnchorShoppingTooltips'}
+end
+ItemRack.SlashHandler('dump tooltips')
+local focused=table.concat(frame.DumpPages)
+local _,rows=focused:gsub(' | ST1 | SetPoint | ','')
+local _,nativeCallers=focused:gsub('Native layout','')
+local _,controllerCallers=focused:gsub('TipTac layout','')
+check(rows==128 and focused:find('128 | 101.28 | ST1',1,true) and focused:find('status=limit retained=128',1,true),
+ 'reported-tooltip-trace-export-size: focused command must include all retained samples, not only the normal 16-sample tail')
+check(focused:find('comparisonPolicy=native-per-render-v1 observed=0 duplicatesSkipped=0',1,true),
+ 'focused report must identify the candidate comparison policy even before any reuse')
+check(nativeCallers==1 and controllerCallers==1,'focused export must deduplicate repeated stacks while preserving each row caller ID')
+check(#frame.DumpPages==1 and not frame.NextPage.shown and not frame.PageLabel.shown,
+ 'representative full tooltip capture must fit one safe copy view regardless of unrelated log/profile size')
+check(not focused:find('ACTIVITY_',1,true) and not focused:find('SPECIAL',1,true) and not focused:find('ConfiguredSets',1,true),
+ 'focused tooltip export must exclude unrelated logs, sets and special-item traces')
+check(#ItemRack.TooltipAnchorTrace.entries==128 and #ItemRack.LogBuffer==originalCount and #special.Trace==2048,
+ 'focused export must preserve the existing capture and all unrelated retained evidence')
+for i,entry in ipairs(ItemRack.TooltipAnchorTrace.entries) do entry.caller=tostring(i)..string.rep('s',630) end
+ItemRack.SlashHandler('dump tooltips')
+local largeFocused=table.concat(frame.DumpPages)
+check(#frame.DumpPages>1 and frame.NextPage.shown and largeFocused:find('128'..string.rep('s',630),1,true),
+ 'unique long stacks must use safe pages without dropping evidence or exceeding native limits')
+for _,page in ipairs(frame.DumpPages) do
+ local _,newlines=page:gsub('\n','')
+ check(#page<=24000 and newlines<=400,'focused export must obey the existing native EditBox bounds')
+end
+ItemRack.TooltipAnchorTrace=nil;ItemRack.SlashHandler('dump tooltips')
+check(ItemRackLogEditBox:GetText():find('status=off retained=0',1,true),'focused export before capture must explain its empty state')
+ItemRack.GetMenuDiagnosticReport,special.GetDiagnostics=reportGetter,specialGetter
+ItemRack.LogBuffer={};special.ClearDiagnostics();ItemRack.SlashHandler('dump full')
+check(ItemRackLogEditBox:GetText():find('All 0 retained lines',1,true),'empty log buffers must still produce the full state report')
+now=221;special.OnSpellEvent('UNIT_SPELLCAST_SUCCEEDED','player','Expired',999999)
+check(not special.IsTraceActive() and #special.Trace==0,'expanded capacity must not extend the 120-second capture')
+print(string.format('[FULL DIAGNOSTIC DUMP LUA] %d actual-command, retention, summary/full, navigation and byte-preservation checks passed.',checks))
+`, 'dump-full-retained-diagnostics');
+
+{
+  const fs = require('fs');
+  const eventsFile = 'ItemRack/ItemRackEvents.lua';
+  const buttonsFile = 'ItemRack/ItemRackButtons.lua';
+  const policySource = fs.readFileSync('ItemRack/ItemRackQueuePolicy.lua', 'utf8');
+  const eventStateSource = fs.readFileSync('ItemRack/ItemRackEventState.lua', 'utf8');
+  const coreSource = fs.readFileSync(itemRackFile, 'utf8');
+  const proxyMatch = /(local function QueueFieldProxy[\s\S]*?)\nItemRack\.DefaultSettings\s*=/.exec(coreSource);
+  if (!proxyMatch) throw new Error('Missing QueueFieldProxy block in ItemRack/ItemRack.lua');
+  const getQueueContext = extractFunction(itemRackFile, 'ItemRack.GetQueueContext');
+  const syncOptionsEditingSet = extractFunction(eventsFile, 'ItemRack.SyncOptionsEditingSet');
+  const getTopEventFrame = extractFunction(eventsFile, 'ItemRack.GetTopEventFrame');
+  const getTopOwnedEventFrame = extractFunction(eventsFile, 'ItemRack.GetTopOwnedEventFrame');
+  const refreshEventStackProjection = extractFunction(eventsFile, 'ItemRack.RefreshEventStackProjection');
+  const queueEventFrameTargets = extractFunction(eventsFile, 'ItemRack.QueueEventFrameTargets');
+  const eventFramePlanFinished = extractFunction(eventsFile, 'ItemRack.EventFramePlanFinished');
+  const buttonPreClick = extractFunction(buttonsFile, 'ItemRack.ButtonPreClick');
+  const buttonPostClick = extractFunction(buttonsFile, 'ItemRack.ButtonPostClick');
+  const buttonMenuOnClick = extractFunction(buttonsFile, 'ItemRack.ButtonMenuOnClick');
+  const updateQueueEnable = extractFunction(optionsFile, 'ItemRackOpt.UpdateQueueEnable');
+  const queueEnableSlotOnClick = extractFunction(optionsFile, 'ItemRackOpt.QueueEnableSlotOnClick');
+
+  runLua(String.raw`
+local checks = 0
+local function check(v, msg) assert(v, msg); checks = checks + 1 end
+ItemRack = {
+  SlotInfo = { [13] = { real = "Trinket 1" } },
+  GetEventSet = function(name) return ItemRackUser.Events and ItemRackUser.Events.Set and ItemRackUser.Events.Set[name] end,
+  GetID = function(slot) return slot == 13 and "25653:0:0" or "0" end,
+  GetIRString = function(v) return v end,
+  SameID = function(a, b) return tostring(a) == tostring(b) end,
+  MatchesStoredItemFields = function(a, b) return tostring(a) == tostring(b) end,
+  IsBareItemID = function() return false end,
+  IsRecentEquip = function() return false end,
+  Debug = function() end,
+  Print = function() end,
+  ClearLockList = function() end,
+  UpdateCombatQueue = function() end,
+  UpdateCurrentSet = function() end,
+  PeriodicQueueCheck = function() end,
+  CancelPendingQueueEquipSet = function() ItemRack.PendingQueueEquipSet = nil end,
+  EventFramePendingTargets = {},
+  EventFramePendingRestoredSlots = {},
+  EventFramePlans = {},
+  EventFrameBatchDepth = 0,
+  Buttons = {},
+}
+ItemRackSettings = { DisableAltClick = "OFF", MenuOnShift = "OFF", KeepMenuOpen = "OFF" }
+ItemRackEvents = { Mounted = { Type = "Buff", Anymount = 1, OnMovement = 1, Unequip = 1 } }
+ItemRackUser = {
+  EnableQueues = "ON",
+  EnablePerSetQueues = "ON",
+  CurrentSet = "BaseSet",
+  EventStack = {},
+  Events = { Enabled = { Mounted = 1 }, Set = { Mounted = "Zoomies" } },
+  Queues = { [13] = {} },
+  QueuesEnabled = {},
+  Sets = {
+    BaseSet = {
+      icon = "icon-base",
+      equip = { [13] = "Base13", [14] = "Base14" },
+      Queues = { [13] = { { id = "Base13" } } },
+      QueuesEnabled = { [13] = true },
+    },
+    Zoomies = {
+      icon = "icon-zoomies",
+      equip = { [13] = "25653:0:0" },
+    },
+  },
+}
+${policySource}
+${eventStateSource}
+ItemRackUser.EventState = ItemRack.EventFrames.NewState()
+${getQueueContext}
+${proxyMatch[1]}
+
+local uiSetNameText = "BaseSet"
+local optVisible, sub2Visible, sub5Visible, sub7Visible = true, false, false, true
+local footerName, footerIcon = "", ""
+local queueChecked = false
+local populatedSets = {}
+ItemRackOptSetsName = { GetText = function() return uiSetNameText end, SetText = function(_, t) uiSetNameText = t end }
+ItemRackOptSetsSaveButton = { IsEnabled = function() return true end }
+ItemRackOptSlotQueueName = { SetText = function() end }
+ItemRackOptQueueSetIcon = { SetTexture = function(_, tex) footerIcon = tex end }
+ItemRackOptQueueSetName = { SetText = function(_, t) footerName = t end }
+ItemRackOptQueueSetInfo = { Show = function() end }
+ItemRackOptQueueEnable = {
+  SetChecked = function(_, v) queueChecked = v and true or false end,
+  GetChecked = function() return queueChecked end,
+}
+ItemRackOptFrame = {
+  IsVisible = function() return optVisible end,
+  Show = function() optVisible = true end,
+  Hide = function() optVisible = false end,
+}
+ItemRackOptSubFrame2 = { IsVisible = function() return optVisible and sub2Visible end }
+ItemRackOptSubFrame5 = { IsVisible = function() return optVisible and sub5Visible end, Hide = function() sub5Visible = false end }
+ItemRackOptSubFrame7 = {
+  IsVisible = function() return optVisible and sub7Visible end,
+  Show = function() sub7Visible = true end,
+  Hide = function() sub7Visible = false end,
+}
+ItemRackOpt = {
+  Inv = {}, HoldInv = {},
+  NormalizeSetIcon = function(i) return i end,
+  UpdateInv = function() end,
+  LayoutQueueControls = function() end,
+  ValidateSortButtons = function() end,
+  TabOnClick = function(_, tab) sub2Visible = (tab == 3); sub7Visible = (tab == 4) end,
+  PopulateSortList = function(slot)
+    table.insert(populatedSets, { set = ItemRackOpt.QueueEditingSet, slot = slot })
+    local list = ItemRack.GetQueues(ItemRackOpt.QueueEditingSet)[slot]
+    if list and #list == 0 then table.insert(list, { id = "25653:0:0", keep = true }) end
+    ItemRackOptQueueEnable:SetChecked(ItemRack.GetQueuesEnabled(ItemRackOpt.QueueEditingSet)[slot])
+  end,
+}
+for i = 0, 19 do ItemRackOpt.Inv[i] = {}; ItemRackOpt.HoldInv[i] = {} end
+function LoadAddOn() end
+function IsAltKeyDown() return true end
+function IsShiftKeyDown() return false end
+C_Timer = { After = function() end }
+ItemRackButtonMenuQueue = {}
+${hasUnsavedSetChanges}
+${changeEditingSet}
+${setupQueue}
+${updateQueueEnable}
+${queueEnableSlotOnClick}
+${syncOptionsEditingSet}
+${getTopEventFrame}
+${getTopOwnedEventFrame}
+${refreshEventStackProjection}
+${queueEventFrameTargets}
+${eventFramePlanFinished}
+${endSetSwap}
+${buttonPreClick}
+${buttonPostClick}
+${buttonMenuOnClick}
+function ItemRack.EnsureEventFrameState() return ItemRackUser.EventState end
+
+ItemRackOpt.SetupQueue(13)
+check(ItemRackOpt.QueueEditingSet == "BaseSet" and footerName == "BaseSet",
+  "precondition: Queue UI starts on BaseSet")
+
+-- 1. Mount + move activates Zoomies: EndSetSwap defer + EventFramePlanFinished SyncOptionsEditingSet must switch open UI to Zoomies
+local pushRes = ItemRack.EventFrames.Activate(ItemRackUser.EventState, {
+  eventName = "Mounted", setName = "Zoomies", slots = { [13] = "25653:0:0" },
+  observed = { [13] = "Base13" }, baseSetName = "BaseSet",
+})
+local plan1 = "~EventFrame:" .. tostring(pushRes.revision)
+ItemRack.EventFramePlans[plan1] = { revision = pushRes.revision, targets = pushRes.targets }
+ItemRackUser.Sets[plan1] = { equip = pushRes.targets }
+ItemRack.EndSetSwap(plan1)
+check(ItemRackUser.CurrentSet == "Zoomies" and ItemRackOpt.QueueEditingSet == "Zoomies" and uiSetNameText == "Zoomies" and footerName == "Zoomies",
+  "event-set-queue-editing-persistence: EventFramePlanFinished must sync open Options Queue UI to Zoomies after CurrentSet settles")
+
+-- 2. Alt+Left-Click when Options was closed with stale uiSetNameText == "BaseSet" and Zoomies.Queues[13] missing
+optVisible = false; sub7Visible = false
+uiSetNameText = "BaseSet"
+ItemRackOpt.QueueEditingSet = "BaseSet"
+local btn13 = { GetID = function() return 13 end, OriginalSetChecked = function() end }
+ItemRack.ButtonPreClick(btn13, "LeftButton")
+check(ItemRackUser.Sets.Zoomies.Queues and ItemRackUser.Sets.Zoomies.Queues[13] and #ItemRackUser.Sets.Zoomies.Queues[13] == 1,
+  "Alt+Left-Click during Zoomies must initialize Zoomies.Queues[13] even when ItemRackOptSetsName is stale")
+check(ItemRackUser.Sets.Zoomies.QueuesEnabled and ItemRackUser.Sets.Zoomies.QueuesEnabled[13] == true,
+  "Alt+Left-Click during Zoomies must save QueuesEnabled[13]=true on Zoomies")
+check(not optVisible and not sub7Visible,
+  "Alt+Left-Click silent SetupQueue must keep Options and SubFrame7 closed when Options was not open")
+check(ItemRackUser.Sets.BaseSet.QueuesEnabled[13] == true,
+  "Alt+Left-Click during Zoomies must leave BaseSet.QueuesEnabled[13] unchanged")
+
+-- 3. Alt+Right-Click while Options is ALREADY open with stale uiSetNameText == "BaseSet" must target Zoomies, not BaseSet
+optVisible = true; sub2Visible = true; sub7Visible = false
+uiSetNameText = "BaseSet"
+ItemRackOpt.QueueEditingSet = "BaseSet"
+ItemRack.ButtonPostClick(btn13, "RightButton")
+check(ItemRackOpt.QueueEditingSet == "Zoomies" and uiSetNameText == "Zoomies" and footerName == "Zoomies",
+  "Alt+Right-Click while Options already open must bind Queue UI to active event set Zoomies, not stale BaseSet")
+queueChecked = false
+ItemRackOpt.QueueEnableSlotOnClick(ItemRackOptQueueEnable)
+check(ItemRackUser.Sets.Zoomies.QueuesEnabled[13] == false and ItemRackUser.Sets.BaseSet.QueuesEnabled[13] == true,
+  "QueueEnableSlotOnClick must persist Zoomies.QueuesEnabled[13]=false without touching BaseSet")
+
+-- 4. ButtonMenu -> Auto Queue while Options is already open with stale uiSetNameText == "BaseSet" must also bind Zoomies
+uiSetNameText = "BaseSet"; ItemRackOpt.QueueEditingSet = "BaseSet"
+ItemRack.menuOpen = 13
+optVisible = false
+ItemRack.ButtonMenuOnClick(ItemRackButtonMenuQueue)
+check(ItemRackOpt.QueueEditingSet == "Zoomies" and uiSetNameText == "Zoomies",
+  "ButtonMenu Auto Queue must bind Queue UI to active event set Zoomies")
+
+-- 5. Unmount/stop returns to BaseSet: Options returns to BaseSet while Zoomies preserves saved toggle & queue
+local popRes = ItemRack.EventFrames.Pop(ItemRackUser.EventState, "Mounted")
+local plan2 = "~EventFrame:" .. tostring(popRes.revision)
+ItemRack.EventFramePlans[plan2] = { revision = popRes.revision, targets = popRes.targets, restoreSetName = popRes.restoredSetName }
+ItemRackUser.Sets[plan2] = { equip = popRes.targets }
+ItemRack.EndSetSwap(plan2)
+check(ItemRackUser.CurrentSet == "BaseSet" and ItemRackOpt.QueueEditingSet == "BaseSet" and footerName == "BaseSet",
+  "exiting Zoomies must restore BaseSet and sync open Options back to BaseSet")
+check(ItemRackUser.Sets.Zoomies.QueuesEnabled[13] == false and ItemRackUser.Sets.Zoomies.Queues[13] ~= nil
+  and ItemRackUser.Sets.BaseSet.QueuesEnabled[13] == true,
+  "Zoomies edited QueuesEnabled[13]=false and Queues[13] must remain saved after swapping back to BaseSet")
+
+print(string.format('[EVENT SET QUEUE EDITING LUA] %d Zoomies event-set queue editing & persistence checks passed.', checks))
+`, 'event-set-queue-editing-persistence');
+}

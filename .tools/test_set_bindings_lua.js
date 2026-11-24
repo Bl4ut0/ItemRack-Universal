@@ -288,12 +288,16 @@ assert(#ItemRack.RunAfterCombat == 1 and ItemRack.RunAfterCombat[1] == "SetSetBi
 );
 checks += 1;
 
-runCase('weapon-only combat binding is secure and never replayed', `
+runCase('weapon-only combat binding targets audio and is never replayed', `
 local combat=false
+local muted={}
 ItemRackUser={Sets={Weapons={equip={[16]="123:7:0:0:0:0:0:0",[17]="456"}}}}
-ItemRackSettings={EquipToggle="ON"}
+ItemRackSettings={EquipToggle="ON",DisableSwapSound="ON"}
 ItemRack={SetBindingButtons={},SetBindingRequestSequence=0,Debug=function() end,IsSetEquipped=function() return false end,
 IsPlayerReallyDead=function() return false end}
+function ItemRack.GetID(slot) return slot == 16 and "789" or "456" end
+function ItemRack.SameExactID(a,b) return a == b end
+function ItemRack.MuteSwapSounds(source,destination) table.insert(muted,{source,destination}) end
 function ItemRack.IRStringToItemString(id) return "item:"..id end
 function InCombatLockdown() return combat end
 local attributes,scripts={},{}
@@ -304,9 +308,13 @@ SetScript=function(_,key,value) scripts[key]=value end}
 ItemRack.ConfigureSetBindingButton(button,"Weapons")
 assert(attributes.macrotext=="/stopmacro [nocombat]\\n/equipslot 16 item:123:7:0:0:0:0:0:0\\n/equipslot 17 item:456",
  "weapon-only binding must preserve saved item fields and deterministic slot order")
+scripts.PreClick()
+assert(#muted == 0, "out-of-combat weapon moves must use the normal transaction audio hook")
 combat=true
 ItemRack.PendingSetBindingRequest={setname="Older"}
 scripts.PreClick()
+assert(#muted == 1 and muted[1][1] == "123:7:0:0:0:0:0:0" and muted[1][2] == "789",
+ "the secure pre-click must target only the changed weapon's incoming and outgoing item")
 ItemRack.IsSetEquipped=function() return true end -- observed secure completion
 scripts.PostClick()
 assert(ItemRack.PendingSetBindingRequest==nil,"secure combat weapon action must supersede old intent without replay")
@@ -357,7 +365,7 @@ combat=true
 scripts.PreClick(); scripts.PostClick()
 assert(ItemRack.PendingSetBindingRequest.intent=="equip","rejected or wrong-copy weapon actions must retain an after-combat repair request")
 `);
-checks += 15;
+checks += 17;
 
 // GitHub #30 follow-up (y00, 4.54-beta1): a full-set secure hotkey equipped
 // slots 16-18 in combat and retained the remaining gear, but neither the

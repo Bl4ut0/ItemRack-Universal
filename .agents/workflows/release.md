@@ -2,7 +2,7 @@
 
 This is the only release workflow. It has two publication channels:
 
-- **Beta:** stays on `dev`, publishes a GitHub prerelease, installs that exact build locally, then restores the `dev` TOCs.
+- **Beta:** stays on `dev`, publishes a GitHub prerelease, installs that exact build locally when authorized, then restores the `dev` TOCs. A GitHub-only beta is an explicit distribution option described below.
 - **Primary:** first creates and pushes a locally testable candidate on the production branch. It creates no tag or public release until the user explicitly accepts that exact candidate. Finalization then tags and publishes it, merges it back to `dev`, and restores the `dev` TOCs.
 
 All archives are exported from a committed Git ref. Never publish files copied from the mutable checkout. The single `ItemRack-universal-{Version}.zip` archive carries the shared Classic Era, Anniversary/TBC, and Forever/Camelot TOC metadata and runtime compatibility layer. Separate client-specific branches, tags, archive names, and release procedures are retired. Generated archives, manifests, hashes, and post files live under `.versions/` and are intentionally not committed.
@@ -144,6 +144,19 @@ The beta track never switches to or pushes the production branch.
    ```
 
 8. Report the beta tag and commit, GitHub URL, archive SHA-256, installed destinations, generated CurseForge post path, and automatic CurseForge workflow/file ID. GitHub publication triggers Beta submission; confirm both destinations are authorized before creating the prerelease. Verify submission separately from moderation/installation. On failure, preserve the immutable tag/archive and follow guarded upload recovery above. Never blindly retry an ambiguous POST.
+
+### GitHub-only beta candidates
+
+Use this route when the user requests a direct GitHub test candidate without CurseForge. Complete code-level validation; the maintainer owning special items or providing live item acceptance is not required for candidate publication. Record source-backed behavior and community acceptance checks separately. Do not add an in-game simulator or fake items.
+
+Follow Track A with these explicit differences:
+
+1. Prepare with `node .tools/create_release.js prepare beta {Version} --date {Date} --github-only`. The main TOC gains `## X-ItemRack-Distribution: github-only`; review and commit that immutable policy with the release metadata.
+2. Push/tag/build the exact candidate normally. Generated GitHub notes identify it as GitHub-only. The CurseForge workflow reads the tagged policy and skips its entire upload job for both automatic and manual runs. The archive verifier also rejects GitHub-only tags before CurseForge preflight/network. Editable title/body cannot bypass this restriction. Historical tags without this field retain their normal behavior.
+3. Publish as a GitHub prerelease with `--latest=false`; verify the immutable archive/hash and observe the skipped CurseForge job. No CurseForge file/submission is expected.
+4. Skip local installation when it was not requested. When authorized, send the direct download and relevant use/diagnostic instructions to the intended issue reporter.
+5. Reset development TOCs after successful GitHub publication. Reset also removes the candidate's distribution field; future normal beta/stable releases keep their existing CurseForge route. Never remove that field from the published tag to broaden distribution later.
+6. Report the GitHub URL, source commit, archive SHA-256, policy-run outcome and any authorized issue comment. State that CurseForge was not submitted and whether local installations were performed.
 
 ## Track B: Primary
 

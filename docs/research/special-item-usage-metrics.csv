@@ -1,0 +1,198 @@
+label,build,item_id,name,item_sparse_present,slot,spell_id,spell_name,trigger,charges,item_cd_ms,item_category,item_category_cd_ms,spell_cd_ms,spell_category_cd_ms,duration_ms,cast_ms,attributes0,attributes1,channel,event_cooldown,legacy_alias,alias_duration_ms,alias_event
+era-11508,1.15.8.67156,3456,Dog Whistle,True,0,9515,Summon Tracking Hound,0,-3,600000,24,60000,0,0,600000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,4384,Explosive Sheep,True,0,4074,Explosive Sheep,0,-1,0,24,60000,0,60000,-1,0,33554432,0,False,True,,,False
+era-11508,1.15.8.67156,4396,Mechanical Dragonling,True,12,23076,Mechanical Dragonling,0,0,3600000,94,60000,3600000,60000,,0,128,0,False,False,4073,60000,True
+era-11508,1.15.8.67156,4984,Skull of Impending Doom,True,23,5024,Flee,0,0,300000,0,0,0,0,10000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,7189,Goblin Rocket Boots,True,8,8892,Goblin Rocket Boots,0,0,300000,0,0,0,0,20000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,9394,Horned Viking Helmet,True,1,22641,Reckless Charge,0,0,1800000,0,0,0,0,,0,538181648,1024,False,False,,,False
+era-11508,1.15.8.67156,7734,Six Demon Bag,True,12,14537,Six Demon Bag,0,0,1800000,1141,10000,0,0,,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,10645,Gnomish Death Ray,True,12,13278,Gnomish Death Ray,0,0,300000,1141,10000,0,0,4000,0,0,67108928,True,False,,,False
+era-11508,1.15.8.67156,10727,Goblin Dragon Gun,True,12,13183,Goblin Dragon Gun,0,0,300000,1141,10000,0,0,10000,0,2048,64,True,False,,,False
+era-11508,1.15.8.67156,10577,Goblin Mortar,True,12,13237,Goblin Mortar,0,6,600000,1141,10000,0,0,3000,1000,0,136,False,False,,,False
+era-11508,1.15.8.67156,10724,Gnomish Rocket Boots,True,8,13141,Gnomish Rocket Boots,0,0,1800000,0,0,0,0,20000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,10588,Goblin Rocket Helmet,True,1,22641,Reckless Charge,0,0,1200000,0,0,0,0,,0,538181648,1024,False,False,,,False
+era-11508,1.15.8.67156,10716,Gnomish Shrink Ray,True,12,13006,Shrink Ray,0,0,300000,0,0,0,0,,0,67108864,0,False,False,,,False
+era-11508,1.15.8.67156,11808,Circle of Flame,True,1,17447,Circle of Flame,0,0,300000,0,0,0,0,10000,0,0,64,True,False,,,False
+era-11508,1.15.8.67156,10726,Gnomish Mind Control Cap,True,1,13180,Gnomish Mind Control Cap,0,0,1800000,0,0,0,0,,0,268435456,256,False,False,,,False
+era-11508,1.15.8.67156,10576,Mithril Mechanical Dragonling,True,12,23075,Mithril Mechanical Dragonling,0,0,3600000,94,60000,3600000,60000,,0,128,0,False,False,12749,60000,True
+era-11508,1.15.8.67156,10720,Gnomish Net-o-Matic Projector,True,12,13120,Net-o-Matic,0,0,600000,0,0,0,0,,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,10725,Gnomish Battle Chicken,True,12,23133,Gnomish Battle Chicken,0,0,1800000,2267,1800000,1800000,0,,0,128,0,False,False,13166,90000,False
+era-11508,1.15.8.67156,13353,Book of the Dead,True,23,17490,Summon Skeleton,0,0,900000,94,60000,0,0,60000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,13382,Cannonball Runner,True,12,6251,Summon Crimson Cannon,0,0,300000,1141,10000,0,0,10000,0,16,0,False,False,,,False
+era-11508,1.15.8.67156,14022,Barov Peasant Caller,True,12,18307,Death by Peasant,0,0,600000,94,60000,0,60000,20000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,14023,Barov Peasant Caller,True,12,18308,Death by Peasant,0,0,600000,94,60000,0,60000,20000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,16022,Arcanite Dragonling,True,12,23074,Arcanite Dragonling,0,0,3600000,94,60000,3600000,60000,,0,128,0,False,False,19804,60000,True
+era-11508,1.15.8.67156,18232,Field Repair Bot 74A,True,0,22700,Field Repair Bot 74A,0,-1,0,0,0,0,0,600000,0,33554432,0,False,True,,,False
+era-11508,1.15.8.67156,16768,Furbolg Medicine Pouch,True,23,20631,Furbolg Medicine Pouch,0,0,1200000,0,0,0,0,10000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,17067,Ancient Cornerstone Grimoire,True,23,17490,Summon Skeleton,0,0,900000,94,60000,0,0,60000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,19337,The Black Book,True,12,23720,Blessing of the Black Book,0,0,300000,1141,30000,0,0,30000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,21326,Defender of the Timbermaw,True,12,26066,Defender of the Timbermaw,0,0,600000,94,60000,0,60000,40000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,21579,Vanquished Tentacle of C'Thun,True,12,26391,Tentacle Call,0,0,180000,0,-1,0,0,30000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,21647,Fetish of the Sand Reaver,True,12,26400,Arcane Shroud,0,0,180000,0,-1,0,0,20000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,213347,Miniaturized Combustion Chamber,True,12,435167,Miniaturized Combustion Chamber,0,0,1800000,0,0,0,0,10000,0,0,64,True,False,,,False
+era-11508,1.15.8.67156,213348,Gyromatic Experiment 420b,True,12,435900,Gyromatic Experiment 420b,0,0,1800000,0,0,0,0,,0,67108864,0,False,False,,,False
+era-11508,1.15.8.67156,213348,Gyromatic Experiment 420b,True,12,9330,Attack Power 18,1,0,-1,0,-1,0,0,-1,0,192,0,False,False,,,False
+era-11508,1.15.8.67156,215461,Domesticated Attack Chicken,True,12,436069,Domesticated Attack Chicken,0,0,1800000,2267,1800000,1800000,0,90000,0,128,0,False,False,,,False
+era-11508,1.15.8.67156,227973,Circle of Flame,True,1,462858,Circle of Flame,0,0,180000,0,0,0,0,10000,0,0,64,True,False,,,False
+era-11508,1.15.8.67156,228955,Ancient Cornerstone Grimoire,True,23,17490,Summon Skeleton,0,0,300000,94,60000,0,0,60000,0,0,0,False,False,,,False
+era-11508,1.15.8.67156,228955,Ancient Cornerstone Grimoire,True,23,13881,Increase Spell Dam 29,1,0,-1,0,-1,0,0,-1,0,192,0,False,False,,,False
+era-11508,1.15.8.67156,228955,Ancient Cornerstone Grimoire,True,23,467753,Ancient Cornerstone Grimoire Dummy,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+era-11508,1.15.8.67156,233217,Tunneler's Incense,True,0,473544,Sneaking,0,-10,0,24,60000,0,0,60000,0,437518352,16,False,True,,,False
+era-11508,1.15.8.67156,213348,Gyromatic Experiment 420b,True,12,1216494,[DNT] Dummy Equip Aura,1,0,-1,0,-1,0,0,,0,320,268435456,False,False,,,False
+era-11509,1.15.9.70576,3456,Dog Whistle,True,0,9515,Summon Tracking Hound,0,-3,600000,24,60000,0,0,600000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,4384,Explosive Sheep,True,0,4074,Explosive Sheep,0,-1,0,24,60000,0,60000,-1,0,33554432,0,False,True,,,False
+era-11509,1.15.9.70576,4396,Mechanical Dragonling,True,12,23076,Mechanical Dragonling,0,0,3600000,94,60000,3600000,60000,,0,128,0,False,False,4073,60000,True
+era-11509,1.15.9.70576,4984,Skull of Impending Doom,True,23,5024,Flee,0,0,300000,0,0,0,0,10000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,7189,Goblin Rocket Boots,True,8,8892,Goblin Rocket Boots,0,0,300000,0,0,0,0,20000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,9394,Horned Viking Helmet,True,1,22641,Reckless Charge,0,0,1800000,0,0,0,0,,0,538181648,1024,False,False,,,False
+era-11509,1.15.9.70576,7734,Six Demon Bag,True,12,14537,Six Demon Bag,0,0,1800000,1141,10000,0,0,,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,10645,Gnomish Death Ray,True,12,13278,Gnomish Death Ray,0,0,300000,1141,10000,0,0,4000,0,0,67108928,True,False,,,False
+era-11509,1.15.9.70576,10727,Goblin Dragon Gun,True,12,13183,Goblin Dragon Gun,0,0,300000,1141,10000,0,0,10000,0,2048,64,True,False,,,False
+era-11509,1.15.9.70576,10577,Goblin Mortar,True,12,13237,Goblin Mortar,0,6,600000,1141,10000,0,0,3000,1000,0,136,False,False,,,False
+era-11509,1.15.9.70576,10724,Gnomish Rocket Boots,True,8,13141,Gnomish Rocket Boots,0,0,1800000,0,0,0,0,20000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,10588,Goblin Rocket Helmet,True,1,22641,Reckless Charge,0,0,1200000,0,0,0,0,,0,538181648,1024,False,False,,,False
+era-11509,1.15.9.70576,10716,Gnomish Shrink Ray,True,12,13006,Shrink Ray,0,0,300000,0,0,0,0,,0,67108864,0,False,False,,,False
+era-11509,1.15.9.70576,11808,Circle of Flame,True,1,17447,Circle of Flame,0,0,300000,0,0,0,0,10000,0,0,64,True,False,,,False
+era-11509,1.15.9.70576,10726,Gnomish Mind Control Cap,True,1,13180,Gnomish Mind Control Cap,0,0,1800000,0,0,0,0,,0,268435456,256,False,False,,,False
+era-11509,1.15.9.70576,10576,Mithril Mechanical Dragonling,True,12,23075,Mithril Mechanical Dragonling,0,0,3600000,94,60000,3600000,60000,,0,128,0,False,False,12749,60000,True
+era-11509,1.15.9.70576,10720,Gnomish Net-o-Matic Projector,True,12,13120,Net-o-Matic,0,0,600000,0,0,0,0,,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,10725,Gnomish Battle Chicken,True,12,23133,Gnomish Battle Chicken,0,0,1800000,2267,1800000,1800000,0,,0,128,0,False,False,13166,90000,False
+era-11509,1.15.9.70576,13353,Book of the Dead,True,23,17490,Summon Skeleton,0,0,900000,94,60000,0,0,60000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,13382,Cannonball Runner,True,12,6251,Summon Crimson Cannon,0,0,300000,1141,10000,0,0,10000,0,16,0,False,False,,,False
+era-11509,1.15.9.70576,14022,Barov Peasant Caller,True,12,18307,Death by Peasant,0,0,600000,94,60000,0,60000,20000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,14023,Barov Peasant Caller,True,12,18308,Death by Peasant,0,0,600000,94,60000,0,60000,20000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,16022,Arcanite Dragonling,True,12,23074,Arcanite Dragonling,0,0,3600000,94,60000,3600000,60000,,0,128,0,False,False,19804,60000,True
+era-11509,1.15.9.70576,18232,Field Repair Bot 74A,True,0,22700,Field Repair Bot 74A,0,-1,0,0,0,0,0,600000,0,33554432,0,False,True,,,False
+era-11509,1.15.9.70576,16768,Furbolg Medicine Pouch,True,23,20631,Furbolg Medicine Pouch,0,0,1200000,0,0,0,0,10000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,17067,Ancient Cornerstone Grimoire,True,23,17490,Summon Skeleton,0,0,900000,94,60000,0,0,60000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,19337,The Black Book,True,12,23720,Blessing of the Black Book,0,0,300000,1141,30000,0,0,30000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,21326,Defender of the Timbermaw,True,12,26066,Defender of the Timbermaw,0,0,600000,94,60000,0,60000,40000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,21579,Vanquished Tentacle of C'Thun,True,12,26391,Tentacle Call,0,0,180000,0,-1,0,0,30000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,21647,Fetish of the Sand Reaver,True,12,26400,Arcane Shroud,0,0,180000,0,-1,0,0,20000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,213347,Miniaturized Combustion Chamber,True,12,435167,Miniaturized Combustion Chamber,0,0,1800000,0,0,0,0,10000,0,0,64,True,False,,,False
+era-11509,1.15.9.70576,213348,Gyromatic Experiment 420b,True,12,435900,Gyromatic Experiment 420b,0,0,1800000,0,0,0,0,,0,67108864,0,False,False,,,False
+era-11509,1.15.9.70576,213348,Gyromatic Experiment 420b,True,12,9330,Attack Power 18,1,0,-1,0,-1,0,0,-1,0,192,0,False,False,,,False
+era-11509,1.15.9.70576,215461,Domesticated Attack Chicken,True,12,436069,Domesticated Attack Chicken,0,0,1800000,2267,1800000,1800000,0,90000,0,128,0,False,False,,,False
+era-11509,1.15.9.70576,227973,Circle of Flame,True,1,462858,Circle of Flame,0,0,180000,0,0,0,0,10000,0,0,64,True,False,,,False
+era-11509,1.15.9.70576,228955,Ancient Cornerstone Grimoire,True,23,17490,Summon Skeleton,0,0,300000,94,60000,0,0,60000,0,0,0,False,False,,,False
+era-11509,1.15.9.70576,228955,Ancient Cornerstone Grimoire,True,23,13881,Increase Spell Dam 29,1,0,-1,0,-1,0,0,-1,0,192,0,False,False,,,False
+era-11509,1.15.9.70576,228955,Ancient Cornerstone Grimoire,True,23,467753,Ancient Cornerstone Grimoire Dummy,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+era-11509,1.15.9.70576,233217,Tunneler's Incense,True,0,473544,Sneaking,0,-10,0,24,60000,0,0,60000,0,437518352,16,False,True,,,False
+era-11509,1.15.9.70576,213348,Gyromatic Experiment 420b,True,12,1216494,[DNT] Dummy Equip Aura,1,0,-1,0,-1,0,0,,0,320,268435456,False,False,,,False
+tbc-255,2.5.5.65463,3456,Dog Whistle,True,0,9515,Summon Tracking Hound,0,-3,600000,24,60000,0,0,600000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,4384,Explosive Sheep,True,0,4074,Explosive Sheep,0,-1,0,24,60000,0,0,-1,0,33554432,0,False,True,,,False
+tbc-255,2.5.5.65463,4396,Mechanical Dragonling,True,12,4073,Mechanical Dragonling,0,0,1200000,94,60000,0,0,60000,0,128,0,False,False,,,False
+tbc-255,2.5.5.65463,4984,Skull of Impending Doom,True,23,5024,Flee,0,0,300000,0,0,0,0,10000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,7189,Goblin Rocket Boots,True,8,8892,Goblin Rocket Boots,0,0,300000,1203,300000,0,0,20000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,9394,Horned Viking Helmet,True,1,22641,Reckless Charge,0,0,1800000,0,0,0,0,,0,538181648,1024,False,False,,,False
+tbc-255,2.5.5.65463,7734,Six Demon Bag,True,12,14537,Six Demon Bag,0,0,180000,1141,10000,0,0,,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,10645,Gnomish Death Ray,True,12,13278,Gnomish Death Ray,0,0,300000,1141,10000,0,0,4000,0,256,335544384,True,False,,,False
+tbc-255,2.5.5.65463,10727,Goblin Dragon Gun,True,12,13183,Goblin Dragon Gun,0,0,300000,1141,10000,0,0,10000,0,2048,64,True,False,,,False
+tbc-255,2.5.5.65463,10577,Goblin Mortar,True,12,13237,Goblin Mortar,0,6,600000,1141,10000,0,0,3000,1000,0,136,False,False,,,False
+tbc-255,2.5.5.65463,10724,Gnomish Rocket Boots,True,8,13141,Gnomish Rocket Boots,0,0,900000,1203,300000,0,0,20000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,10588,Goblin Rocket Helmet,True,1,22641,Reckless Charge,0,0,1200000,1180,0,0,0,,0,538181648,1024,False,False,,,False
+tbc-255,2.5.5.65463,10716,Gnomish Shrink Ray,True,12,13006,Shrink Ray,0,0,300000,0,0,0,0,,0,67108864,0,False,False,,,False
+tbc-255,2.5.5.65463,11808,Circle of Flame,True,1,17447,Circle of Flame,0,0,300000,0,0,0,0,10000,0,0,64,True,False,,,False
+tbc-255,2.5.5.65463,10726,Gnomish Mind Control Cap,True,1,13180,Gnomish Mind Control Cap,0,0,1800000,0,0,0,0,,0,268435456,256,False,False,,,False
+tbc-255,2.5.5.65463,10576,Mithril Mechanical Dragonling,True,12,12749,Mithril Mechanical Dragonling,0,0,1200000,94,60000,0,0,60000,0,128,0,False,False,,,False
+tbc-255,2.5.5.65463,10720,Gnomish Net-o-Matic Projector,True,12,13120,Net-o-Matic,0,0,600000,0,0,0,0,,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,10725,Gnomish Battle Chicken,True,12,23133,Gnomish Battle Chicken,0,0,1200000,94,90000,0,0,90000,0,128,0,False,False,13166,90000,False
+tbc-255,2.5.5.65463,13353,Book of the Dead,True,23,17490,Summon Skeleton,0,0,900000,94,60000,0,0,60000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,13382,Cannonball Runner,True,12,6251,Summon Crimson Cannon,0,0,300000,1141,10000,0,0,10000,0,16,0,False,False,,,False
+tbc-255,2.5.5.65463,14022,Barov Peasant Caller,True,12,18307,Death by Peasant,0,0,600000,94,60000,0,60000,20000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,14023,Barov Peasant Caller,True,12,18308,Death by Peasant,0,0,600000,94,60000,0,60000,20000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,16022,Arcanite Dragonling,True,12,19804,Arcanite Dragonling,0,0,1200000,94,60000,0,0,60000,0,128,0,False,False,,,False
+tbc-255,2.5.5.65463,18232,Field Repair Bot 74A,True,0,22700,Field Repair Bot 74A,0,-1,0,1193,600000,0,0,600000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,16768,Furbolg Medicine Pouch,True,23,20631,Furbolg Medicine Pouch,0,0,1200000,0,0,0,0,10000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,17067,Ancient Cornerstone Grimoire,True,23,17490,Summon Skeleton,0,0,900000,94,60000,0,0,60000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,19337,The Black Book,True,12,23720,Blessing of the Black Book,0,0,300000,1141,30000,0,0,30000,0,65536,0,False,False,,,False
+tbc-255,2.5.5.65463,21326,Defender of the Timbermaw,True,12,26066,Defender of the Timbermaw,0,0,600000,94,60000,0,60000,40000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,21579,Vanquished Tentacle of C'Thun,True,12,26391,Tentacle Call,0,0,180000,0,-1,0,0,30000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,21647,Fetish of the Sand Reaver,True,12,26400,Arcane Shroud,0,0,180000,0,-1,0,0,20000,0,0,0,False,False,,,False
+tbc-255,2.5.5.65463,28727,Pendant of the Violet Eye,True,12,29601,Enlightenment,0,0,120000,0,-1,0,0,20000,0,327680,0,False,False,,,False
+tbc-255,2.5.5.65463,30720,Serpent-Coil Braid,True,12,37447,Improved Mana Gems,1,0,-1,0,-1,0,0,-1,0,192,0,False,False,,,False
+tbc-255,2.5.5.65463,34430,Glimmering Naaru Sliver,True,12,45052,Evocation,0,0,300000,0,-1,300000,0,8000,0,65536,64,True,False,,,False
+tbc-255,2.5.5.65463,38506,Don Carlos' Famous Hat,True,1,52172,Coyote Spirit Despawn Aura,1,0,-1,0,-1,0,0,-1,0,256,268435456,False,False,,,False
+tbc-255,2.5.5.65463,38506,Don Carlos' Famous Hat,True,1,51149,Summon Coyote Spirit,0,0,1500,0,-1,0,0,-1,0,272,0,False,False,,,False
+tbc-256,2.5.6.70577,3456,Dog Whistle,True,0,9515,Summon Tracking Hound,0,-3,600000,24,60000,0,0,600000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,4384,Explosive Sheep,True,0,4074,Explosive Sheep,0,-1,0,24,60000,0,60000,-1,0,33554432,0,False,True,,,False
+tbc-256,2.5.6.70577,4396,Mechanical Dragonling,True,12,4073,Mechanical Dragonling,0,0,1200000,94,60000,300000,60000,60000,0,128,0,False,False,,,False
+tbc-256,2.5.6.70577,4984,Skull of Impending Doom,True,23,5024,Flee,0,0,300000,0,0,0,0,10000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,7189,Goblin Rocket Boots,True,8,8892,Goblin Rocket Boots,0,0,300000,1203,300000,0,0,20000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,9394,Horned Viking Helmet,True,1,22641,Reckless Charge,0,0,1800000,0,0,0,0,,0,538181648,1024,False,False,,,False
+tbc-256,2.5.6.70577,7734,Six Demon Bag,True,12,14537,Six Demon Bag,0,0,180000,1141,10000,0,0,,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,10645,Gnomish Death Ray,True,12,13278,Gnomish Death Ray,0,0,300000,1141,10000,0,0,4000,0,256,335544384,True,False,,,False
+tbc-256,2.5.6.70577,10727,Goblin Dragon Gun,True,12,13183,Goblin Dragon Gun,0,0,300000,1141,10000,0,0,10000,0,2048,64,True,False,,,False
+tbc-256,2.5.6.70577,10577,Goblin Mortar,True,12,13237,Goblin Mortar,0,6,600000,1141,10000,0,0,3000,1000,0,136,False,False,,,False
+tbc-256,2.5.6.70577,10724,Gnomish Rocket Boots,True,8,13141,Gnomish Rocket Boots,0,0,900000,1203,300000,0,0,20000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,10588,Goblin Rocket Helmet,True,1,22641,Reckless Charge,0,0,1200000,1180,0,0,0,,0,538181648,1024,False,False,,,False
+tbc-256,2.5.6.70577,10716,Gnomish Shrink Ray,True,12,13006,Shrink Ray,0,0,300000,0,0,0,0,,0,67108864,0,False,False,,,False
+tbc-256,2.5.6.70577,11808,Circle of Flame,True,1,17447,Circle of Flame,0,0,300000,0,0,0,0,10000,0,0,64,True,False,,,False
+tbc-256,2.5.6.70577,10726,Gnomish Mind Control Cap,True,1,13180,Gnomish Mind Control Cap,0,0,1800000,0,0,0,0,,0,268435456,256,False,False,,,False
+tbc-256,2.5.6.70577,10576,Mithril Mechanical Dragonling,True,12,12749,Mithril Mechanical Dragonling,0,0,1200000,94,60000,300000,60000,60000,0,128,0,False,False,,,False
+tbc-256,2.5.6.70577,10720,Gnomish Net-o-Matic Projector,True,12,13120,Net-o-Matic,0,0,600000,0,0,0,0,,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,10725,Gnomish Battle Chicken,True,12,23133,Gnomish Battle Chicken,0,0,1200000,94,90000,1200000,90000,90000,0,128,0,False,False,13166,90000,False
+tbc-256,2.5.6.70577,13353,Book of the Dead,True,23,17490,Summon Skeleton,0,0,900000,94,60000,0,0,60000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,13382,Cannonball Runner,True,12,6251,Summon Crimson Cannon,0,0,300000,1141,10000,0,0,10000,0,16,0,False,False,,,False
+tbc-256,2.5.6.70577,14022,Barov Peasant Caller,True,12,18307,Death by Peasant,0,0,600000,94,60000,0,60000,20000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,14023,Barov Peasant Caller,True,12,18308,Death by Peasant,0,0,600000,94,60000,0,60000,20000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,16022,Arcanite Dragonling,True,12,19804,Arcanite Dragonling,0,0,1200000,94,60000,300000,60000,60000,0,128,0,False,False,,,False
+tbc-256,2.5.6.70577,18232,Field Repair Bot 74A,True,0,22700,Field Repair Bot 74A,0,-1,0,1193,600000,0,0,600000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,16768,Furbolg Medicine Pouch,True,23,20631,Furbolg Medicine Pouch,0,0,1200000,0,0,0,0,10000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,17067,Ancient Cornerstone Grimoire,True,23,17490,Summon Skeleton,0,0,900000,94,60000,0,0,60000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,19337,The Black Book,True,12,23720,Blessing of the Black Book,0,0,300000,1141,30000,0,0,30000,0,65536,0,False,False,,,False
+tbc-256,2.5.6.70577,21326,Defender of the Timbermaw,True,12,26066,Defender of the Timbermaw,0,0,600000,94,60000,0,60000,40000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,21579,Vanquished Tentacle of C'Thun,True,12,26391,Tentacle Call,0,0,180000,0,-1,0,0,30000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,21647,Fetish of the Sand Reaver,True,12,26400,Arcane Shroud,0,0,180000,0,-1,0,0,20000,0,0,0,False,False,,,False
+tbc-256,2.5.6.70577,28727,Pendant of the Violet Eye,True,12,29601,Enlightenment,0,0,120000,0,-1,0,0,20000,0,327680,0,False,False,,,False
+tbc-256,2.5.6.70577,30720,Serpent-Coil Braid,True,12,37447,Improved Mana Gems,1,0,-1,0,-1,0,0,-1,0,192,0,False,False,,,False
+tbc-256,2.5.6.70577,34430,Glimmering Naaru Sliver,True,12,45052,Evocation,0,0,300000,0,-1,300000,0,8000,0,65536,64,True,False,,,False
+tbc-256,2.5.6.70577,38506,Don Carlos' Famous Hat,True,1,52172,Coyote Spirit Despawn Aura,1,0,-1,0,-1,0,0,-1,0,256,268435456,False,False,,,False
+tbc-256,2.5.6.70577,38506,Don Carlos' Famous Hat,True,1,51149,Summon Coyote Spirit,0,0,1500,0,-1,0,0,-1,0,272,0,False,False,,,False
+forever-16001,1.60.1.70938,3456,Dog Whistle,False,,9515,Summon Tracking Hound,0,0,600000,24,60000,0,0,180000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,4384,Explosive Sheep,True,0,4074,Explosive Sheep,0,-1,0,24,60000,0,60000,-1,0,33554432,0,False,True,,,False
+forever-16001,1.60.1.70938,4396,Mechanical Dragonling,True,12,4073,Mechanical Dragonling,0,0,3600000,94,60000,3600000,60000,60000,0,128,0,False,False,,,False
+forever-16001,1.60.1.70938,4984,Skull of Impending Doom,True,23,5024,Flee,0,0,300000,0,0,0,0,10000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,7189,Goblin Rocket Boots,True,8,8892,Goblin Rocket Boots,0,0,300000,0,0,0,0,20000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,9394,Horned Viking Helmet,False,,22641,Reckless Charge,0,0,1800000,0,0,0,0,,0,538181648,1024,False,False,,,False
+forever-16001,1.60.1.70938,7734,Six Demon Bag,False,,14537,Six Demon Bag,0,0,1800000,1141,10000,0,0,,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,10645,Gnomish Death Ray,True,12,13278,Gnomish Death Ray,0,0,300000,1141,10000,0,0,4000,0,0,67108928,True,False,,,False
+forever-16001,1.60.1.70938,10727,Goblin Dragon Gun,True,12,13183,Goblin Dragon Gun,0,0,300000,1141,10000,0,0,10000,0,2048,64,True,False,,,False
+forever-16001,1.60.1.70938,10577,Goblin Mortar,True,12,13237,Goblin Mortar,0,6,600000,1141,10000,0,0,3000,1000,0,136,False,False,,,False
+forever-16001,1.60.1.70938,10724,Gnomish Rocket Boots,True,8,13141,Gnomish Rocket Boots,0,0,1800000,0,0,0,0,20000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,10588,Goblin Rocket Helmet,True,1,22641,Reckless Charge,0,0,1200000,0,0,0,0,,0,538181648,1024,False,False,,,False
+forever-16001,1.60.1.70938,10716,Gnomish Shrink Ray,True,12,13006,Shrink Ray,0,0,300000,0,0,0,0,,0,67108864,0,False,False,,,False
+forever-16001,1.60.1.70938,10726,Gnomish Mind Control Cap,True,1,13180,Gnomish Mind Control Cap,0,0,1800000,0,0,0,0,,0,268435456,256,False,False,,,False
+forever-16001,1.60.1.70938,10576,Mithril Mechanical Dragonling,True,12,23075,Mithril Mechanical Dragonling,0,0,3600000,94,60000,3600000,60000,,0,128,0,False,False,12749,60000,False
+forever-16001,1.60.1.70938,10720,Gnomish Net-o-Matic Projector,True,12,13120,Net-o-Matic,0,0,600000,0,0,0,0,,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,10725,Gnomish Battle Chicken,True,12,23133,Gnomish Battle Chicken,0,0,1800000,2267,1800000,1800000,0,,0,128,0,False,False,13166,90000,False
+forever-16001,1.60.1.70938,13353,Book of the Dead,False,,17490,Summon Skeleton,0,0,900000,94,60000,0,0,60000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,13382,Cannonball Runner,False,,6251,Summon Scarlet Cannon,0,0,300000,1141,10000,0,0,10000,0,16,0,False,False,,,False
+forever-16001,1.60.1.70938,14022,Barov Peasant Caller,False,,18307,Death by Peasant,0,0,360000,94,60000,0,0,20000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,14023,Barov Peasant Caller,False,,18308,Death by Peasant,0,0,360000,94,20000,0,0,20000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,16022,Arcanite Dragonling,True,12,19804,Arcanite Dragonling,0,0,3600000,94,60000,3600000,60000,60000,0,33554560,0,False,True,,,False
+forever-16001,1.60.1.70938,18232,Field Repair Bot 74A,True,0,22700,Field Repair Bot 74A,0,-1,0,0,0,0,0,600000,0,33554432,0,False,True,,,False
+forever-16001,1.60.1.70938,16768,Furbolg Medicine Pouch,True,23,20631,Furbolg Medicine Pouch,0,0,1200000,0,0,0,0,10000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,19337,The Black Book,True,12,23720,Blessing of the Black Book,0,0,300000,1141,30000,0,0,30000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,21326,Defender of the Timbermaw,True,12,26066,Defender of the Timbermaw,0,0,300000,94,20000,0,60000,20000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,21579,Vanquished Tentacle of C'Thun,True,12,26391,Tentacle Call,0,0,180000,0,-1,0,0,30000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,21647,Fetish of the Sand Reaver,True,12,26400,Arcane Shroud,0,0,180000,0,-1,0,0,20000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,213348,Gyromatic Experiment 420b,False,,435900,Gyromatic Experiment 420b,0,0,1800000,0,0,0,0,,0,67108864,0,False,False,,,False
+forever-16001,1.60.1.70938,228955,Ancient Cornerstone Grimoire,False,,17490,Summon Skeleton,0,0,300000,94,60000,0,0,60000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,228955,Ancient Cornerstone Grimoire,False,,467753,Ancient Cornerstone Grimoire Dummy,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+forever-16001,1.60.1.70938,213348,Gyromatic Experiment 420b,False,,1216494,[DNT] Dummy Equip Aura,1,0,-1,0,-1,0,0,,0,320,268435456,False,False,,,False
+forever-16001,1.60.1.70938,260800,Shafety Sheep,True,0,1269265,Shafety Sheep,0,-1,0,24,60000,0,60000,-1,0,33554432,0,False,True,,,False
+forever-16001,1.60.1.70938,3456,Dog Whistle,False,,1293501,Summon Tracking Hound,1,0,-1,0,-1,0,0,,0,320,268435456,False,False,,,False
+forever-16001,1.60.1.70938,14023,Barov Peasant Caller,False,,1298508,Barov Peasant Caller,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+forever-16001,1.60.1.70938,13353,Book of the Dead,False,,1298517,Book of the Dead,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+forever-16001,1.60.1.70938,13382,Cannonball Runner,False,,1300668,Summon Scarlet Cannon,1,0,-1,0,-1,0,0,,0,320,268435456,False,False,,,False
+forever-16001,1.60.1.70938,17067,Ancient Cornerstone Grimoire,False,,1305405,Ancient Cornerstone Grimoire,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+forever-16001,1.60.1.70938,4396,Mechanical Dragonling,True,12,23076,Mechanical Dragonling,1,0,-1,0,-1,0,0,,0,448,0,False,False,4073,60000,False
+forever-16001,1.60.1.70938,10716,Gnomish Shrink Ray,True,12,1317286,Gnomish Shrink Ray,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+forever-16001,1.60.1.70938,10725,Gnomish Battle Chicken,True,12,1317479,Gnomish Battle Chicken,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+forever-16001,1.60.1.70938,10725,Gnomish Battle Chicken,True,12,1317480,Battle Squawk,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+forever-16001,1.60.1.70938,10576,Mithril Mechanical Dragonling,True,12,1317985,Mithril Mechanical Dragonling,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+forever-16001,1.60.1.70938,16022,Arcanite Dragonling,True,12,1318325,Arcanite Dragonling,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+forever-16001,1.60.1.70938,21326,Defender of the Timbermaw,True,12,1318470,Defender of the Timbermaw,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False
+forever-16001,1.60.1.70938,17067,Ancient Cornerstone Grimoire,False,,17490,Summon Skeleton,0,0,900000,94,60000,0,0,60000,0,0,0,False,False,,,False
+forever-16001,1.60.1.70938,14022,Barov Peasant Caller,False,,1298508,Barov Peasant Caller,1,0,-1,0,-1,0,0,,0,448,0,False,False,,,False

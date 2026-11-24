@@ -54,6 +54,10 @@ QUICK-ACCESS BUTTONS
 * Alt-click the character model to create or remove the set button (slot 20).
 * Left-click an equipment-slot button to use its equipped item.
 * Alt-left-click an equipment-slot button to toggle its Auto Queue.
+  A mirrored slot toggles ON/OFF for the active set; its item order and settings
+  still follow its master. Routine ON/OFF messages are silent by default; /itemrack debug chat
+  enables them for troubleshooting. Turning Auto Queue off does not cancel a swap
+  already pending for that slot.
 * Alt-right-click an equipment-slot button to open its Queue configuration.
 * Shift-left-click an equipment-slot button while chat input is open to link
   the equipped item.
@@ -69,6 +73,8 @@ Right-click behavior for equipment-slot buttons follows Global Settings:
 Set button controls:
 
 * Left-click equips the current set, or toggles it when Equip Toggle is enabled.
+  In a hybrid state, left-click instead selects the detected gear set and its
+  queues (see HYBRID SET STATE below).
 * Right-click opens the set flyout when Menu on Right-Click is enabled;
   otherwise it opens Options.
 * Shift-left-click unequips the current set.
@@ -83,6 +89,9 @@ FLYOUT MENUS AND BANKS
 ----------------------
 
 * Click an item or set to select/equip it.
+  In standard mode, left-click makes a temporary manual choice; right-click
+  equips with a persistent queue hold. With TrinketMenu Mode on and both trinket
+  buttons present, left/right-click chooses slot 13/14; Ctrl-click adds a hold.
 * Shift-click an item while chat input is open to link it.
 * Alt-click an item to hide or unhide it when Allow Hidden is enabled.
 * Hold Alt while opening a menu to include hidden entries.
@@ -117,6 +126,107 @@ Queue matching is exact-item aware. Different enchants, gems, suffixes, and
 runes do not incorrectly burn or replace one another. Saved unavailable items
 remain editable and the open bank is recognized without treating bank-only
 items as carried queue candidates.
+
+Master / mirrored queues [Character-specific; per-set queues required]:
+
+* In the Queue panel, select the set and slot to edit, enable Sync with set,
+  and choose the master set. That slot mirrors the master's item order, stop
+  marker, policies and icons. Chains resolve to the final master; cycles fall
+  back to the local queue rather than looping.
+* First linking copies the chosen master's current Auto Queue ON/OFF state
+  once. Afterward Alt-click and Auto Queue This Slot save ON/OFF independently
+  for the follower. Master state changes and choosing a different master while
+  linked preserve that choice. Unsyncing and linking again initializes anew.
+  Existing mirrors initialize once from their previously effective state on
+  upgrade, then retain the local choice across reloads and set saves.
+* Mirrored item order, policies and icons are read-only; edit the master to
+  update followers. Turning sync off copies the effective queue and retains
+  the follower's switch; deleting a provider preserves its followers' effective
+  settings. Editing queues does not itself equip the edited set.
+* With Use per-set queues OFF, all sets use the normal editable global queues
+  and global ON/OFF state. Saved per-set links and switches are inactive until
+  per-set queues are enabled again. Enable AutoQueue also needs to be ON for
+  automatic selection to run.
+
+Manual choices and holds:
+
+* Manual swaps from ItemRack, macros, bags or TrinketMenu are protected while
+  ready, including the equip cooldown. A verified item use ends temporary manual
+  protection both in and out of combat. Active buffs, Pause Queue and delays
+  still keep the item equipped as configured. Once those restrictions end, a
+  ready Priority replacement can take over even if the used item's cooldown
+  falls inside its own Swap In window. Swap In controls cooldown eligibility;
+  larger values allow an item to become eligible earlier, rather than extending
+  temporary protection after use. Restricted swaps wait until combat ends.
+* A persistent hold also blocks replacement while the item is on cooldown.
+  Clear it with /itemrack unhold <slot>, a normal manual item selection, or a
+  set change affecting that slot. Replacing the item externally starts a new
+  temporary choice instead of inheriting the old persistent hold.
+* Holds are runtime choices, not saved policies; they do not survive /reload.
+  Pause Queue is the separately saved per-item policy.
+
+Special item usage:
+
+  * ItemRack loads the item-rule table for the detected game version. Rules are
+    built-in item/slot data, not another per-character checkbox. Only actual
+    exceptions have entries: four on Era/Hardcore/SoD, two on TBC and two on
+    Forever (five distinct item IDs across clients). Ordinary on-use items use
+    normal cooldown/effect handling; research and bag-only lists are not loaded.
+  * For the three Dragonlings on Era and Arcanite Dragonling on Forever, a
+    matching successful summon after an observed use attempt can end temporary
+    protection before the native cooldown starts. The used item stays ineligible
+    for automatic reselection while its cooldown is pending. Actual buffs,
+    Pause/Delay, persistent holds and combat restrictions still apply. TBC uses
+    its normal native cooldown path.
+  * A shared game cooldown is a lockout, not proof that every affected item
+    was used. Different item IDs keep separate full cooldowns and confirmed-use
+    receipts. A rejected Dragonling attempt during another guardian's short
+    lockout does not release protection or burn it. The game lockout still
+    affects readiness. Explicit dependency proxies keep their intended behavior.
+  * Equipment-use hooks accept numeric slot text as well as numbers. Dump
+    diagnostics include manual choice/persistent holds and spell event types.
+  * Confirmed special-item use is saved per character and restored after normal
+    reload/relog before queues resume, even if the item is now in a bag. Recovery
+    does not repeat swaps, clear new manual holds, burn again or add notifications.
+    A real cooldown observation reconciles pending use; a confirmed arena reset
+    clears it. ItemRack does not invent readiness from the summon's duration.
+  * /itemrack special status shows pending/recovered use. If evidence remains
+    unresolved, /itemrack special reset <itemID> discards only that item's special
+    receipt; normal cooldown checks then apply. It does not force a swap or clear
+    your manual holds. The review timer alone never makes an item ready.
+  * /itemrack debug includes special-item capture when enabling all debugging;
+    /itemrack debug specialitems can toggle that capture independently. Both
+    start the same silent 120-second window; run the dedicated command again
+    after expiry to start a fresh window. Other debug layers remain enabled
+    until toggled off. /itemrack debug status shows the actual capture window.
+  * The capture records relevant player events, use hooks and cooldown
+    observations. Collect /itemrack dump
+    after the problem; capture a dump before and after reload when testing that
+    boundary. Routine chat stays quiet unless debug chat is explicitly enabled.
+    The addon contains no fake items or in-game test harness.
+  * Ordinary player effects stay protected through the shared aura checks;
+    casting/channeling blocks automatic selection through shared casting state.
+    Boots, Mortar and other normal on-use items need no special rule.
+    Mind Control Cap (10726) checks charm 13181 on the controlled pet, never
+    merely the existence of any pet. TBC Serpent-Coil Braid (30720) uses its
+    mana-gem cooldown/buff dependency. Manual swaps remain deliberate.
+    Charges, random outcomes and cosmetic companions do not by themselves
+    require special handling or create an indefinite hold.
+
+
+HYBRID SET STATE
+----------------
+
+When both AutoQueue and "Use per-set queues" are enabled, the selected set
+remains the queue authority if manual gear changes match another saved set
+(displaying Active Queue Set on the left | Detected Gear Set on the right) or
+leave gear unmatched (Custom Hybrid Split: Active Queue Set | Custom icon with
+"Custom" text). Tooltips identify both the active queue and equipped state;
+Left-click slot 20 to switch cleanly to the detected set or re-equip the active
+queue set from Custom. Returning to the selected set's gear clears the hybrid
+indicator. When "Use per-set queues" or AutoQueue is disabled (Global Queues),
+hybrid splitting is off: matching another saved set adopts it cleanly and
+unmatched gear shows the standard solid "Custom" icon.
 
 
 COMBAT, CASTING, AND DEFERRED SWAPS
@@ -208,6 +318,13 @@ SLASH COMMANDS
 /itemrack toggle <set one>, <set two>
   Switch between two saved sets.
 
+/itemrack hold <slot 0-19> [itemID]
+  Persistently hold the currently worn or specified item against Auto Queue.
+  This records a hold; it does not equip the specified item.
+
+/itemrack unhold <slot 0-19>
+  Clear that slot's manual hold so normal Auto Queue evaluation can resume.
+
 /itemrack lock
 /itemrack unlock
   Lock or unlock quick-access buttons.
@@ -226,19 +343,43 @@ SLASH COMMANDS
 
 /itemrack debug status
 /itemrack debug clear
+/itemrack debug breakouts
 /itemrack debug audit
 /itemrack debug help
-  Inspect diagnostics, clear recorded data, audit SavedVariables, or list
-  diagnostic commands.
+  Inspect diagnostics, clear recorded data, probe quick-access breakout
+  render blockers, audit SavedVariables, or list diagnostic commands.
 
 /itemrack debug <tag>
-  Toggle one of: events, equip, queue, combatqueue, api, ui, or combat.
+  Toggle one of: events, equip, queue, combatqueue, api, ui, combat, breakouts, or specialitems.
 
 /itemrack dump
   Open a copyable support report containing version/build information, client
   state, event ownership, equipment transactions, queue state, locks, and
-  recent diagnostics. Review the report before sharing because it can include
-  set names and item information.
+  recent diagnostics: exactly the latest 500 activity lines and up to 256
+  special-item trace entries, alongside the state sections. Review before
+  sharing because reports can include set names and item information.
+
+/itemrack dump tooltips
+  Export only the current tooltip anchor capture, including all retained
+  samples. Each sample is one row; caller IDs refer to unique stacks printed
+  once below the rows. No bag, saved-set or unrelated log tables are included.
+  Safe Previous/Next pages appear only if needed. Export does not clear or
+  restart the capture. Use /itemrack debug tooltips before reproducing a
+  comparison-position problem, then dump before reload/relog.
+
+/itemrack dump full
+  Export every retained activity line (up to 5,000), queue-recorder entry and
+  special-item trace entry with the same state sections. Full reports have
+  Previous/Next buttons and a page counter. Copy each page in order into the
+  same text file; each page is selected for CTRL+C. Pagination keeps one large
+  report from becoming one oversized EditBox. Normal dump remains one view.
+
+  Special capture retains up to 2,048 detailed entries for its usual 120-second
+  window. Normal dumps include only the latest 256; full dumps include all
+  retained entries. Omitted/exported/retained and overwritten counts explain
+  any gaps. Full means all currently retained data, not discarded older data.
+  Run the capture before reproducing the issue and dump before reload/relog.
+  Closing the report releases its page snapshot without clearing diagnostics.
 
   Breakout discovery is recorded automatically, even with debug off. For a
   combat-only empty menu, hover the same button before and during combat, then
@@ -247,6 +388,14 @@ SLASH COMMANDS
   changes, rendering stages, client build, custom-icon switches and loaded
   addon names. Secret/inaccessible values are marked rather than printed.
   /itemrack debug clear intentionally clears this evidence for a fresh test.
+
+For a possibly covered or unresponsive quick-access button, leave the mouse
+over it and run /itemrack debug mouse. Try Alt-left-click, then run /itemrack
+dump before reloading. BUTTON INPUT DIAGNOSTICS records received clicks and
+bounded focus snapshots (frame names, parents, opacity and queue state), even
+with debug off. No frame scripts or mouse settings are changed. A focus frame
+name is not proof of addon ownership; a missing click receipt needs comparison
+with /fstack or a separate addon-isolation test. Debug clear erases this evidence.
 
 
 MACRO FUNCTIONS
@@ -332,6 +481,10 @@ Breakouts & Flyout Menus:
   trinket flyouts: left-click equips the upper slot and right-click the lower.
 * Anchor other trinket [Account-wide; Fresh-profile default: OFF; requires
   TrinketMenu mode] Anchors that combined flyout to the lower trinket instead.
+* Shift+Click keeps breakout open [Account-wide; Fresh-profile default: OFF]
+  Lets Shift+Left-Click on quick-access item buttons (slots 0-19) lock or
+  unlock that slot's breakout menu open (including in combat; links items when
+  chat is open) while hovering other slots still opens normal flyouts on top.
 * Allow empty slots [Account-wide; Fresh-profile default: ON] Adds an unequip
   choice to applicable item flyouts.
 * Allow hidden items [Account-wide; Fresh-profile default: ON] Allows Alt-click
@@ -405,11 +558,25 @@ Tooltips:
 * Show tooltips [Account-wide; Fresh-profile default: ON] Enables ItemRack-owned
   tooltips.
 * Tooltips beside buttons [Account-wide; Fresh-profile default: OFF; requires Show
-  tooltips] Anchors ItemRack tooltips near the cursor.
+  tooltips] Anchors ItemRack tooltips beside the hovered button; it does not
+  follow the mouse cursor. Leave this OFF to use WoW's default placement or let
+  a tooltip addon such as TipTac control positioning, including Mouse Anchor.
+  Same-owner item refreshes preserve that placement. Character-sheet breakouts
+  retain their separate placement rules to avoid covering the item list.
+  For comparison-position problems, /itemrack debug tooltips records anchor
+  writers and rendered position/size changes for up to ten seconds or 128
+  changes. Hover the affected item, then use /itemrack dump tooltips to copy
+  every retained entry without unrelated state tables. Normal dump includes
+  the latest 16; dump full includes the full trace and all other diagnostics.
+  Stop early with
+  /itemrack debug tooltips stop. This capture only reads ItemRack tooltip
+  context; it does not reposition frames or change TipTac settings/files.
 * Always compare breakout items [Account-wide; Fresh-profile default: OFF;
   requires Show tooltips] Requests the equipped-item comparison beside ItemRack
   flyout rows even when the WoW client normally requires its comparison
   modifier. Turning it off follows the client's comparison CVar and modifier.
+  When the client already supplies a comparison during the current item
+  refresh, ItemRack preserves it rather than requesting a duplicate rebuild.
   Menu on Shift still suppresses comparisons while opening a flyout to avoid
   overlapping tooltips.
 * Show set info in tooltips [Account-wide; Fresh-profile default: OFF; requires
@@ -455,8 +622,10 @@ Actions & Maintenance:
 * Slot Key Bindings [Character-specific action] Opens the equipment-slot binding
   picker. Saved-set bindings instead use the Sets-tab Bind Key button.
 * Sound Settings [Account-wide] Opens the event sound editor. Disable Swap Sounds
-  silences automatic swap sounds globally; Per-event sound selects an
-  optional LibSoundIndex sound for one event. LibSoundIndex is optional.
+  uses LibSoundIndex to briefly suppress known sound files for the items involved
+  in each move. Unrelated files remain audible. Per-event sound applies the same
+  suppression to one event. Swaps work with normal audio without the library or
+  a matching item entry.
 * Reset Buttons [Character-specific destructive action] Removes quick-access
   buttons and restores their layout, opacity, and scale defaults; it does not
   delete saved sets.
@@ -487,7 +656,9 @@ The compact row labels are Priority, Pause Queue, Burn, Swap in, and sec. The
 slot and set controls use Auto Queue This Slot and Hide respectively.
 
 * Auto Queue This Slot [Character-specific or per-set; Fresh-profile default:
-  OFF per slot] Enables automatic selection for the displayed queue owner.
+  OFF per slot] Enables automatic selection for the set being edited, or the
+  global queue when Use per-set queues is OFF. A newly mirrored slot starts
+  with its chosen master's current switch, then saves its own choice.
 * Item delay [Queue-item policy; Fresh-profile default: 0 seconds] Delays when a
   candidate becomes eligible after its cooldown state permits it.
 * Priority [Queue-item policy; Fresh-profile default: OFF] Prefers the entry when

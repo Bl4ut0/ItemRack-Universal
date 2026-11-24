@@ -90,8 +90,11 @@ Optional: install LibSoundIndex if you want ItemRack to suppress selected equipm
 - Right-click minimap button — open Options
 - Alt-click a character equipment slot — add/remove its quick-access button
 - Alt-click the character model — add/remove the set button
+- Right-click a quick-access slot — advance AutoQueue to the next item
 - Alt-left-click a quick-access slot — toggle its AutoQueue
 - Alt-right-click a quick-access slot — configure its queue
+- `/itemrack hold <slot> [itemID]` — set a persistent queue hold for a slot
+- `/itemrack unhold <slot>` — clear a queue hold and resume AutoQueue
 - `/itemrack debug` — toggle diagnostic recording
 - `/itemrack dump` — open a copyable support report
 

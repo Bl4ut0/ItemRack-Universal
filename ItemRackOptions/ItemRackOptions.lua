@@ -137,7 +137,7 @@ function ItemRackOpt.GetSpecName(group)
 end
 
 function ItemRackOpt.OnEvent(self, event, ...)
-	if event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
+	if event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "ACTIVE_COMBAT_CONFIG_CHANGED" then
 		if ItemRackOptFrame:IsVisible() then
 			ItemRackOpt.ValidateSetButtons()
 		end
@@ -211,6 +211,7 @@ end
 function ItemRackOpt.OnLoad(self)
 	self:RegisterEvent("PLAYER_TALENT_UPDATE")
 	self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+	pcall(self.RegisterEvent, self, "ACTIVE_COMBAT_CONFIG_CHANGED")
 	self:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 	self:RegisterEvent("BAG_UPDATE")
 	self:RegisterEvent("BANKFRAME_OPENED")
@@ -281,6 +282,7 @@ function ItemRackOpt.OnLoad(self)
 		{type="check",optset=ItemRackSettings,variable="MenuOnRight",label="Menu on right click",tooltip="Open item and set flyout menus by right clicking buttons.\nWhen unchecked, flyout menus open on hover; Alt+Right-Click opens configuration.",combatlock=1},
 		{type="check",optset=ItemRackSettings,variable="TrinketMenuMode",label="TrinketMenu mode",tooltip="When mouseover of either trinket slot, open anchored to the top trinket.  Left click of a menu item will equip to the top trinket.  Right click will equip to the bottom trinket."},
 		{type="check",optset=ItemRackSettings,variable="AnchorOther",depend="TrinketMenuMode",label="Anchor other trinket",tooltip="In TrinketMenu mode, trinket menus dock to the top trinket.  Check this to anchor them to the bottom trinket."},
+		{type="check",optset=ItemRackSettings,variable="KeepMenuOpen",label="Shift+Click keeps breakout open",tooltip="Shift+Left-Click a quick-access item button (slots 0-19) to lock or unlock its breakout menu open (in combat too; links items when chat is open). Clicking items swaps or queues without closing the locked menu, while hovering other slots still opens and closes normal breakouts on top. Does not change character-sheet menus or the Set button."},
 		{type="check",optset=ItemRackSettings,variable="AllowEmpty",label="Allow empty slots",tooltip="Add an empty slot to menus of equipped items."},
 		{type="check",optset=ItemRackSettings,variable="AllowHidden",label="Allow hidden items",tooltip="Enable Alt+clicking of menu items to hide/show them in the menu.  Hold Alt as you enter a menu to show all."},
 		{type="check",optset=ItemRackSettings,variable="HideTradables",label="Hide non-soulbound items",tooltip="Filter bag/bank item candidates from item breakouts unless they are soulbound. Does not delete items or remove them from saved sets."},
@@ -431,6 +433,7 @@ function ItemRackOpt.ToggleQuickAccessMenuSidePick()
 				ItemRackUser.QuickAccessMenuSide = side
 				pick:Hide()
 				ItemRackOpt.UpdateQuickAccessMenuSide()
+				if ItemRack and ItemRack.RefreshPinnedMenu then ItemRack.RefreshPinnedMenu() end
 			end)
 		end
 		pick:Hide()
@@ -476,6 +479,7 @@ function ItemRackOpt.ToggleQuickAccessMenuDirPick()
 				ItemRackUser.QuickAccessMenuDir = dir
 				pick:Hide()
 				ItemRackOpt.UpdateQuickAccessMenuDir()
+				if ItemRack and ItemRack.RefreshPinnedMenu then ItemRack.RefreshPinnedMenu() end
 			end)
 		end
 		pick:Hide()
@@ -1103,30 +1107,20 @@ function ItemRackOpt.DeleteSet()
 			if ItemRack.UpdateCombatQueue then ItemRack.UpdateCombatQueue() end
 		end
 		-- Clean up any QueueSync references pointing to this deleted set
+		local followers = {}
 		for otherName, otherSet in pairs(ItemRackUser.Sets) do
 			if otherSet and otherSet.QueueSync and otherName ~= setname then
 				for slot, target in pairs(otherSet.QueueSync) do
 					if target == setname then
-						if ItemRackUser.Sets[setname].Queues and ItemRackUser.Sets[setname].Queues[slot] then
-							otherSet.Queues = otherSet.Queues or {}
-							otherSet.Queues[slot] = {}
-							for _, v in ipairs(ItemRackUser.Sets[setname].Queues[slot]) do
-								table.insert(otherSet.Queues[slot], {
-									id = v.id, keep = v.keep, priority = v.priority,
-									delay = v.delay, swapOnUse = v.swapOnUse,
-									swapInEnabled = v.swapInEnabled, customIcon = v.customIcon,
-									swapIn = v.swapIn
-								})
-							end
-						end
-						if ItemRackUser.Sets[setname].QueuesEnabled and ItemRackUser.Sets[setname].QueuesEnabled[slot] ~= nil then
-							otherSet.QueuesEnabled = otherSet.QueuesEnabled or {}
-							otherSet.QueuesEnabled[slot] = ItemRackUser.Sets[setname].QueuesEnabled[slot]
-						end
-						otherSet.QueueSync[slot] = nil
+						followers[#followers+1] = { name=otherName,slot=slot,
+							snapshot=ItemRack.QueuePolicy.SnapshotSetSlot(ItemRackUser,otherName,slot) }
 					end
 				end
 			end
+		end
+		-- Resolve every follower before mutating any link (cycles are supported).
+		for _,follower in ipairs(followers) do
+			ItemRack.QueuePolicy.DetachSetSlot(ItemRackUser,follower.name,follower.slot,follower.snapshot)
 		end
 		ItemRackUser.Sets[setname] = nil
 	end
@@ -1289,6 +1283,12 @@ function ItemRackOpt.SelectSetList(self)
 	if ItemRackOpt.prevFrame==ItemRackOptSubFrame3 then
 		-- fill out event info if picking an event's set
 		local event = ItemRackOpt.EventList[ItemRackOpt.EventSelected][1]
+		local eventData = ItemRackEvents and ItemRackEvents[event]
+		if eventData and eventData.Type == "Script" and ItemRack.IsScriptEventApproved and not ItemRack.IsScriptEventApproved(event) then
+			ItemRackOptSubFrame5:Hide()
+			ItemRack.RequestScriptEventApproval(event, true)
+			return
+		end
 		if not ItemRackUser.Events.Set[event] then
 			ItemRackUser.Events.Enabled[event] = true
 		end
@@ -1448,6 +1448,7 @@ function ItemRackOpt.UpdateSlider(name)
 				ItemRack.ConstructLayout()
 			elseif name=="BreakoutSpacing" then
 				if ItemRackMenuFrame:IsVisible() then ItemRack.BuildMenu() end
+				if ItemRack.RefreshPinnedMenu then ItemRack.RefreshPinnedMenu() end
 			elseif name=="Alpha" then
 				ItemRack.ReflectAlpha()
 			elseif name=="MenuScale" then
@@ -1574,8 +1575,16 @@ function ItemRackOpt.OptListCheckButtonOnClick(self,override)
 				_G["ItemRackMenu"..i.."Time"]:SetText("")
 			end
 		end
+		for i=1,#(ItemRack.PinnedMenu or {}) do
+			if _G["ItemRackPinnedMenu"..i] and _G["ItemRackPinnedMenu"..i.."Time"] then
+				_G["ItemRackPinnedMenu"..i.."Time"]:SetText("")
+			end
+		end
 		ItemRack.WriteButtonCooldowns()
 		ItemRack.WriteMenuCooldowns()
+	elseif opt.variable=="KeepMenuOpen" or opt.variable=="TrinketMenuMode" or opt.variable=="AnchorOther"
+	or opt.variable=="AllowEmpty" or opt.variable=="AllowHidden" or opt.variable=="HideTradables" or opt.variable=="SetMenuWrap" then
+		if ItemRack.SyncPinnedMenu then ItemRack.SyncPinnedMenu() end
 	elseif opt.variable=="LargeNumbers" then
 		ItemRack.ReflectCooldownFont()
 	elseif opt.variable=="ShowMinimap" then
@@ -1590,6 +1599,7 @@ function ItemRackOpt.OptListCheckButtonOnClick(self,override)
 	elseif opt.variable=="CustomCharacterIcons" or opt.variable=="CustomMenuIcons" then
 		ItemRack.RefreshCustomItemIcons()
 		ItemRackMenuFrame:Hide()
+		if ItemRack.RefreshPinnedMenu then ItemRack.RefreshPinnedMenu() end
 	elseif opt.variable=="TinyTooltips" then
 		if check=="ON" then
 			ItemRackSettings.TinyTooltipsQuickAccess = "OFF"
@@ -1955,44 +1965,21 @@ function ItemRackOpt.BuildQueueSyncSetList()
 end
 
 function ItemRackOpt.SetQueueSlotSync(slot, editingSet, masterSet)
+	if ItemRack.QueueSchemaUnsupported then return end
 	if not slot or not editingSet or not ItemRackUser.Sets[editingSet] then return end
 	if not masterSet or not ItemRackUser.Sets[masterSet] or masterSet == editingSet then return end
 	local set = ItemRackUser.Sets[editingSet]
+	local wasSynced = set.QueueSync and set.QueueSync[slot] ~= nil
 	set.QueueSync = set.QueueSync or {}
 	set.QueueSync[slot] = masterSet
+	if not wasSynced and type(set.QueueSyncInitialized)=="table" then set.QueueSyncInitialized[slot] = nil end
+	ItemRack.QueuePolicy.InitializeMirroredStates(ItemRackUser)
 	ItemRackOpt.SetupQueue(slot)
 end
 
 function ItemRackOpt.ClearQueueSlotSync(slot, editingSet)
 	if not slot or not editingSet or not ItemRackUser.Sets[editingSet] then return end
-	local set = ItemRackUser.Sets[editingSet]
-	if set.QueueSync and set.QueueSync[slot] then
-		local masterSet = set.QueueSync[slot]
-		local master = ItemRackUser.Sets[masterSet]
-		if master then
-			if master.Queues and master.Queues[slot] then
-				set.Queues = set.Queues or {}
-				set.Queues[slot] = {}
-				for _, entry in ipairs(master.Queues[slot]) do
-					table.insert(set.Queues[slot], {
-						id = entry.id,
-						keep = entry.keep,
-						priority = entry.priority,
-						delay = entry.delay,
-						swapOnUse = entry.swapOnUse,
-						swapInEnabled = entry.swapInEnabled,
-						customIcon = entry.customIcon,
-						swapIn = entry.swapIn
-					})
-				end
-			end
-			if master.QueuesEnabled and master.QueuesEnabled[slot] ~= nil then
-				set.QueuesEnabled = set.QueuesEnabled or {}
-				set.QueuesEnabled[slot] = master.QueuesEnabled[slot]
-			end
-		end
-		set.QueueSync[slot] = nil
-	end
+	ItemRack.QueuePolicy.DetachSetSlot(ItemRackUser,editingSet,slot)
 	ItemRackOpt.SetupQueue(slot)
 end
 
@@ -2403,7 +2390,7 @@ function ItemRackOpt.LayoutQueueControls()
 	syncCheck:SetPoint("TOPLEFT",panel,"TOPLEFT",10,-272)
 	syncCheck:SetScript("OnClick",ItemRackOpt.QueueSyncCheckOnClick)
 	syncCheck:SetScript("OnEnter",function(self)
-		ItemRack.OnTooltip(self,"Sync Queue With Set","Mirror this slot's cooldown queue from another set. Changes to the master set will automatically update this slot.")
+		ItemRack.OnTooltip(self,"Sync Queue With Set","Requires Use per-set queues. Mirror this slot's item order and item settings from another set. Copy its current Auto Queue ON/OFF once when first linked; afterward save ON/OFF independently for the set you are editing. Changing the master while linked preserves your choice.")
 	end)
 	syncCheck:SetScript("OnLeave",ItemRack.ClearTooltip)
 	ItemRackOpt.QueueSyncCheck = syncCheck
@@ -2461,16 +2448,30 @@ function ItemRackOpt.SlotQueueFrameOnHide()
 	ItemRack.UpdateCombatQueue()
 end
 
-function ItemRackOpt.SetupQueue(id)
+function ItemRackOpt.SetupQueue(id, targetSetName)
 	ItemRackOpt.LayoutQueueControls()
 	-- Always ensure the global queue table exists for this slot
 	if not ItemRackUser.Queues[id] then
 		ItemRackUser.Queues[id] = {}
 	end
 	
-	-- Determine the set being edited in the options UI
+	-- Determine the set being edited in the options UI. Explicit targets
+	-- (such as quick-access Alt-clicks during an active event set) must win
+	-- over a stale name left in ItemRackOptSetsName from an earlier tab view.
 	local uiSetName = ItemRackOptSetsName and ItemRackOptSetsName:GetText()
-	local editingSet = (uiSetName and uiSetName ~= "" and ItemRackUser.Sets[uiSetName]) and uiSetName or ItemRackUser.CurrentSet
+	local explicitSetName = (targetSetName and targetSetName ~= "" and ItemRackUser.Sets[targetSetName]) and targetSetName or nil
+	local currentSetName = ItemRackUser and ItemRackUser.CurrentSet
+	local editingSet = explicitSetName
+		or ((uiSetName and uiSetName ~= "" and ItemRackUser.Sets[uiSetName]) and uiSetName)
+		or ((currentSetName and ItemRackUser.Sets[currentSetName]) and currentSetName)
+		or currentSetName
+	if explicitSetName then
+		if ItemRackOptSetsName and ItemRackOptSetsName.SetText
+		and not (ItemRackOptSubFrame2 and ItemRackOptSubFrame2:IsVisible() and ItemRackOpt.HasUnsavedSetChanges and ItemRackOpt.HasUnsavedSetChanges()) then
+			ItemRackOptSetsName:SetText(explicitSetName)
+		end
+		ItemRackOpt.SelectedSet = explicitSetName
+	end
 	
 	-- If per-set queues are on, only initialize the currently edited set's queue (not all sets)
 	if ItemRackUser.EnablePerSetQueues == "ON" then
@@ -3008,7 +3009,7 @@ function ItemRackOpt.SoundListScrollFrameUpdate()
 				thisCheck:SetChecked(ItemRackSettings.DisableSwapSound == "ON")
 				thisCheck.OnClickAction = function(check)
 					ItemRackSettings.DisableSwapSound = check
-					if ItemRackSettings.DisableSwapSound == "ON" and not ItemRackSettings.LSIWarningSeen and not (LibStub and LibStub("LibSoundIndex-1.0", true)) then
+					if ItemRackSettings.DisableSwapSound == "ON" and not ItemRackSettings.LSIWarningSeen and not ItemRack.GetSwapSoundLibrary() then
 						StaticPopup_Show("ITEMRACK_MISSING_LSI")
 					end
 				end
@@ -3029,13 +3030,13 @@ end
 
 function ItemRackOpt.SoundListOnShow()
 	local lsi = LibStub and LibStub("LibSoundIndex-1.0", true)
-	if lsi then
-		ItemRackOptSoundActiveFramework:SetText("Active Mute Framework:\nLibSoundIndex")
+	if ItemRack.GetSwapSoundLibrary() then
+		ItemRackOptSoundActiveFramework:SetText("Swap Sound Muting:\nItem files via LibSoundIndex")
 		ItemRackOptSoundActiveFramework:SetTextColor(0.2, 1.0, 0.2)
 		ItemRackOptSoundTestButton:SetText("Test")
 		ItemRackOptSoundTestButton:Show()
 	else
-		ItemRackOptSoundActiveFramework:SetText("Swap Sound Muting:\nLibSoundIndex Required")
+		ItemRackOptSoundActiveFramework:SetText(lsi and "Swap Sound Muting:\nUpdate LibSoundIndex" or "Swap Sound Muting:\nLibSoundIndex Required")
 		ItemRackOptSoundActiveFramework:SetTextColor(1.0, 0.5, 0.0)
 		ItemRackOptSoundTestButton:SetText("Get Addon")
 		ItemRackOptSoundTestButton:Show()
@@ -3332,10 +3333,10 @@ function ItemRackOpt.ValidateSortButtons()
 		end
 	end
 	ItemRackOptQueueEnable:SetChecked(ItemRack.GetQueuesEnabled(ItemRackOpt.QueueEditingSet)[ItemRackOpt.SelectedSlot])
-	if isSynced then
-		ItemRackOptQueueEnable:Disable()
-	else
+	if not ItemRack.QueueSchemaUnsupported then
 		ItemRackOptQueueEnable:Enable()
+	else
+		ItemRackOptQueueEnable:Disable()
 	end
 end
 
@@ -3447,9 +3448,7 @@ function ItemRackOpt.UpdateQueueEnable()
 end
 
 function ItemRackOpt.QueueEnableSlotOnClick(self)
-	local isSynced = (ItemRackOpt.IsQueueSlotSynced and ItemRackOpt.IsQueueSlotSynced(ItemRackOpt.SelectedSlot, ItemRackOpt.QueueEditingSet))
-		or (ItemRack.IsQueueSlotSynced and ItemRack.IsQueueSlotSynced(ItemRackOpt.SelectedSlot, ItemRackOpt.QueueEditingSet))
-	if isSynced then
+	if ItemRack.QueueSchemaUnsupported then
 		ItemRackOpt.UpdateQueueEnable()
 		return
 	end
@@ -3599,8 +3598,12 @@ function ItemRackOpt.EventListScrollFrameUpdate()
 			_G["ItemRackOptEventList"..i.."Name"]:SetText(displayText)
 			icon = _G["ItemRackOptEventList"..i.."Icon"]
 			local userEvents = ItemRackUser and ItemRackUser.Events
+			local canPickSet = ItemRack.CanUseSetPickerForEvent and ItemRack.CanUseSetPickerForEvent(eventName) or (eventType ~= "Script")
 			local assignedSet = userEvents and userEvents.Set and userEvents.Set[eventName]
-			if eventType=="Script" then
+			if (not assignedSet or assignedSet == "") and canPickSet and ItemRack.ResolveSwimmingSetName then
+				assignedSet = ItemRack.ResolveSwimmingSetName(eventName)
+			end
+			if eventType=="Script" and not canPickSet then
 				texture = "Interface\\AddOns\\ItemRackOptions\\ItemRackScriptIcon"
 			elseif assignedSet and ItemRackUser.Sets and ItemRackUser.Sets[assignedSet] and ItemRackUser.Sets[assignedSet].icon then
 				texture = ItemRackUser.Sets[assignedSet].icon
@@ -3674,6 +3677,10 @@ function ItemRackOpt.EventListOnEnter(self,child)
 		if comment then
 			desc = desc.."\n"..comment
 		end
+		local resolvedSet = ItemRack.ResolveSwimmingSetName and ItemRack.ResolveSwimmingSetName(eventName)
+		if resolvedSet then
+			desc = desc.."\n|cFFCCCC88Set: "..resolvedSet
+		end
 		if ItemRack.IsScriptEventApproved then
 			local approved,reason = ItemRack.IsScriptEventApproved(eventName)
 			if approved then
@@ -3717,8 +3724,11 @@ function ItemRackOpt.EventListIconOnClick(self)
 	ItemRackOpt.EventSelected = idx
 	ItemRackOpt.EventListScrollFrameUpdate()
 	ItemRackOpt.ValidateEventListButtons()
-	if ItemRackOpt.EventList[ItemRackOpt.EventSelected][2]~="Script" then
-		ItemRackOptSubFrame5:Show() -- Buff, Stance or Zone event, go pick a set
+	local eventName = ItemRackOpt.EventList[ItemRackOpt.EventSelected][1]
+	local eventType = ItemRackOpt.EventList[ItemRackOpt.EventSelected][2]
+	local canPickSet = ItemRack.CanUseSetPickerForEvent and ItemRack.CanUseSetPickerForEvent(eventName) or (eventType~="Script")
+	if canPickSet then
+		ItemRackOptSubFrame5:Show() -- Buff, Stance, Zone, Spec, or canonical Swimming event, go pick a set
 	else
 		ItemRackOptSubFrame8:Show() -- Script event, go straight to editing it
 	end
@@ -3754,7 +3764,10 @@ function ItemRackOpt.EventListEnabledOnClick(self)
 			ItemRack.SpinDownEvent(eventName)
 		end
 	end
-	if checked and eventType~="Script" and not ItemRackUser.Events.Set[eventName] then
+	local canPickSet = ItemRack.CanUseSetPickerForEvent and ItemRack.CanUseSetPickerForEvent(eventName) or (eventType~="Script")
+	local resolvedSet = ItemRack.GetEventSet and ItemRack.GetEventSet(eventName) or ItemRackUser.Events.Set[eventName]
+	local validSet = resolvedSet and ItemRackUser.Sets and ItemRackUser.Sets[resolvedSet]
+	if checked and canPickSet and not validSet then
 		-- if an event without a set is being checked, choose a set
 		ItemRackOpt.EventListIconOnClick(self)
 	end
@@ -4002,6 +4015,8 @@ function ItemRackOpt.EventEditSave(override)
 			return
 		end
 	end
+	local prevEvent = ItemRackEvents[eventName]
+	local prevScriptSet = prevEvent and ItemRack.ExtractSwimmingScriptSetName and ItemRack.ExtractSwimmingScriptSetName(prevEvent.Script)
 	ItemRackEvents[eventName] = {}
 	local event=ItemRackEvents[eventName]
 	event.Type = ItemRackOptEventEditTypeDropText:GetText()
@@ -4044,6 +4059,12 @@ function ItemRackOpt.EventEditSave(override)
 		if not approved then
 			ItemRack.Print("Event \""..eventName.."\" was not saved: "..tostring(reason)..".")
 			return
+		end
+		if ItemRack.ExtractSwimmingScriptSetName then
+			local newScriptSet = ItemRack.ExtractSwimmingScriptSetName(event.Script)
+			if newScriptSet and newScriptSet ~= "" and newScriptSet ~= "Name of set" and newScriptSet ~= prevScriptSet then
+				ItemRackUser.Events.Set[eventName] = newScriptSet
+			end
 		end
 		ItemRack.Print("Event \""..eventName.."\" saved and approved through the ItemRack editor.")
 	else

@@ -15,6 +15,8 @@ and shared agent instructions. Maintained supporting references live here.
 - [Beta test checklist](BETA_TEST_CHECKLIST.md): live-client acceptance checks.
 - [Technical changes](TECHNICAL_CHANGES.md): implementation notes and compatibility decisions.
 - [Baganator compatibility](BAGANATOR_COMPATIBILITY.md): integration behavior and validation.
+- [Special-item framework](SPECIAL_ITEM_RULES.md): client catalogs, shared mechanics and current limits.
+- [Special-item test-deployment plan](SPECIAL_ITEM_TEST_DEPLOY_PLAN.md): reload recovery, evidence capture, regression work and staged acceptance.
 
 Release and local-install procedures are kept with the agent workflows:
 

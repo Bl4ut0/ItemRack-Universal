@@ -216,10 +216,12 @@ function ItemRack.EnsureCooldownState()
 end
 
 function ItemRack.ObserveItemCooldown(exactID,baseID,start,duration,enable,source)
-	return CooldownState.Observe(ItemRack.EnsureCooldownState(),{
+	local observed = CooldownState.Observe(ItemRack.EnsureCooldownState(),{
 		exactID=exactID, baseID=baseID, start=start, duration=duration,
 		enable=enable, source=source, now=GetTime(),
 	})
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.ObserveCooldown(exactID,baseID,observed,start,duration,enable,source) end
+	return observed
 end
 
 function ItemRack.GetObservedItemCooldown(exactID,baseID)

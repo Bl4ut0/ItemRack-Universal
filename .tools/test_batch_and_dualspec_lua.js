@@ -1028,6 +1028,7 @@ local oldEnterCalled = false
 ItemRack.oldPaperDollItemSlotButton_OnEnter = function(self) oldEnterCalled = true end
 
 local dummyButton = { GetName = function() return "CharacterHeadSlot" end }
+${extractFunction('ItemRack/ItemRack.lua', 'ItemRack.CallCharacterSlotOnEnter')}
 ${paperDollOnEnterSrc}
 PaperDollItemSlotButton_OnEnter(dummyButton)
 assert(menuHidden == true, "PaperDollItemSlotButton_OnEnter must hide menu when CharacterSheetMenus is OFF")

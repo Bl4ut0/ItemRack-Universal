@@ -489,7 +489,8 @@ check(
 
 check(
   core.includes('if setname == _G.CUSTOM and not ItemRack.SetSwapping and ItemRackUser and ItemRackUser.Sets then') &&
-    core.includes('if count > bestCount and ItemRack.IsSetEquipped(name) then'),
+    core.includes('local matches = count > bestCount and ItemRack.IsSetEquipped(name,nil,true)') &&
+    core.includes('if matches then'),
   'UpdateCurrentSet must scan saved sets to auto-detect worn sets when CurrentSet is unequipped.'
 );
 
@@ -503,10 +504,11 @@ check(
 
 check(
   core.includes('function ItemRack.RegisterCharacterSlotOnEnterHandlers()') &&
-    core.includes('button:GetScript("OnEnter") == ItemRack.oldPaperDollItemSlotButton_OnEnter') &&
+    core.includes('button:GetScript("OnEnter") ~= PaperDollItemSlotButton_OnEnter') &&
+    core.includes('button._ItemRackOriginalOnEnter = button:GetScript("OnEnter")') &&
     core.includes('button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)') &&
     buttons.includes('ItemRack.RegisterCharacterSlotOnEnterHandlers()'),
-  'forever-character-onenter-binding: InitButtons must replace captured native slot handlers with the ItemRack wrapper.'
+  'forever-character-onenter-binding: InitButtons must replace captured native slot handlers and chain third-party hooks with the ItemRack wrapper.'
 );
 
 check(
@@ -523,9 +525,56 @@ check(
 check(
   equip.includes('local check11_12 = (set[11] or set[12])') &&
     equip.includes('local check13_14 = (set[13] or set[14])') &&
-    equip.includes('local hasActiveQueue = ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled') &&
+    equip.includes('local hasActiveQueue = not physicalOnly and ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled') &&
     equip.includes('if hasActiveQueue'),
   'IsSetEquipped must allow single-slot ring/trinket cross checks and only gate queue readiness on slots with active queues.'
+);
+
+check(
+  core.includes('function ItemRack.SetMinimapButtonVisual(currentSetName, hybridSetName)') &&
+    core.includes('function ItemRack.RestoreMinimapButtonVisual()') &&
+    core.includes('icon:SetSize(halfWidth, iconSize)') &&
+    core.includes('icon:SetPoint("TOPLEFT", button, "TOPLEFT", insetX, insetY)') &&
+    core.includes('icon:SetPoint("TOPLEFT", button, "TOPLEFT", 7, -6)'),
+  'SetMinimapButtonVisual and RestoreMinimapButtonVisual must preserve LibDBIcon native circular inset geometry and coords.'
+);
+
+check(
+  buttons.includes('self.UpdateTooltip = ItemRack.InventoryTooltip') &&
+    !buttons.includes('self.UpdateTooltip = ItemRack.OnEnterButton'),
+  'ItemRackButtons must bind UpdateTooltip to InventoryTooltip to avoid redundant menu rebuilds on hover.'
+);
+
+check(
+  core.includes('SafeMouseIsOver(ItemRackMenuFrame, 16, -16, -16, 16)'),
+  'MenuMouseover must bridge the docking gap with hit-test margin around ItemRackMenuFrame.'
+);
+
+check(
+  core.includes('IsAltKeyDown() and ItemRackSettings.AllowHidden == "ON" and item ~= "MENU"') &&
+    buttons.includes('if id<20 and ItemRackSettings.DisableAltClick=="OFF" then'),
+  'MenuOnClick must preserve AllowHidden for Alt-Click on menu items, while ButtonPreClick preserves DisableAltClick queue toggling on slot buttons.'
+);
+
+check(
+  core.includes('local nameText = _G["ItemRackButton20Name"]') &&
+    core.includes('nameText:SetPoint("BOTTOM", button, "BOTTOM", 0, 2)') &&
+    core.includes('nameText:SetJustifyH("CENTER")'),
+  'SetButton20Visual must keep ItemRackButton20Name anchored and centered within button boundaries.'
+);
+
+check(
+  core.includes('if targetSlot>=13 and targetSlot<=14 and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then') &&
+    core.includes('targetSlot = (button=="RightButton") and 14 or 13') &&
+    core.includes('requestHold = (button=="RightButton")'),
+  'MenuOnClick must route TrinketMenuMode clicks (Left=13, Right=14) and standard breakout Right-Click to hold.'
+);
+
+check(
+  queue.includes('function ItemRack.HoldSlot(slot, id)') &&
+    queue.includes('function ItemRack.ClearHoldSlot(slot)') &&
+    core.includes('string.match(arg1, "^hold%s*")'),
+  'HoldSlot and ClearHoldSlot must provide manual queue hold commands for macros and external addons.'
 );
 
 const betaMarkdown = `# Changelog\n\n## [Development]\n\n### Bug Fixes & Improvements\n- Beta change\n\n## [4.0] - 2025-01-01\n- Old\n`;

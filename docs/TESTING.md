@@ -46,6 +46,767 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 24, 2026 #38 beta18 follow-up (comment 7070611147): reporter completed
+Naxxramas with no unwanted post-combat swap, but attached a persistent Drakes
+Hybrid capture. At 23:57:40 Tank [0/9 T3] Other fails slot 4 (saved 2579, worn
+14617); inferred Drakes passes solely because worn cloak 23045 is entry 2 of its
+queue, although its explicit saved cloak is 15138. This is not proof that either
+the banked cloak equipped or that a transaction was rejected. Why the shirt was
+not equipped is not established by the capture; an unavailable saved item must
+not be silently treated as a confirmed engine bug.
+`issue-38-beta18-queue-only-hybrid` uses those reporter IDs with production
+IsSetEquipped/UpdateCurrentSet and fails before the change. An optional
+physicalOnly match is used only for inferred candidates; normal active-set
+queue substitution still passes. The test also verifies that actually wearing
+the saved Drakes cloak can still recognize that partial set, preserving Tank
+queue authority. It models the supplied configuration, not native inventory
+timing; live recognition acceptance is pending. #39 has no new diagnostic dump;
+do not claim its remaining click/AutoQueue reports verified. #37 reporter has
+explicitly confirmed the ammo correction works (7016640193).
+Validation: clean-dependency full `npm.cmd test` passed for this correction;
+`git diff --check` passed. Native reporter acceptance is still separate.
+
+Swap audio: `item-scoped swap audio and accepted/rejected destination observation`
+in `.tools/test_transaction_engine_lua.js` checks that a locked move leaves
+audio alone until submission, then passes the two exact item identities before
+pickup. An audio error must leave equipment rejection and cursor recovery
+intact. Live acceptance on Era, TBC Anniversary, and Forever should exercise a
+trinket switch, a multi-slot set, and a weapon binding with ambience and bag
+sounds enabled. Verify the same items are audible again after the mute window.
+
+Druid shared-gear hypothesis review (2026-11-18): named standard-gate case
+`reported-druid-cat-bear-shared-gear-review` executes ProcessStanceEvent,
+event-frame reduction, and production preflight/EquipSet/EndSetSwap paths.
+Cat -> Bear -> Cat with a shared set and distinct overlapping already-worn sets
+creates no equipment plan. Repeated form observations create no new plan;
+combat does not submit work. A retained target already satisfied at submission
+exercises real empty-plan completion without equipment moves. Source sets have
+visibility/spec settings and test API sentinels reject attempts to call them:
+internal event plans copy item targets only. This corrects the earlier suggestion
+that standard stance events necessarily run those saved-set completion settings.
+It does not reproduce native taint or the reporter's configuration. Custom
+scripts calling ItemRack.EquipSet directly and actual intermediate humanoid
+notifications are outside this fixture. No runtime patch or accepted beta change
+is made for this hypothesis; the original blocked-action report remains open.
+
+November 18, 2026 resolved development regressions (pending live client acceptance; no beta tag or CurseForge submission):
+1. Forever combat breakout empty menu (Discord `1.60.1.70959` dump / `4.58` and CurseForge `ginsengz` & `user_gn29nqf7pua9704t`): Supplied diagnostic dump showed `OnEnteringCombat` running `combat_entry_refresh` with `InCombatLockdown=false`, `UnitAffectingCombat=true` (`phase=transition`), and Forever's tooltip API emitting red `"Cannot change equip status while in combat"` on bag items (line 8-10 on long items, line 4 on <= 4-line items), causing `PlayerCanWear` (`wearRejected=6`) and `StoreMenuSnapshot` to overwrite the 6-trinket OOC snapshot with `{0}`. Fixed by adding `ItemRack.IsCombatEquipRestrictionText` (`PlayerCanWear` ignores temporary combat-lock red text across all lines while preserving red header proficiency and lines 5+ requirement checks), guarding `StoreMenuSnapshot` against overwriting populated snapshots with 0-item scans during combat/transition, restoring `ItemRack.Menu` safely on errors in `RefreshQuickAccessMenuSnapshots`, and refreshing OOC snapshots on `BANKFRAME_CLOSED`. Named permanent regression `reported-forever-combat-lock-tooltip` (`.tools/test_forever_combat_menu_lua.js`) failed pre-fix at the 4-line combat-lock items (`items=4, wearRejected=2`) and passes across 6-trinket transition refresh, un-cached combat discovery, combat-queue clicks, genuine level/proficiency rejection alongside combat lock, transition snapshot preservation, OOC bank-deposit empty updates, and `OnBankClose`. Client acceptance: test trinket/weapon/short-tooltip quick-access and character-sheet breakouts on Forever `1.60.1` entering combat with and without pre-hover, queuing in combat, and verifying post-combat equip.
+2. GitHub #38 (`neferens` `v4.59-beta16` dump `ItemRack Set Swap v4.59-beta16.txt`): Beta16 `set_detection_transition` evidence captured `PvE Tank Dungeon Other` -> `PeriodicQueueCheck` starting Slot 13 (`22954` Kiss of the Spider) while Slot 17 (`19019` Thunderfury) deferred to `CombatQueue[17]`, then `UpdateCurrentSet()` firing after Transaction 19 before `CombatQueue[17]` drained and matching the 1-slot `PvE Any (Drakes)` set (`15138` banked cloak + fallback cloak `23045` worn). Fixed by draining eligible out-of-combat `CombatQueue` entries in `OnEquipmentTransactionFinalized`, deferring `UpdateCurrentSet()` as `inventory_settling` while out-of-combat living `CombatQueue` entries remain pending (leaving combat/dead detection unaffected), and clearing `ManualQueueChoice`/`BurntQueueItems` across `QueueSync` slots on `EquipSet`. Extended `hybrid-unresolved-state` (`.tools/test_identity_matching_lua.js`) and added `issue-38-chained-autoqueue-no-drakes-hybrid-flash` (`.tools/test_inventory_refresh_lua.js`); both failed pre-fix (matching `PvE Any (Drakes)`) and pass across immediate chained and lock-delayed `CombatQueue[17]` draining. Reporter client acceptance on live raid/dungeon swaps remains required.
+3. GitHub #39 (`cryptonoobevo` external TrinketMenu swap button icon sync): Clicking a trinket in external `TrinketMenu` could leave `ItemRackButton13` / `14` showing the previous icon if `UNIT_INVENTORY_CHANGED` fired before client texture/item identity settled (`ManualQueueChoice` integration was added in `4.59-beta4`, while `PLAYER_EQUIPMENT_CHANGED` was unregistered and `LocksChanged` skipped button refresh). Added `ReconcileInventoryState`, `OnPlayerEquipmentChanged` (safely registered via `pcall` in `InitButtons`), and `UpdateButtonLocks` unlock propagation into `LocksChanged` -> `RequestInventoryRefresh("locks_changed")`. Named permanent regression `issue-39-external-swap-button-icon-sync` (`.tools/test_inventory_refresh_lua.js`) exercises delayed `PLAYER_EQUIPMENT_CHANGED`, `ITEM_LOCK_CHANGED` unlock settlement, `ManualQueueChoice` retention against AutoQueue revert, and no-op behavior on bag-only locks. Live client acceptance with TrinketMenu remains required; the separate "Keep Menu Open" feature request in #39 remains unimplemented pending separate design/plan scope.
+4. Remaining CurseForge reports without full live-client verification: `MisaKGO` (WoW:F 19/11/26 Secondary Spec vs Druid Cat/Bear stance override) received Blizzard-source-verified Forever (`Camelot`) spec compatibility updates (`_G.GetNumSpecGroups` fallback for `GetNumTalentGroups`, `ItemRack.IsForever()`, and `PLAYER_TALENT_UPDATE` / `ACTIVE_COMBAT_CONFIG_CHANGED` handling in `ProcessingFrameOnEvent` covered by `forever-num-spec-groups-shim` & `forever-camelot-dual-spec` in `.tools/test_event_processors_lua.js`); live level 40+ Forever verification (`/etrace` + `/itemrack debug` + `/itemrack dump`) and checking Druid `Stance` event overlap remain required before marking `MisaKGO`'s report verified. `user_y1pi2j55nyv3bgrn` (`cat > bear > cat` blocked action) still awaits `/itemrack debug` + `/itemrack dump` on `beta16` / `beta17`.
+5. Quick-access Shift+Click anchored breakouts (#39 Part 1) & `/itemrack debug breakouts`: Implemented dedicated `ItemRackPinnedMenuFrame` (`MEDIUM` strata below `HIGH` hover `ItemRackMenuFrame`), `KeepMenuOpen` setting, `Shift+Left-Click` lock/unlock for slots `0..19` only, `/itemrack debug breakouts` live probe, and `gateEvents` blocker capture. Verified in `.tools/test_forever_combat_menu_lua.js` (`issue-39-pinned-breakout-and-debug`, 27 checks); live WoW client acceptance testing hover layering, frame dragging, TrinketMenu Left/Right swaps, and reload persistence remains required.
+
+November 19, 2026 resolved development regressions (pending live client acceptance; no beta tag or CurseForge submission):
+1. Spec event unroll hijack (`Primary Spec -> manual Shadow -> Mounted -> Stop`): TBC `4.59-beta17` log showed an overridden `Specialization` frame (`Primary Spec` -> `Bis`) left on `EventStack` after manually equipping `Shadow`, causing `Mounted` (`ZoomZoom`) -> stop to unroll onto `Primary Spec` and switch `CurrentSet` back to `Bis` (producing a false `Bis / Shadow` Hybrid). Fixed in `ItemRack/ItemRackEventState.lua` (`HasAnyOwnedSlots`, `TopOwnedFrame`, `PruneEmptySpecializationFrames`, `Activate` `baseSetName` capture, `Pop` owned-slot restore check) and `ItemRack/ItemRackEvents.lua` (`EnsureEventFrameState` pruning, `GetTopOwnedEventFrame`, `ReleaseEventSlotsForManualChange` clearing pruned `Active` flags). Permanent regression `spec-manual-shadow-mount-unroll` (`.tools/test_event_processors_lua.js`) exercises `Primary Spec` (`Bis`) -> `EquipSet("Shadow")` -> unchanged `ProcessSpecializationEvent()` -> `Mounted` (`ZoomZoom`) -> stop -> `Shadow` restoration -> `Secondary Spec` -> `Primary Spec` re-activation.
+2. `~EventFrame` exit AutoQueue reconciliation: Exiting temporary event overlays now checks ready higher-priority AutoQueue replacements via `ResolveRestoredQueueSlotTarget` / `TryReconcileEventFrames` and `AutoQueueItemToEquip` optional `assumedExactID`, plus runs `PeriodicQueueCheck` once `EventFramePlanFinished` / `EndSetSwap` updates `CurrentSet`. Covered by the permanent `~EventFrame` AutoQueue reconciliation regression in `.tools/test_event_processors_lua.js`.
+3. `Shift+Click` chat editbox focus guard: Replaced bare `ChatFrame1EditBox:IsVisible()` checks in `ItemRack/ItemRackButtons.lua` (`ButtonPostClick`) and `ItemRack/ItemRack.lua` (`MenuOnClick`) with `ItemRack.GetActiveChatEditBox()` (`ChatFrameUtil.GetActiveWindow` / `ChatEdit_GetActiveWindow`, focused `GetCurrentKeyBoardFocus`, or focused `ChatFrame1EditBox`). Permanent regressions in `.tools/test_forever_combat_menu_lua.js` verify resting visible General-tab `ChatFrame1EditBox` does not intercept `Shift+Left-Click` pin toggles or `MenuOnClick`, while focused `ChatFrame1EditBox` and custom `ChattynatorEditBox` receive links cleanly.
+4. Custom icon & Per-Set-only Hybrid splits: Restricted Hybrid split mode in `ItemRack/ItemRack.lua` (`UpdateCurrentSet`, `SetButton20Visual`, `SetMinimapButtonVisual`, `SetTooltip`, `MinimapOnEnter`) to `EnablePerSetQueues == "ON" and EnableQueues == "ON"`, added `ItemRack.CustomHybridOwner` (`Queue Set | Custom` split icon under Per-Set Queues ON), and restored clean set adoption + classic solid `ItemRackIcon` (`Custom`) under Global Queues (`EnablePerSetQueues == "OFF"`). Covered in `.tools/test_queue_runtime_lua.js` (Hybrid Scenario B, Custom Hybrid Scenario B2, Global Queue Scenario B3, Scenario C/D) and `.tools/test_identity_matching_lua.js` (`issue-38-missing-hybrid-transition`).
+5. Per-set AutoQueue editing during active event sets (`Zoomies`): Deferred `EndSetSwap` Options sync on `~EventFrame` plans so `EventFramePlanFinished` / `QueueEventFrameTargets` invoke `ItemRack.SyncOptionsEditingSet()` after `ItemRackUser.CurrentSet` settles, and added explicit `targetSetName` support to `ItemRackOpt.SetupQueue(id, targetSetName)` (used by `ButtonPreClick` `Alt+Left-Click`, `ButtonPostClick` `Alt+Right-Click`, `ButtonMenuOnClick`, and `SetQueue`) so active event-set queue initialization and edits never hit a stale `ItemRackOptSetsName` and persist on the event set after unrolling. Covered in `.tools/test_queue_runtime_lua.js` (`event-set-queue-editing-persistence`, 11 checks).
+6. Swimming event detection, exit restoration, and Set Picker UX (2026-11-20 user report): `ItemRack.PushEvent` defaulted `restoreOnExit = false` on `Type == "Script"` events lacking `.Unequip`, leaving swim gear equipped on `UnequipEventSet()`, while `MIRROR_TIMER_START` omitted surface swimming, water-breathing dives, and `IsSubmerged()` seabed walking (`IsSwimming()` is `false` on the ocean floor), and Options forced raw Lua editing (`SubFrame8`) instead of Set Picker (`SubFrame5`). Fixed `PushEvent` `restoreOnExit` (`eventData.Type == "Script" and eventData.Unequip ~= false`), removed duplicate pre-`Activate` `Pop` in `PushEvent` while preserving `state.baseSetName` across coalesced single-transition `EventFrames.Activate` replacements, added `ItemRack.ProcessSwimmingEvent()` driven by `IsSwimming() or IsSubmerged()` across `MIRROR_TIMER_START`, `RegisterEvents`, `RunAllEvents`, and the 0.5s `CheckForMountedEvents` timer (matching canonical `StackedSwimmingScript`/`LegacySwimmingScript` templates modulo `local set = "..."` without modifying user scripts or bypassing `IsScriptEventApproved`), and added Set Picker (`SubFrame5`) + icon preview support in `ItemRackOptions/ItemRackOptions.lua` via `CanUseSetPickerForEvent` / `ResolveSwimmingSetName` / `ExtractSwimmingScriptSetName`. Covered by `swimming-regression` in `.tools/test_event_processors_lua.js` (script `restoreOnExit`, surface swim without `MIRROR_TIMER_START`, seabed `IsSubmerged`, exit restore, manual override persistence, legacy `local set = "CustomSwim"` preservation + live `Events.Set` override without mutating script strings, tampered-script blocking, and custom non-canonical `Script` fallback) alongside `.tools/test_script_event_approval_lua.js`.
+- Client-only live acceptance checks still required on TBC / Forever: (a) `Primary Spec` (`Bis`) -> manual `Shadow` -> Mount -> Stop restoring `Shadow` with no `Bis/Shadow` Hybrid; (b) Per-Set Queues ON manual gear swap displaying `Queue Set | Custom` split + tooltip vs Per-Set Queues OFF displaying solid `ItemRackIcon` (`Custom`) and direct set adoption; (c) `Shift+Left-Click` quick-access buttons/menus with unfocused General tab vs focused Blizzard or Chattynator chat editboxes; (d) `~EventFrame` dismount immediately equipping a ready higher-priority AutoQueue trinket; (e) mounting/moving into a movement set (`Zoomies`), toggling/editing AutoQueue on its replaced trinket slot via `Alt+Left-Click` / `Alt+Right-Click` / Queue tab, dismounting back to the base set, and verifying the updated state remains saved on the movement set; (f) `Swimming` event live water transitions: surface swimming (no breath timer), diving with water-breathing buff, walking on the seabed, climbing onto land (verifying prior gear + `CurrentSet` restore), picking a Swim set via clicking the Swimming icon (`SubFrame5`), updating `local set = "..."` seamlessly for an existing user profile, and verifying a manual gear swap while swimming holds until exiting water.
+
+Development follow-up: `issue-38-owner-aware-cancel-and-manual-unequip` executes
+named cancellation and manual unequip with production ownership/completion
+helpers. It covers independent same-item requests, changed definitions, lock
+waits, obsolete completion generations and event/deferred bypasses.
+`hybrid-unresolved-state` checks pending transactions/sets, unresolved slots and
+profile startup retain stable recognition; ready observations still clear a
+match deliberately. Review found that the matcher can discover unresolved gear
+after the entry guard. `hybrid-mid-probe-readiness` and
+`hybrid-candidate-readiness` assertions now check both probes abandon detection
+before changing Hybrid state; the first failed before the correction. The
+ownership case also covers multiple removed slots, an empty-slot request,
+another source owner and independent AutoQueue preservation.
+Review validation: full `npm.cmd test` passed after the probe-boundary correction,
+including the updated static detection guard, and the additional production-helper
+batch/dual-spec replay passed. `git diff --check` passed. No client copy or release
+was made during this review.
+These do not establish the tentative Drakes report as
+resolved. Additional production-helper batch/dual-spec replay passed. Accepted
+beta15 is unchanged; original gameplay and local acceptance remain pending.
+
+CurseForge druid cat -> bear -> cat blocked-action report lacks the blocked API,
+client/build and combat state. Do not infer a stale item or protected call as
+its cause. Development captures ADDON_ACTION_BLOCKED/FORBIDDEN under existing
+master/Queue debug: attributed addon/function, set, swap, transaction and combat
+context. `reported-druid-blocked-action-diagnostics` exercises the production
+dispatcher/handler, disabled capture, both events, other-addon attribution and
+secret arguments. ShowHelm in the fixture is an illustrative payload, not a
+reproduction. Native taint propagation remains unverified. Needed evidence:
+enable `/itemrack debug` BEFORE the form sequence, reproduce, then ordinary
+`/itemrack dump` immediately; supply version/build and assigned form events.
+
+The CurseForge ammo report cross-links GitHub #37. The reporter's working
+delayed/stack-merging correction is incorporated from beta7 onward, with
+transaction-engine regressions; later packaged-build acceptance is not recorded.
+The Sets-tab icon report concerns its grid (`SetsIconOnClick`), not Button20 or
+the minimap. Current source selects immediately and persists on Save. Clarify
+grid click versus preview click and any Lua error before claiming reproduction.
+
+Issue #38 beta15 follow-up (6933058602): reporter supplies Dungeon -> Boss ->
+manual trinket change -> Dungeon and a brief tentative Drakes Hybrid match.
+The attachment logs steady state after tracking_enabled, final Dungeon and
+Hybrid nil. It does not establish the transient match or an equipped banked
+cloak. UpdateCurrentSet previously emitted no Hybrid transition records under
+any debug category; a different dump command could not recover those events.
+Development now logs set_detection_transition and, on entering a Hybrid match,
+hybrid_match_slot for each explicit candidate slot: saved/worn IDs, explicit
+identity match and queue owner/enabled/membership. This is opt-in through the
+existing Queue/master debug category and deduplicated by state transitions.
+Normal behavior and queue authority are unchanged. The named standard identity
+case issue-38-missing-hybrid-transition tests enter/exit evidence, differing
+physical versus queued IDs, unchanged-state suppression and disabled read
+avoidance. Its modeled matcher does not reproduce the reporter's actual set
+configuration; original gameplay resolution remains pending. Requested evidence
+is the manual equip method, candidate cloak queue configuration, Dungeon/Boss
+slot-13 queues and a short capture begun BEFORE the four actions. No new debug
+command or dump full is required. Published beta15 remains unchanged.
+
+Issue #38 local candidate: the pending broad history deletion was removed.
+Deferred slots now retain explicit source-set ownership; anonymous/manual and
+mixed non-auto batches cannot infer a set owner from stale CombatSet. A new
+manual set request retires older set-owned deferred slots and advances a manual
+generation. A settling ~CombatQueue batch cannot restore its set authority after
+that generation changes. Independent manual item requests remain queued.
+`issue-38-deferred-authority-and-restore` extends the standard queue-policy
+suite with production processor, completion and cancellation functions, covering
+manual/set/mixed batches, metadata consumption, newer manual precedence, stale
+completion and live Base -> A -> B restoration ancestry. Modeled completion
+does not establish the reporter's exact original input sequence or native item
+timing. Local general-use and community acceptance remain required. Passive
+queue ranking and physical transaction serialization retain their existing
+behavior; batching is not claimed as a resolved cooldown defect. TipTac visual
+acceptance remains separate. No beta publication is authorized until the owner
+accepts this local general-use candidate.
+Validation: full `npm.cmd test` passed for this source, including the new
+ownership/restore/cancellation/late-completion case and existing tooltip cases.
+Installed ItemRack and ItemRackOptions to Forever only with the existing scoped
+installer. Both directory mirrors passed and the other clients' core/options
+Lua and TOC hashes are unchanged. Installed core SHA256:
+`244981159942f386f455d97ba83b73be861c5150d3ff04943c8adca2f71684fa`;
+equip SHA256:
+`fb029f793ecef2642857d84f45ad9689de8a5d2fd784a408cb344e429ec7dcc4`.
+This is Dev, not a published release. Owner must reload and check general use,
+set/partial-set restores and combat-deferred selections. Actual resolution of
+the reporter's incident and TipTac movement still requires client acceptance.
+No beta/tag/publication or CurseForge submission occurred.
+
+November 14 owner report / Forever beta14 local test: native SetLootItem for
+Copper Ore (2770) reaches OnTooltipItemData and fails at the first tooltip line
+with "attempt to index local 'text' (a secret string value...)". The supplied
+stack identifies `text:find` in the duplicate-set-marker scan; the same read
+exists in ListSetsHavingItem. This is a separate concrete failure from the
+reporter's comparison-tooltip movement. Owner's CVar screenshot returns
+alwaysCompareItems = "1" and shows comparisons rendered; it does not establish
+TipTac Mouse Anchor settings or reproduce the oscillation.
+
+Named permanent regression `reported-forever-secret-loot-tooltip-text` extends
+`.tools/test_identity_matching_lua.js` in the standard gate. It invokes the
+actually registered TooltipDataProcessor item post-call with the reported loot
+payload, then production hyperlink parsing and set-list scanning. Marked real
+Lua strings reject method lookup, modeling the exact forbidden operation. The
+case fails before the fix at that lookup and passes with explicit secret guards;
+it also covers readable public identity beside an unreadable title, modern and
+legacy deduplication, direct secret-link rejection, disabled/forbidden tooltips
+and clients without secret-value APIs. Fengari does not implement native WoW
+secrets/taint: client acceptance remains re-hovering loot/bag/equipped items with
+Show set info in tooltips enabled and checking for no new error. The change is
+on dev; beta14's immutable tag remains unchanged. TipTac comparison lifecycle
+and global/native tooltip placement are not changed by this correction.
+Validation: the full `npm.cmd test` gate passed. Installed this tested development
+tree into `_forever_` only with the existing installer's manifest/path/mirror
+checks and a single-client scope; its TOCs now read Dev. TipTac was unchanged by
+that installation. Owner must `/reload` and re-hover loot to accept the native
+secret-string fix. No new beta or tag was created.
+
+November 13 CurseForge / prokn4h: **TipTac Forever floating-button blinking;
+candidate mitigation shipped in GitHub-only beta14; main-tooltip reporter
+acceptance received, comparison movement unresolved.** The report names
+TipTac Forever, not TacoTip: hovering an Alt-click-created floating ItemRack
+button blinks heavily with Frame Tip Type = Mouse Anchor / Bottom Left.
+Source: https://www.curseforge.com/wow/addons/itemrack-universal/comments ;
+reporter settings: https://imgur.com/a/m12lPwj . Exact ItemRack version,
+TooltipFollow/Tiny Tooltips settings and a TipTac-specific capture are missing;
+the earlier GearQuest dump is not proof for this separate report.
+
+Reviewed the actual latest archive, TipTac_Forever_1112.zip, November 12,
+file 9580401: https://www.curseforge.com/wow/addons/tiptac-forever/files/9580401 .
+SHA256: `ae113c687aba128658dbf56aba136010d8b62b89c735df480e3011517ba014c0`.
+Its ttCore.lua SetDefaultAnchorHook (4121), AnchorTipToMouse (3890),
+ResetCurrentDisplayParamsForAnchoring (4194) and SetOwner hook (4247) show
+default-owner resets and per-frame mouse placement. TipTacTalents/ttTalents.lua
+GearScore output (392) reads a unit inspect cache after a unit GUID check;
+this is not evidence that scoring causes the item-tooltip report.
+ItemRack's default TooltipUpdate path previously invoked the default-anchor
+hook on every refresh. A local, unshipped research check executing those three
+actual TipTac methods with production ItemRack functions and modeled native
+APIs observed 11 owner resets for 11 updates before, one after; cursor tracking
+and item refresh remained functional in both. This establishes redundant
+resets, not a reproduction of the reported visible blinking. The licensed
+upstream archive is not packaged or required by the standard test gate.
+
+Named permanent case `reported-tiptac-mouse-anchor-floating-button` in
+`.tools/test_identity_matching_lua.js` executes InventoryTooltip, AnchorTooltip,
+TooltipUpdate, ClearTooltip and OnTooltip with modeled default-anchor hooks.
+It fails against the unchanged pre-patch production functions on repeated
+same-owner reset, and passes with the narrow default-refresh guard. It covers
+external placement, repeated button callbacks/cooldown refresh, changed queued
+text/bag contents, owner change, foreign owner, hide/reenter, TooltipFollow
+ON/OFF transitions, fresh options tooltips and native placement without addons.
+Existing character/comparison cases remain in the gate. No addon-name detection
+or global hook override is added; explicit ItemRack positioning still wins when
+selected. Client acceptance: repeat the reporter's floating-button hover with
+TipTac 11.12 Mouse Anchor and actual ItemRack settings, with/without cooldown,
+move the cursor, switch buttons/leave/reenter, check comparison tips and verify
+character-sheet breakouts. If it still blinks, capture exact versions/settings
+and mouse-focus/enter/leave behavior before broadening the patch. A modeled
+anchor test does not establish a client rendering or mouse-focus fix.
+Validation: focused identity/tooltip suite and complete `npm.cmd test` passed.
+Accepted beta13, published releases and local client installations are unchanged.
+
+November 14 delivery: published `v4.59-beta14` from
+`4f3b265b6e3462ba0de6917ba6a192ca92ba3c40`, implementation
+`24f5b04fad30bf4fb44e88da4ad5c1d2bfbcebcb`:
+https://github.com/Bl4ut0/ItemRack-Universal/releases/tag/v4.59-beta14 .
+The 351,608-byte ZIP carries 50 verified addon files; SHA256
+`dda1721b090dab2012c5a15aed975ca80edd435ae5ac4d5354e23a8e31f96f0a`
+matches GitHub's asset digest. Both development and prepared-beta full
+`npm.cmd test` gates passed. The named regression also checks that the default
+anchor hook runs before ItemRack's first explicit Show; native rendering still
+requires reporter acceptance. The release notes include all preceding 4.59 beta
+sections and the new full diagnostic export. GitHub run 43560138140 succeeded:
+release-policy passed, verify-and-deploy skipped. No CurseForge submission or
+local client replacement occurred; stable Latest remains v4.58. Replied as
+Bl4ut0 to prokn4h's TipTac report with the release link, installation steps,
+Mouse Anchor ON / Tooltips beside buttons OFF, cooldown/leave/reenter checks
+and debug/dump instructions. CurseForge displayed "Your reply was posted."
+Development TOCs were restored after publication; the beta tag is immutable.
+
+November 14 follow-up: after explicit owner authorization, read the reporter's
+diagnostic conversation and downloaded the new dump and screenshot. Raw private
+evidence and its source manifest remain local and ignored under
+`.versions/ReporterEvidence/prokn4h-2026-11-14/`; do not publish the attachments.
+The reporter confirms the main tooltip stays steady; equipped-item comparison
+tooltips oscillate vertically when hovering a potential replacement in the
+quick-access breakout, with TipTac active. The still screenshot establishes the
+item/tooltip context, not the motion or its frame timing.
+
+Dump confirms beta14, Forever 1.60.1 build 70938, TipTac modules 11.12.26,
+TooltipFollow OFF, all Tiny Tooltips OFF, MenuScale 0.85 and
+AlwaysCompareBreakoutItems OFF. It is out of combat; slot-13 discovery found
+three items plus the empty row. The menu is closed at dump time. Native
+alwaysCompareItems, the modifier at the failing hover, comparison-frame
+geometry/ownership and callback timing are not captured. An OFF ItemRack
+comparison option does not imply comparisons are disabled: the shared predicate
+also honors the game's CVar and comparison modifier.
+
+Source lead: MenuTooltip's native UpdateTooltip callback rebuilds bag content
+and invokes ShowBreakoutComparison; TipTac also hooks native comparison layout,
+post-styling and mouse updates to refresh ShoppingTooltip1/2 placement and size.
+An ignored offline probe of production MenuTooltip/TooltipUpdate/predicate/
+comparison functions models 11 unchanged-row callbacks. With the game CVar ON,
+it observes one default-anchor initialization but 11 content rebuilds and 11
+explicit comparison requests. With CVar OFF and no modifier, it observes zero
+comparison requests and repeated hides. These are modeled call counts, not
+observed reporter timings or a reproduction of vertical oscillation.
+
+Next correction should investigate comparison lifecycle and re-layout ownership,
+preserving the accepted main-tooltip anchor fix. Any refresh coalescing must
+invalidate on hovered-item/owner/equipment/modifier changes, hidden tips, async
+item data and cooldown content; blindly skipping compare calls can leave stale
+tips. Do not overwrite global anchors or TipTac methods. Extend the existing
+identity/tooltip suite with a permanent reported-comparison regression only
+when the failure is reproduced. Actual native layout still needs acceptance.
+For a targeted existing-client capture, TipTac 11.12 provides `/ttcount` (five
+seconds; up to 30 counter rows). Pair its hover output with
+`/dump GetCVar("alwaysCompareItems")`; a short video or frame-position trace is
+needed to establish the exact competing placement/timing. No new patch or
+release is claimed from this review; beta14 remains immutable.
+
+Owner's subsequent local-test request: installed the exact beta14 staged tag
+and the reviewed TipTac Forever 11.12.26 archive into `_forever_` only, including
+ItemRackOptions and all four TipTac modules. The existing installer was scoped
+to its single `_forever_` client entry for this invocation, retaining release
+manifest and full byte-mirror verification. TipTac's 257 files were mirrored
+against the complete archive extraction and `/ttcount` registration was verified
+on disk. Ten ItemRack/Options TOC hashes across the other five clients were
+unchanged. Full `npm.cmd test` passed before deployment. No addon settings or
+SavedVariables were edited. Restart the client to detect the new TipTac folders;
+set Frame Tip Type = Mouse Anchor / Bottom Left and Tooltips beside buttons OFF
+for the reporter's scenario. `/ttcount` prints its five-second counters to chat,
+separately from ItemRack's dump. Live loading and diagnostic output are still
+owner acceptance checks.
+
+Owner subsequently reproduced comparison movement with Mouse Anchor enabled;
+provided screenshots show both aligned tops and a roughly 10-pixel vertical
+gap. The supplied `/ttcount` capture records 5/s SetBagItem, 10/s comparison
+requests, 20/s comparison SetOwner and 39/s full TipTac layout passes. These
+counts establish repeated layout work, not an ItemRack source for every call.
+
+A more specific source lead supersedes assuming refresh coalescing alone is
+the remedy: the current exported Blizzard TooltipComparisonManager layout uses
+Y=0 for each comparison's TOP point, while TipTac 11.12's bundled library uses
+Y=-10 in all three corresponding calls. The external reference is
+https://github.com/Gethe/wow-ui-source/blob/live/Interface/AddOns/Blizzard_SharedXMLGame/Tooltip/TooltipComparisonManager.lua
+(download SHA256 5734a4f0270f47b5d8c858d6f9d355d2850fc258687d75a372631369f3420727).
+This is a reference export, not a verified dump of Forever build 70938.
+An ignored offline source probe executes both actual layout methods against
+modeled geometry, showing 0/-10/0 alternation before correction and agreement
+at 0 after, for left/right placement and one/two comparison panels. It does not
+establish native rendering or callback ordering by itself.
+
+Applied a local diagnostic patch only to the four installed TipTac library
+copies: replace those three -10 offsets with 0 in each copy. All four on-disk
+original hashes matched the reviewed archive before replacement; all patched
+hashes match staged candidates. The four copies are the only installed
+LibFroznFunctions providers and share minor 72. No TipTac source is added to the
+repository or ItemRack package, no global hooks are overridden, and no comparison
+coalescing change is added to ItemRack from this lead. Exact original files are
+retained in the reviewed vendor archive/staging for restoration if ineffective.
+Local patch manifest: `.versions/LocalInstall/TipTac-Forever-comparison-offset-zero/PATCH_MANIFEST.json`.
+Client acceptance is pending: `/reload`, repeat the same hover with automatic
+comparisons and mouse anchoring, then test one/two equipped comparisons, modifier
+changes and screen edges. If ineffective, restore those four original files;
+the separate regression-backed ItemRack secret guard remains applicable.
+
+Owner subsequently required an ItemRack adapter with unmodified TipTac, local
+testing before beta publication and reporter follow-up. Restored all four
+TipTac library copies to their exact reviewed vendor hashes; the spacing-patch
+trial above is retired. No beta15 or reporter message is authorized before this
+local adapter test is accepted.
+
+**Rejected local handoff trial (removed):** `FinishTipTacComparisonLayout` post-hooked the modern manager after
+a default ItemRack hover discovers TipTac's anchoring method. It synchronously
+invokes TipTac's own SetAnchorToTip for the active, exactly owned ItemRack item
+tooltip. Its internal enabled/default-anchor/exclusion checks still decide
+placement. There are no ItemRack spacing constants or replacement TipTac methods.
+Explicit/character-sheet placement, foreign owners, forbidden/secret endpoints,
+missing modern APIs and inactive tooltips are excluded. Reentry is suppressed;
+a failed handler is disabled until replaced/reload. Public counters in breakout
+diagnostics report installation, handoffs and errors; a handoff count does not
+prove TipTac chose to move a disabled/excluded tooltip.
+
+The removed modeled case `reported-tiptac-comparison-layout-handoff` extended the
+identity/tooltip suite. With the original AnchorTooltip integration it failed
+because native layout returns before any handoff; wiring the lazy registrar
+makes it pass. The production registrar/callback/AnchorTooltip execute with
+modeled native/controller endpoints. Cases include repeated same-callback final
+placement, one/two comparison panels, unrelated owners, explicit ItemRack mode,
+missing default context, forbidden/secret visibility, controller settings and
+exclusions, recursive layout, one-time error fallback/recovery, optional addon
+absence and late/replaced modern managers. Existing anchor and secret-text cases
+remain active.
+
+The local ignored interop probe additionally executes actual unmodified TipTac
+SetAnchorToTip, its internal/mouse methods, RefreshAnchorShoppingTooltips and its
+real geometry/point cache with the exported native layout and production adapter.
+Twenty native layouts finish consistently at TipTac's own placement; real
+disabled-anchor/default-exclusion settings keep native placement. Cache checks
+and cache-state writes are asserted to succeed, avoiding a silent error fallback
+in the model. Native rendering, taint and the exact Forever callback ordering
+remain owner acceptance. Test after `/reload` with original TipTac, compare the
+same hovering/mouse motion, check both equipped comparisons, modifier changes,
+edges and other addons' tooltips. `/dump ItemRack.TipTacComparisonAdapter` or the
+normal dump should show installed=true, increasing handoffs and errors=0.
+Validation/deployment: focused regression and complete `npm.cmd test` passed.
+Installed this exact development tree to `_forever_` only; installed core SHA256
+`d50f3b57508edf9f5085e832585fc4848f4009b4b4c4507cc76a06936682e511`.
+Full directory/file/hash comparison verifies all 257 TipTac files match the
+unmodified official 11.12.26 extraction. Ten other-client ItemRack/Options TOC
+hashes remain unchanged. No beta15 metadata/tag/release or reporter follow-up
+was created. Owner acceptance of this restored-TipTac + ItemRack-adapter build
+is required before resuming that publication request.
+
+**Owner rejected the handoff build:** screenshots and an in-client dump show
+installed=true, handoffs=132, errors=0 while the comparison still oscillates.
+The installed core hash equals the tested workspace hash above. This disproves
+the synchronous-manager-handoff correction, not the owner's deployment. Removed
+that runtime adapter and its successful-but-incomplete modeled contract case,
+per the owner's requirement to undo ineffective changes. TipTac remains the
+original vendor build; secret-text guards and beta14's accepted main-tooltip
+refresh correction remain. No beta15 or reporter reply may proceed yet.
+
+Added an opt-in, read-only `/itemrack debug tooltips` capture to identify the
+actual point writer or size change after that attempted handoff. Existing
+GameTooltip/ShoppingTooltip endpoints are observed through secure SetPoint
+post-hooks and OnUpdate/OnSizeChanged samples; no controller or positioning
+method is invoked by collection. Only the active exactly owned ItemRack tooltip
+context is captured. Samples deduplicate unchanged geometry, expire at ten
+seconds, stop at 128 entries and bound stacks to 640 characters. Normal dumps
+include 16 recent samples; full dumps include all retained samples in paged
+output. Explicit stop and existing debug clear retain/clear evidence as named.
+Hook components are registered once even when another component is unavailable.
+Secret values are redacted before inspection or serialization.
+
+Named permanent case `reported-tiptac-comparison-anchor-trace` executes the actual
+SlashHandler/recorder/report functions. It captures native 0, controller -10 and
+a later 0 write, its caller, rendered geometry and size changes, while asserting
+no extra SetPoint/controller calls. It also checks unchanged-frame deduplication,
+foreign/forbidden contexts, redaction, stack/capacity limits, normal/full tails,
+rearm hook idempotence, expiry, stop and clear. This verifies diagnostics, not a
+fix for the live oscillation. The next native acceptance step is a capture of
+the real bouncing hover; do not infer the last writer from the old model.
+Validation: complete `npm.cmd test` passed after the removal/capture changes.
+Installed both addon folders to Forever only; installed core SHA256
+`d562a0890586934f7216fcde7165b24883ddfe2eecb4ad41eaa954f3159fe9b3`.
+Installer mirrors verify the failed handoff is absent, capture is present and
+all 257 TipTac files still match the vendor package. Other-client metadata was
+unchanged. Owner must reload to discard the old in-memory secure hooks, run
+`/itemrack debug tooltips`, hold over the bouncing row for ten seconds and export
+the capture (normal dump tail or full dump with pages copied in order). Beta15
+and the reporter reply remain deferred; no comparison correction is claimed.
+
+November 14 owner capture/export follow-up: the owner reports fourteen pages
+for the ten-second capture, then supplies the first four pages of a ten-page
+report. Those pages contain trace entries 1 through 68 (status limit, retained
+128), spanning uptime 301568.487 through 301568.947. They are sufficient to
+identify repeated native comparison TOP y=0 writes from
+TooltipComparisonManager.lua:136 and TipTac TOP y=-10 writes from
+LibFroznFunctions-1.0.lua:3172. The main tooltip repeatedly changes height from
+232.248 to 148.248, 176.248 and back to 232.248; the comparison height stays
+190.248 in this sequence. Size stacks identify TipTac's RecalculateSizeOfGameTooltip,
+TipTacItemRef and SetScaleToTip paths. These are observed calls and geometry,
+not proof of a rendering fix or evidence that offset alone explains the bounce.
+Remaining capture pages are not needed to establish that repeated sequence.
+
+Added `/itemrack dump tooltips` so a targeted capture does not require copying
+the entire unrelated support report. Compact ordered rows preserve every retained
+sample and reference unique caller stacks printed once; existing safe byte/line
+pagination remains available for many distinct long stacks. Existing normal/full
+exports are unchanged. The named `reported-tooltip-trace-export-size` assertions
+extend the standard gate's `dump-full-retained-diagnostics` production-SlashHandler
+case. They export 128 samples while activity/special buffers remain full, reject
+unrelated diagnostic collection, check caller deduplication/completeness and
+evidence preservation, fit a representative capture in one page, and exercise
+safe pagination for 128 distinct long stacks and the empty-capture state.
+Native copy-window acceptance remains required. No tooltip correction, beta
+publication or reporter reply is claimed by this export improvement.
+Validation: complete `npm.cmd test` passed with the focused command and updated
+capture instructions. Installed both addon folders to Forever only using the
+existing scoped installer; core SHA256
+`25447deb6056ff1eb87bc7771ea5831730d1739bb2513fb2599d3cf6661ab28c`.
+Both folder mirrors passed, all 257 TipTac vendor files remain unchanged, and
+the other five clients' core/options Lua and TOC hashes are unchanged. No further
+capture is required to establish the repeated sequence already supplied; the
+focused command becomes available on the owner's next normal reload.
+
+November 14 focused follow-up capture: owner supplied both pages, including all
+128 samples and caller IDs 1-29, and confirms the pointer was held over one item.
+Capture started at uptime 302851.467; samples span only 302858.560-302858.970
+before hitting capacity. Do not describe this as ten seconds of observed motion
+or assume the owner switched items. The main tooltip's final sampled height
+changes (188.248 then 162.248) accompany repeated intermediate sizing and
+native y=0 / TipTac y=-10 writes. Sampled comparison OnUpdate rows 90 and 120
+both retain y=-10. This does not establish native y=0 as the final rendered
+writer; another last-writer handoff is unsupported by this evidence.
+
+Production MenuTooltip/TooltipUpdate and IDTooltip render native item content,
+then unconditionally request comparison again. A candidate correction observes
+the modern manager's public CompareItem method through a secure post-hook and
+records its revision before rendering. Only a newer revision from that render
+plus a visible, non-secret, non-forbidden comparison owned by GameTooltip can
+suppress the redundant explicit request. A previously visible comparison alone
+never qualifies. No positioning or TipTac methods are invoked by the observer.
+Forced/manual comparisons, hidden/foreign/secret results, absent managers and
+failed hooks retain the explicit fallback; failed registration is not retried
+every refresh. This coalesces requests, not content updates or equipment data.
+
+Named permanent `reported-tiptac-native-comparison-duplicate` in the standard
+identity suite executes production MenuTooltip, TooltipUpdate, IDTooltip,
+predicate, observer and comparison helper with modeled native endpoints. Eleven
+identical renders must produce eleven native comparisons and zero extra explicit
+requests; item changes still render immediately. It covers previous-item stale
+results, forced/disabled policy, hidden/foreign/secret ownership, replacement
+managers, legacy fallback and failed registration. The unchanged old comparison
+helper fails this same test at the redundant-request assertion. Native rendering
+and TipTac's full lifecycle are not implemented by Fengari: this test verifies
+the redundant-call correction and must not be described as proving the visible
+bounce fixed. Acceptance remains a local Forever hover with untouched vendor
+TipTac, comparison modifiers/Always Compare on and off, changing items/equipment,
+and legacy behavior before release. Keep beta15 and the reporter reply on hold.
+The focused export labels `comparisonPolicy=native-per-render-v1` and includes
+observed comparison/duplicate-skip counters to establish whether the candidate
+path actually ran, independently of visual acceptance. Validation: final full
+`npm.cmd test` passed; the local baseline replay fails the named assertion with
+the unchanged old comparison helper. Installed both addon folders into Forever
+only; core SHA256
+`8a8cbd2fe76771d977e587d4b72075ab3f83391ba386983cc016cd5850210c90`.
+Both addon mirrors passed, all 257 TipTac files remain original, and other-client
+core/options Lua and TOC hashes are unchanged. Owner must reload and test the
+same hover; if ineffective, remove this candidate rather than layering another
+positioning workaround on top. No visible resolution is claimed yet.
+
+November 13 owner request: optional `/itemrack dump full`, preserving the normal
+size after previous oversized-copy-window problems. Existing focused suite
+`.tools/test_queue_runtime_lua.js` adds `dump-full-retained-diagnostics`: actual
+SlashHandler, serializer, special capture reader and native-widget callbacks
+with modeled UI endpoints. Named assertions cover exact normal 500-line export,
+all 5,000 retained lines in full mode, 2,048 retained / 256 normal special entries,
+overwrite/omission metadata, ordered page navigation, bounded 400-newline/24,000-
+byte pages, UTF-8 and long-line reconstruction, empty buffers, full-to-normal
+switch, non-destructive snapshot, close cleanup and existing combat focus guard.
+The capture still expires at 120 seconds. Historical captures with 256 retained
+entries are unchanged. Live scrolling/wrapping, CTRL+C and reconstructing a full
+file in Era/TBC/Forever remain acceptance; modeled widgets cannot establish
+native rendering behavior. Accepted beta13 is unchanged; this is dev work.
+Validation: full `npm.cmd test` passed, including 113 new full-export assertions.
+
+Latest #33 feedback (6863125913 / 6863214814 / 6864333843): **fixed at
+code level; shipped in GitHub-only beta13; community acceptance pending.** Revised hold attachment
+34822084 retains the numeric-snapshot/text-quarantine evidence. The dedicated
+exception capture 34822062 confirms Era 1.15.9 / build 70576 actually emits
+`UNIT_SPELLCAST_SUCCEEDED` 23074 at uptime 6414.828, 52 ms after the Arcanite
+hook; Chicken 23133 succeeded immediately before it. The original historical
+alias uncertainty is now resolved for Arcanite on that client.
+
+Named permanent cases in `.tools/test_queue_runtime_lua.js`:
+- `issue-33-text-slot-use-receipt`: production equipped-state/readiness,
+  reconciliation, retry and verified use with numeric/text hooks, real numeric
+  snapshot keys, stale string quarantines, invalid slots, global/per-set/mirrored
+  queues and OOC/combat. Original beta12 readiness/use/retry functions fail this
+  case; current functions pass without weakening numeric quarantine checks.
+- `issue-33-era-wrapper-success`: the captured Era wrapper success confirms its
+  bounded item intent, releases temporary choice and queues restricted gear.
+  Restoring the pre-fix Era success maps fails it; current maps pass.
+- `issue-33-shared-guardian-not-own-use`: Chicken own cooldown plus Dragonling
+  60-second shared lockout, with both hooks invoked. The rejected Dragonling
+  attempt cannot mark it used/burnt/confirmed, but game lockout still affects
+  readiness. Removing the new guard fails this case; current code passes.
+- `issue-33-distinct-special-receipts`: separate Dragonling intents and native
+  publication; one item's success/full cooldown must not confirm/reconcile
+  another's. Failure/interruption and late success retain protection. History
+  preserves the outcome event across independent-global reload checks.
+
+Full `npm.cmd test` passed, including 798 ordinary-use scenarios and 151 special
+recovery checks. These tests execute production functions with modeled game APIs
+and equipment endpoints, supported by the actual event capture. They do not
+constitute community confirmation of the patched build, nor establish every
+client's emitted summon event or lifetime. No in-game tester is packaged.
+Beta12 and local clients are unchanged. See `SPECIAL_ITEM_TEST_DEPLOY_PLAN.md`.
+
+November 13, 2026, owner correction to #33's item list: ordinary cooldown,
+charges, player effects and channels were incorrectly registered as exceptions
+in beta12. `ordinary-on-use-not-special` rejects those tables;
+`curated-exception-source` checks the five retained IDs and default exclusions
+against all five pinned exports / six Interfaces. `ordinary-on-use-default-flow`
+executes actual use hooks, cooldown proof, aura lookup, both queue entry points
+and combat drain with source-backed Mortar, Boots, Skull, Pouch, Fetish and
+Pendant IDs/spells/slots. Its 798 scenarios cover global/per-set/mirrored queues,
+OOC/combat and legacy/modern exact/name/indexed APIs, including helpful/harmful
+self-effect variants. These are modeled API responses, not assertions of a live
+client's aura-filter choice. Name-only event lookups remain helpful-only;
+errors/secrets/unrelated effects cannot invent a match. Normal channels and an
+unlisted spell exercise real casting start/stop, selection and recognition.
+Live effect timing, backfires and server-specific behavior remain community
+acceptance in `BETA_TEST_CHECKLIST.md`. No in-game harness is added. Beta12 is
+immutable; this cleanup is on dev for a future candidate.
+Fail-before checks substituted beta12's actual production files without editing
+the tag: original catalogs fail `ordinary-on-use-not-special`; its generic aura
+reader fails the ordinary active-effect check with legacy globals absent; its
+queue functions fail ordinary channel protection after removing the override.
+Current production files pass all three and the complete `npm.cmd test` gate.
+
+November 13, 2026: owner requested the collective reviewed catalog and reported
+that `/itemrack debug` did not include beta11's 120-second special capture.
+`core-debug-starts-special-capture` executes the production `SlashHandler`,
+debug logger and special-item module. It fails against beta11's actual core
+source and passes with master/dedicated/chat capture wiring, immediate rearm
+after expiry, accurate status, quiet collection and non-destructive log clear.
+At beta12 publication the suite also checked `collective-catalog-source` (now superseded by `curated-exception-source`): every
+applicable item/slot/spell/cooldown/category against all five pinned Wago build
+exports, seasonal isolation, and bag-only exclusion. It executes actual
+channel/aura lookups for the enabled rows (modern exact/indexed APIs and legacy globals, including failures/secrets) and production use/queue/combat flow
+for all three Era Dragonlings, plus real catalog channel guards in both queue
+entry points. No test harness is packaged in the addon. These are source/code
+checks, not a claim that a community client capture has occurred. Beta11 is
+unchanged; the next authorized deployment is GitHub-only beta12.
+
+November 12 GitHub #33 / neferens, comment 6841005114: Arcanite Dragonling
+reportedly delays its cooldown by roughly its summon lifetime, so the ordinary
+fresh-cooldown verifier misses successful use. Exact client build, emitted
+spell IDs, event order and persistence after unequip were not supplied. The
+research and source hashes are in `SPECIAL_ITEM_USAGE_RESEARCH.md` and
+`research/`. Static data differs across clients; it is not live acceptance.
+`special-client-data-isolation` and the named `issue-33-dragonling-delayed-cooldown`
+assertion in `.tools/test_queue_runtime_lua.js` extend the existing standard-gate
+suite. The latter fails with beta10's production item-use/event functions and
+passes with the framework. It executes real use hooks, instant-cast dispatch,
+manual-choice/proxy functions, cooldown authority, queue selection and combat
+drain against modeled APIs/equipment endpoints. Checks cover all supported
+Interfaces plus an unsupported client, conditional SoD allocation, independent
+slot maps, native TBC behavior, disabled/malformed entries, absent native CD,
+short shared CD, later real CD and expiration, closed menus, notification
+tracking, global/per-set/mirrored ownership, persistent holds, new manual
+choices, generation/identity changes, ambiguity, failures, late/unrelated/recipe
+spells, bounded diagnostics and reusable channel/aura mechanics. Standalone
+success events are deliberately not reused by a later item hook.
+Community acceptance for the GitHub-only candidate: capture the actual player summon spell
+and hook ordering on each enabled client; success must follow a compatible
+pending use, and spell 19830 (crafting) or an unrelated dummy success is not
+accepted. Repeat early guardian death, unequip, full lifetime, failed use,
+paired trinkets, data loading, queues, locks/cursor/combat and tooltips. Pending
+usage receipts now persist through normal reload/relog. The existing focused
+suite adds `special-use-reload-before-native-cooldown`: independent Lua globals
+execute the actual addon modules and `TryInitializeQueueState` with serialized
+production receipts and different uptimes. Its 139 recovery checks cover startup
+order, new holds/no replay, delayed native publication, offline expiry, invalid/
+future schemas, wrong client/ruleset/revision/identity, uncertain clocks, fresh
+use after uncertainty, explicit receipt reset, stale/confirmed arena reset,
+bounded silent unexpected-event capture and late seasonal allocation. These
+extend 132 catalog and 279 use/queue runtime checks. No in-game fake items or
+simulator is added. The maintainer need not own the items or perform these live
+community checks before candidate publication. Local clients are not installed
+for the GitHub-only candidate.
+
+GitHub-only beta publication uses an immutable TOC distribution field, tested
+by `github-only-candidate` in `.tools/check_release_flow.js`. A real tagged ZIP
+fixture is refused by the CurseForge verifier before preflight/network, even
+when its editable release notes are changed. The workflow policy gates both
+published and manual jobs before secret access; ordinary beta/stable fixtures
+still follow the normal upload route.
+
+November 12 GitHub #33 / neferens, comment 6840015661: manually equipped
+Slayer's Crest below Priority Kiss of the Spider remains equipped after use
+and its 20-second buff when custom Swap In overlaps the remaining cooldown.
+Reported values are 120/119/100/99 seconds, plus early buff removal around the
+115-second threshold at five seconds. Exact installed addon/client versions,
+saved item identities and full profile were not supplied in this follow-up.
+`issue-33-swap-in-temporary-hold` extends `.tools/test_queue_runtime_lua.js`
+in the standard gate. Before correction it fails after real use verification,
+showing no Priority replacement after the buff ends. After correction it runs
+the production secure-use callback, settled retry, ReflectItemUse, cooldown
+authority, manual-choice functions, ProcessAutoQueue and combat-queue drain.
+Synthetic item identities with the reported 120-second cooldown and 20-second
+buff exercise all thresholds in global/per-set/mirrored scopes and combat/OOC,
+including terminal gear, pending-request cleanup, unchanged queue policy/set,
+early buff removal, active buff, Pause/Delay, persistent holds, candidate
+eligibility, owner/item mismatch, duplicate/new choices, replaced-item retries,
+equip-penalty, stale/no-cooldown and shared-follower rejection. Client APIs,
+timers, aura state and equipment endpoints are modeled; this does not verify
+the reporter's exact client, protected actions or real aura/event ordering.
+Live acceptance for beta10: repeat the supplied Kiss/Crest procedure and early
+buff removal across each threshold both OOC and in combat; confirm the buff
+and configured Pause/Delay still hold, the ready Priority replacement equips
+when permitted, and persistent holds need explicit clearing. Verify failed
+uses and paired /use 13 + /use 14 do not release the unused follower's hold.
+Capture `/itemrack dump`, the installed version and client build if it differs.
+
+November 12 beta9 mirrored-queue clarification: **Use per-set queues** is the
+feature gate. With it OFF, global list editing and enablement remain unchanged.
+With it ON, the selected/event set owns enablement and runtime context while
+explicit mirroring supplies the live master's list and item policies.
+`mirrored-local-enablement` in `.tools/test_queue_policy_lua.js` failed against
+the previous master-owned switch behavior. It now checks one-time master-state
+initialization, independent follower switches, chain resolution, retargeting,
+unsync/relink, event inheritance, global fallback and rehydrated saved chunks.
+`mirrored-runtime-isolation` uses production manual-choice and combat-queue
+functions to reject holds/stale automatic requests from another follower with
+the same list, while retaining explicit manual pending swaps.
+`mirrored-state-login-migration` in `.tools/test_queue_migration_lua.js` runs the
+real core migration entry point: legacy chains initialize once, later local OFF
+survives reruns, missing/cyclic links retain fallbacks and future schemas remain
+untouched. `.tools/test_set_icon_picker_lua.js` adds `mirrored-local-checkbox`
+with actual Options handlers and SaveSet: edit an inactive follower, retain
+item-policy/icon edit restrictions, save OFF without reseeding, and edit normal
+global queues while links are dormant. These model APIs and saved chunks; they
+do not execute WoW's SavedVariables writer or protected gear actions.
+Live acceptance: upgrade an existing mirrored profile, link new followers to
+ON and OFF masters, toggle each through Alt-click and Options, switch sets,
+reload/relog, and confirm choices persist while master order/policy/icon edits
+propagate. Retarget without losing the choice; unsync/relink should seed again.
+Toggle per-set queues OFF, edit global order/state, then ON and verify the
+saved follower choices return. Confirm stale automatic swaps clear and pending
+manual swaps remain. The reporter's suspected external mouse obstruction and
+other pending client-only checks remain separate; beta9 does not establish
+their resolution.
+
+November 12 beta8 chat-noise follow-up: the supplied screenshot shows routine
+`AutoQueue for slot 16: ON/OFF` messages at 16:08:18/19. Client build and profile
+were not supplied. Named `reported-autoqueue-toggle-debug-only` assertions in
+`.tools/test_queue_policy_lua.js` execute production ButtonPreClick and Debug.
+They fail against beta8's unconditional Print, and require silent default
+toggles, log-only Queue debug, explicit debug-chat output, silence when the tag
+is disabled again, unchanged queue state/pending requests and independently
+editable mirrored switches. Input capture remains automatic. Live acceptance: toggle a
+normal slot with debugging off, with Queue-only silent debugging, and after
+`/itemrack debug chat`; verify no routine chat by default and no change to
+equipping or pending icons. Published beta8 is immutable; this is a dev change
+for the next candidate, not a retag or an update to installed beta8.
+
+November 12, 2026 local remediation after the 4.59-beta7 review:
+
+- SoD report at 14:22:44: stack overflow on CharacterLegsSlot, alternating
+  ItemRack.lua:6524 and PaperDollFrame.xml:33_OnEnter. Exact client build, addon
+  version, installed addons and profile were not supplied; lines match the
+  current dispatch path. `reported-sod-character-onenter-recursion` in
+  `.tools/test_identity_matching_lua.js` models that exact XML-to-global
+  forwarding shape, fails before correction and passes once native dispatch
+  runs once. It also covers direct native dispatch, early/late addon hooks,
+  disabled menus, repeated registration and guard cleanup after a hook error.
+- `issue-33-synced-alt-click` in `.tools/test_queue_policy_lua.js` runs actual
+  ButtonPreClick with the real resolver and read/write proxy. Pre-fix clicks
+  silently write ineffective follower state; beta8 identified the master. Beta9
+  supersedes that refusal with independent follower ON/OFF and debug-only
+  feedback, without canceling a pending manual item. The reporter's newer character-specific
+  obstruction is a separate suspected external-frame problem, not verified as
+  this mirrored-slot bug or attributed to any addon.
+- `chained-mirror-detach` in that suite fails pre-fix on stale intermediate
+  data; production detach and DeleteSet now retain terminal order, stop marker,
+  false enablement and independent nested/unknown entry metadata. Empty masters
+  retain an empty local boundary rather than inheriting unrelated global work.
+- `internal-autoqueue-provenance` in `.tools/test_inventory_refresh_lua.js`
+  combines real EquipItemByID, transaction completion, snapshot reconciliation
+  and manual-choice functions. It fails pre-fix when a completed automatic
+  swap gets labeled manual. It also preserves explicit persistent holds,
+  recognizes unrelated external slot changes and clears stale persistent hold
+  flags on external replacements. Inventory/timer APIs are modeled.
+- `issue-32-aura-caller-containment` in `.tools/test_queue_runtime_lua.js`
+  fails pre-fix through the real queue caller, not just the safe helper. It
+  checks one failing native call, absent/present legacy auras and no shim loop.
+  Event processor tests also load the production safe helper.
+- Strengthened issue #37's existing asynchronous regression: both ammo
+  endpoints report unlocked and unchanged through 120ms, before a 180ms server
+  ACK; displaced bullets merge into another same-item stack. Removing the
+  ammo early-rejection exemption now fails `issue-37-unlocked-ammo-ack-window`.
+  This mutation survived the old fixture. No further ammo runtime fix is
+  claimed; live beta7 reporter acceptance remains pending.
+- `button-input-focus-evidence` models a transparent mouse-enabled focus frame,
+  received Alt-click state changes, forbidden/secret frame redaction, bounded
+  history and optional-provider failures. `/itemrack debug mouse` stores focus
+  without opening another window; dump includes BUTTON INPUT DIAGNOSTICS.
+  This records observations, not a forced click-through or proof of ownership.
+
+Before/after: pre-fix production functions from 9348b76 fail the Alt-click,
+mirror-detach, provenance and aura-caller cases above; corrected functions pass.
+The SoD case was first executed before editing the dispatch and failed on
+repeated XML re-entry. All cases remain in the normal npm test gate.
+Client acceptance before publication: on SoD hover Legs and other character
+slots with menus ON/OFF and with GearQuest/other tooltip addons; verify native
+tooltip contents, one breakout, no overflow, flicker or taint. On working and
+affected characters test ordinary/synced Alt-click with Alt held through mouse
+release, pending icons, global/per-set queues, manual temporary/persistent holds,
+set changes and external TrinketMenu/macro swaps. For suspected obstructions,
+hover the affected button, run `/itemrack debug mouse`, try one Alt-click and
+collect `/itemrack dump` before reload; compare focus and click receipts with
+`/fstack` and a separate addon-isolation test. Do not alter another addon's frame
+or mark the reporter's obstruction resolved from these modeled tests. Check
+mirror detach/delete/reload persistence, ammo swaps and real Edit Mode too.
+
+November 12, 2026 Ranged Weapon + Ammo Set Switch Rejection Report (GitHub Issue #37):
+"Ranged weapon + Ammo not switching properly [BUG] ... destination_rejected ... Ammo was in bag slot 0,1 while ranged weapon is in bag slot 0,2 ... set 1 is cross bow + arrows ... set 2 is gun + bullets"
+Reported by Rummelboxer99 with diagnostic dumps (Itemrack debug dump.txt and Itemrack debug dump2.txt). When switching between sets requiring cross-type ranged weapon and ammunition (e.g. Gun + Bullets to Crossbow + Arrows), the set switch failed with destination_rejected, leaving the new ammunition equipped in slot 0, but aborting the transaction before the dependent ranged weapon (slot 18) could be equipped. A second click on the set succeeded because ammunition was already equipped.
+Root cause:
+1. Classic Engine Lack of Inventory Locks on Slot 0: In Blizzard's Classic engine, IsInventoryItemLocked(0) (INVSLOT_AMMO) never returns true during item pickup or equip, unlike normal equipment slots.
+2. Premature Timeout on Network Latency: Because slot 0 does not report locked state, ItemRackTransaction.lua fell through to the 50ms unchanged destination heuristic (ItemRack.TransactionSettleDelay = 0.05). Over live network connections with >50ms round-trip latency, the 50ms timer fired before the server's acknowledgement packet arrived, misclassifying in-flight ammo swaps as destination_rejected and aborting before Frame 2 could dispatch slot 18.
+3. Bag Stack Merging / Splitting: Ammunition items are stackable; returning displaced ammunition to bags can merge with existing stacks or change stack counts, causing the bag source endpoint to not match step.expectedSourceState.
+Unified Hardened Solution:
+- IsAmmoStep(step) inspects both step.to == 0 and step.from == 0 to safeguard ammo equips, unequips, and transaction rollbacks.
+- Instant Rejection Detection: SubmitStep queries GetCursorInfo() immediately after PickupLocation(step.to). If the cursor still retains the source item, submitError = "destination_rejected" is flagged synchronously (0ms) rather than waiting 5 seconds.
+- Destination-Authoritative Matching: In ReconcileEquipmentTransaction, slot 0 moves require only destinationMatches (verifying inventory[0] matches the expected ammo ID), with a 2-sample stability check to guard against transient UI ticks before advancing to dependent slot 18.
+- Anti-Premature Timeout: Unchanged ammo steps wait for server acknowledgement or request.deadline rather than aborting at 50ms.
+Coverage: .tools/test_transaction_engine_lua.js test case 35 (asynchronous server latency and stack merging on slot 0 allows clean single-click ranged set swap (Rummelboxer99 Issue 37 hardened regression)) executes asynchronous server latency with Fengari timers and pending ACK queues, simulating missing slot 0 locks, bag stack merging, and dependent slot 18 dispatch.
+Acceptance: With cross-type ranged weapons and ammunition (e.g., Bow + Arrows and Gun + Bullets) in bags, equip Set 1, then single-click Set 2 under live network latency. Verify both slot 0 (ammo) and slot 18 (ranged weapon) equip cleanly on the first click without destination_rejected errors.
+
 October 31, 2026 Set Dropdown Scrolling Report:
 "both of the dropdown lists should be scrollable incase the users have a bunch of sets"
 Reported need for complete scrollability across all set dropdown menus (Sets tab chooser, Queues tab active set selector, and Queues breakout sync dropdown) when players have more sets than can fit vertically in the popup dialogs.
@@ -174,9 +935,40 @@ standard suite before its fix is considered complete:
 
 ### Report coverage in the standard gate
 
+November 12, 2026 user report (Zackk / WoW Forever 1.60.1 / Client 70888):
+1) Character sheet breakout menus not opening when GearQuestForever is loaded:
+- Root cause: In World of Warcraft, addons without explicit dependencies load in alphabetical order (`GearQuestForever` loads before `ItemRack`). On startup (`GearQuestForever/PaperDoll.lua:203`), GearQuest calls `button:HookScript("OnEnter", ...)`, wrapping each character slot's native script in a private closure. When ItemRack initialized, `ItemRack.RegisterCharacterSlotOnEnterHandlers()` strictly evaluated `button:GetScript("OnEnter") == ItemRack.oldPaperDollItemSlotButton_OnEnter`. Because GearQuest had already wrapped `OnEnter`, this strict equality check evaluated to false for every single slot (`registered == 0`), causing ItemRack to skip attaching `PaperDollItemSlotButton_OnEnter` to the buttons. When mousing over character sheet items, the buttons called the captured native Blizzard function directly, completely bypassing ItemRack's breakout menu docking and building logic.
+- Fix:
+  - Updated `ItemRack.RegisterCharacterSlotOnEnterHandlers()` to wrap any existing `OnEnter` script that is not already `PaperDollItemSlotButton_OnEnter`, capturing the previous handler in `button._ItemRackOriginalOnEnter`.
+  - Updated `PaperDollItemSlotButton_OnEnter(self)` to chain `self._ItemRackOriginalOnEnter(self)` (falling back to `ItemRack.oldPaperDollItemSlotButton_OnEnter(self)`), ensuring all third-party hooks and native handlers execute safely while ItemRack builds the breakout menu and anchors tooltips.
+  - Added LibDBIcon `icon.UpdateCoord` protection during hybrid state in `SetMinimapButtonVisual`, preventing click/drag events from resetting half-split texture coordinates.
+- Extended `.tools/test_identity_matching_lua.js` with pre-hooked third-party character slot registration and execution regression tests, and updated `.tools/check_regressions.js`.
+- In-game acceptance: with `GearQuestForever` loaded, open the character panel, hover over gear slots (head, chest, weapons, trinkets), verify breakout menus open immediately with all eligible bag items, and verify right-clicking a slot still opens GearQuest's upgrade popup without errors.
+
+November 6, 2026 user reports (BuffFrame secret number value & PartyMemberFrame taint crashes in modern WoW / leveling guide interaction):
+1) Blizzard_BuffFrame and Blizzard_UnitFrame/Shared/PartyMemberFrame taint and secret number value crashes:
+- Root cause: In modern WoW clients (Patch 11.0+ / The War Within and 12.0 Midnight), Blizzard implemented strict anti-automation security on unit aura data. If an execution path is tainted by an addon, sensitive aura attributes (duration, count, expirationTime) and protected frame tables become opaque 'secret values'. ItemRack previously contained a compatibility shim that wrote AuraUtil.FindAuraByName directly to _G.AuraUtil if FindAuraByName was not present on the global table. In modern clients, writing fields into Blizzard's global _G.AuraUtil table tainted the entire AuraUtil library. When Blizzard's BuffFrame.lua or PartyMemberFrame.lua (ParseAllAuras) called AuraUtil, execution became tainted by ItemRack, causing aura values to return as secret numbers and hard-crashing BuffFrame.lua:70 (GetAuraWarningAlphaForDuration) and BuffFrame.lua:1394 on arithmetic/comparison, as well as PartyMemberFrame.lua:128 during EnterEditMode. When players used leveling guides (such as RestedXP / RXPGuides) that continuously poll waypoints and track player buffs, this taint was swept into high-frequency frame updates, producing hundreds of errors.
+- Fix:
+  - Removed the global _G.AuraUtil monkey-patching: ItemRack now provides its own self-contained, isolated ItemRack.FindAuraByName and never mutates or injects fields into Blizzard's _G.AuraUtil table when it already exists.
+  - Added secret value guards in ItemRack.FindPlayerAura: safely handles opaque issecretvalue returns from C_UnitAuras and UnitBuff without triggering unauthorized Lua comparisons.
+  - Updated character sheet button hooks in ItemRackButtons.lua: switched CharacterAmmoSlot and CharacterModelScene to HookScript when available rather than destructive SetScript replacements.
+- Extended .tools/test_queue_runtime_lua.js with 6 checks verifying secret value handling, aura isolation, and AuraUtil table immutability.
+- In-game acceptance: Load on modern client with active buffs; open Edit Mode and hover buffs with and without leveling guide addons (RXPGuides/Zygor); verify zero secret value or taint crashes in BugSack.
+
+November 5, 2026 user reports (Manual Toggle Handler & Automatic Swap Queue Coordination):
+1) Legacy Toggle Functionality inside and alongside Automatic Queues: Root causes: In legacy ItemRack, manual ToggleSet had absolute authority: in combat, AddToCombatQueue toggled on first click and cancelled on second click (if CombatQueue[slot] == id then CombatQueue[slot] = nil); out of combat, manual swaps were never evicted by AutoQueue. In ItemRack Universal's modernized architecture, AddToCombatQueue became idempotent (preventing second-click cancel), AutoQueue evicted worn items if not on top of the queue or on cooldown, and ScriptEventPrelude lacked a ToggleSet wrapper (causing event stack desyncs if called from event scripts). Fixed by:
+  - Implementing ItemRack.IsSetPendingInCombatQueue and ItemRack.CancelCombatQueueSet, restoring the classic behavior where toggling a pending set a second time in combat cleanly cancels its combat queue request and clears pending overlays.
+  - Adding ItemRack.ManualToggledSet and ItemRack.IsSlotProtectedByManualToggle in ItemRackQueue.lua, preventing AutoQueue from swapping away explicitly toggled set items until toggled off.
+  - Adding ItemRack.ScriptEventToggle and providing ToggleEventSet / ToggleSet inside scriptEventPrelude, allowing user event scripts to participate cleanly in the hierarchical EventStack.
+  - Adding ItemRack.PurgeAutomaticSetsWaiting to ensure manual set toggles supersede background automatic sets waiting behind locks.
+Extended .tools/test_queue_runtime_lua.js with 10 checks and .tools/test_event_integration_lua.js with 2 checks. In-game acceptance:
+  a) In combat, toggle a set once: confirm items enter CombatQueue; toggle the same set again: confirm items are cancelled from CombatQueue and overlays clear.
+  b) Out of combat with AutoQueue active, toggle a utility set (e.g. Diamond Flask): confirm AutoQueue does not evict it; toggle off: confirm previous gear restores and AutoQueue resumes.
+  c) Create an event script calling ToggleSet("MySet"): confirm it pushes when inactive and pops when active without stack desyncs.
+
 November 4, 2026 user reports (CurseForge comments by Rummelboxer99 and user_dhivdljvzbi65oe8; user Lua crash reports in StartTimer and PopulateEventList):
 1) Options initialization & SlotMarquee timer crash: Root causes: PopulateEventList called pairs(events) before ItemRack.LoadEvents() or SavedVariables were initialized, throwing bad argument #1 to 'pairs' (table expected, got nil) at line 3527; this aborted ItemRackOpt.OnLoad() at line 238 before CreateTimer('SlotMarquee') was registered at line 365. When opening the Queues tab, QueuesFrameOnShow -> StartMarquee -> StartTimer('SlotMarquee') crashed attempting to index nil TimerPool['SlotMarquee']. In addition, OnPlayerLogin called AuditSavedVariables after InitBroker/InitCore. Fixed by moving AuditSavedVariables to run immediately on PLAYER_LOGIN before subsystems, ensuring Sets exists in InitCore, adding fallback and LoadEvents call in PopulateEventList, guarding StartTimer/StopTimer against missing timers, ensuring StartMarquee creates the timer if not yet pooled, and nil-guarding EventListScrollFrameUpdate. Extended .tools/test_set_icon_picker_lua.js with options-init test suite. In-game acceptance: load with fresh or missing SavedVariables, open Options, switch tabs including Events and Queues, verify no Lua errors.
-2) Ammo destination_rejected when swapping ranged weapon families (Rummelboxer99 CurseForge report): Root cause: IterateSwapList looped slots 0..19, processing slot 0 (Ammo) before slot 18 (Ranged). When swapping from a Bow/Crossbow (using Arrows) to a Gun (using Bullets), ItemRack attempted to place Bullets into slot 0 while the Crossbow was still equipped, which the WoW engine rejects (destination_rejected), causing the transaction engine to abort and roll back gear. Fixed by defining ItemRack.GetSwapOrder() to iterate slot 18 (Ranged) before slot 0 (Ammo), ensuring compatible ranged weapons are equipped before ammo. Extended .tools/test_transactions_lua.js with ammo-after-ranged swap order regression. In-game acceptance: equip Bow + Arrows, save Set 1; equip Gun + Bullets, save Set 2; switch back and forth between Set 1 and Set 2, verify smooth equip with zero destination_rejected errors.
+2) Ammo destination_rejected when swapping ranged weapon families (Rummelboxer99 CurseForge report & GitHub Issue #37): Root cause: In WoW Classic, slot 18 (Ranged Weapon) and slot 0 (Ammo) are co-dependent equipment endpoints. While slot 0 accepts valid projectiles regardless of equipped weapon, slot 18 rejects equipping a weapon if equipped ammo is incompatible (e.g. Crossbow with Bullets in slot 0, or Gun with Arrows in slot 0). Submitting both slot 18 and slot 0 in the same synchronous frame causes the engine to evaluate weapon compatibility against the in-flight unsettled state of slot 0, rejecting the weapon and rolling back transactions with destination_rejected. In addition, ItemRackTransaction.lua contained an erroneous legacy rewrite in NormalizeLocation that redirected ammo moves (INVSLOT_AMMO = 0) to INVSLOT_RANGED (18). Fixed by ordering slot 0 (Ammo) before slot 18 (Ranged) in ItemRack.GetSwapOrder() and IterateSwapList, adding a co-dependency guard in ItemRackTransaction.lua (SubmitCurrentStep) ensuring moves touching slot 18 and slot 0 are never submitted synchronously within the same execution frame when either is in-flight (the dependent weapon move remains planned and automatically submits and settles cleanly in the subsequent transaction frame once slot 0 has confirmed), and removing the invalid bag = INVSLOT_RANGED rewrite in NormalizeLocation. Extended .tools/test_transactions_lua.js with ammo-before-ranged swap order regression and .tools/test_transaction_engine_lua.js with ranged weapon and ammo engine co-dependency prevents destination_rejected across transaction frames (Issue 37 regression). In-game acceptance: equip Bow + Arrows, save Set 1; equip Gun + Bullets, save Set 2; switch back and forth between Set 1 and Set 2, verify single-click smooth equip with zero destination_rejected errors.
 3) /itemrack toggle Flask set second click restore (user_dhivdljvzbi65oe8 CurseForge report): Root cause: When an explicit item was configured in a set (such as Diamond Flask in slot 13) and equipped, but the player had a global AutoQueue active on slot 13 with an item ready to equip, IsSetEquipped falsely flipped match to false because the equipped item was not the active queue candidate. Because IsSetEquipped returned false, ItemRack.ToggleSet repeatedly attempted to equip the set instead of unequipping it to restore set.old. Fixed by preserving match for explicit set items in IsSetEquipped even when a background queue is active, and adding defensive unequip checks in ToggleSet when CurrentSet matches and old gear is saved. Extended .tools/test_queue_runtime_lua.js with the Flask toggle regression. In-game acceptance: equip a set with Diamond Flask on a character with an active trinket AutoQueue, toggle it with /itemrack toggle SetName, activate the flask, click /itemrack toggle SetName again, verify previous trinket is properly restored.
 4) HookTooltipSetItem bad argument #2 error on modern tooltips: Root cause: Modern WoW clients (e.g. 1.15+, 2.5.5+, Retail) with SharedTooltipTemplates do not have the native OnTooltipSetItem frame script on GameTooltip, ItemRefTooltip, ShoppingTooltip1/2. Calling tip:HookScript('OnTooltipSetItem', ...) threw bad argument #2 to '?' (Usage: local success = self:HookScript(scriptTypeName, script [, bindingType])). Fixed by checking if tip.HasScript and not tip:HasScript('OnTooltipSetItem') then return end, and wrapping the hook call in pcall(tip.HookScript, tip, 'OnTooltipSetItem', ...). Modern clients continue to receive set information via TooltipDataProcessor post-calls. Extended .tools/test_identity_matching_lua.js with modern GameTooltip without OnTooltipSetItem. In-game acceptance: load on client with modern GameTooltip layout; verify zero Lua errors thrown during startup / RegisterSetTooltipHooks.
 
@@ -427,6 +1219,7 @@ Shared-provider taint and actual client rendering remain client acceptance check
 | TBC Anniversary: equipped set items do not update minimap icon | `.tools/test_identity_matching_lua.js` verifies normalization of empty vs zero colon-delimited item fields; `.tools/test_batch_and_dualspec_lua.js` verifies `ItemRack.UpdateCurrentSet` auto-scans and matches saved sets when `CurrentSet` is unequipped or nil; `.tools/check_regressions.js` ensures `NormalizeItemFields`, set auto-scanning, and slot-specific queue readiness gating. |
 | TBC Anniversary: character sheet swap menus appear despite being disabled | `.tools/test_batch_and_dualspec_lua.js` verifies `PaperDollItemSlotButton_OnEnter` hides open menus and suppresses new ones when `CharacterSheetMenus == "OFF"`; `.tools/check_regressions.js` guards early return in `PaperDollItemSlotButton_OnEnter`, `PaperDollFrame` exclusion from `MenuMouseover` keep-alive, and immediate dismissal in `OptListCheckButtonOnClick`. |
 | TBC Anniversary / modern WoW report: TooltipDataProcessor fails to show set info when hovering bag items (e.g. Baganator / modern tooltips) | `.tools/test_identity_matching_lua.js` verifies `OnTooltipItemData` resolves bag and inventory items via `data.getterName`/`data.getterArgs`, resolves `TooltipUtil.GetDisplayedItem`, `data.guid`, `data.hyperlink`, and `data.id`, and `GetIRString` parses raw `item:...` strings without `|h`; duplicate tooltip lines are prevented. |
+| GitHub #33 follow-up / neferens: manual item swaps silently hijack CurrentSet and per-set queue context on identical-armor sets | `.tools/test_queue_runtime_lua.js` verifies CurrentSet preservation during live manual swaps, hybrid state tracking via `ItemRack.HybridSet`, split-icon visual rendering via `SetButton20Visual`, and startup recovery when CurrentSet is nil. |
 
 
 

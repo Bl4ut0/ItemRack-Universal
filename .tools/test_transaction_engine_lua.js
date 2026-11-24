@@ -47,18 +47,28 @@ function ClearCursor() clearCursorCalls = clearCursorCalls + 1; cursor = nil end
 `;
 
 runCase(
-  'accepted and rejected destination observation',
+  'item-scoped swap audio and accepted/rejected destination observation',
   `${common}
 local bags = { [0] = { [1] = 9001 } }
 local inventory = { [13] = 8001 }
 cursor = nil
 local rejectDestination = false
+local muteCalls = 0
+local locked = true
+ItemRackSettings.DisableSwapSound = "ON"
+function IsInventoryItemLocked() return locked end
+function ItemRack.MuteSwapSounds(source, destination)
+  assert(source == 9001 and destination == 8001, "mute must receive exact item identities")
+  muteCalls = muteCalls + 1
+  if rejectDestination then error("audio backend failed") end
+end
 function ItemRack.GetID(bag, slot)
   if slot then return bags[bag] and bags[bag][slot] or 0 end
   return inventory[bag] or 0
 end
 function CursorHasItem() return cursor ~= nil end
 function PickupContainerItem(bag, slot)
+  assert(muteCalls == (rejectDestination and 2 or 1), "sound window must start before the first pickup")
   local held = cursor
   cursor = bags[bag][slot]
   bags[bag][slot] = held
@@ -81,7 +91,10 @@ local result, accepted = ItemRack.StartEquipmentTransaction({
 assert(result == "submitted", "accepted move must first be submitted")
 assert(ItemRack.ActiveEquipmentTransaction == accepted, "submitted move must remain observable")
 assert(completed == 0, "submission must not synchronously report completion")
+assert(muteCalls == 0, "a locked step must not start its mute window")
+locked = false
 RunTimers()
+assert(muteCalls == 1, "the deferred step must start one item-scoped window")
 assert(accepted.status == "complete" and completed == 1 and failed == 0, "observed destination must complete once")
 assert(inventory[13] == 9001 and bags[0][1] == 8001 and cursor == nil, "accepted swap must exchange exact endpoints")
 
@@ -94,6 +107,7 @@ local rejectedResult, rejected = ItemRack.StartEquipmentTransaction({
 })
 assert(rejectedResult == "submitted", "a no-op API call is still only a submission")
 RunTimers()
+assert(muteCalls == 2, "the rejected move still reached its item-scoped audio call")
 assert(rejected.status == "failed", "unchanged endpoints must be rejected, never completed")
 assert(rejected.reason == "destination_rejected", "rejection must retain a precise terminal reason")
 assert(bags[0][1] == 9001 and inventory[13] == 8001, "rejected move must restore its source and preserve destination")
@@ -325,4 +339,192 @@ assert(pickups==0 and cursor==nil,"invalid dependent plans must perform no picku
 assert(request.finished and failures==1 and ItemRack.ActiveEquipmentTransaction==nil,"preflight rejection must terminate once without transaction residue")
 `);
 
-console.log('[TRANSACTION ENGINE LUA] 33 production-Lua assertions passed.');
+runCase(
+  'ranged weapon and ammo engine co-dependency prevents destination_rejected across transaction frames (Issue 37 regression)',
+  `${common}
+local bags = { [0] = { [1] = 18042, [2] = 21459 } } -- bag 0 slot 1: Arrows (18042), slot 2: Crossbow (21459)
+local inventory = { [0] = 15997, [18] = 23557 } -- slot 0: Bullets (15997), slot 18: Gun (23557)
+cursor = nil
+local pickupCalls = {}
+
+function ItemRack.GetID(bag, slot)
+  if slot then return bags[bag] and bags[bag][slot] or 0 end
+  return inventory[bag] or 0
+end
+function CursorHasItem() return cursor ~= nil end
+function PickupContainerItem(bag, slot)
+  table.insert(pickupCalls, { kind = "bag", bag = bag, slot = slot, held = cursor })
+  local held = cursor
+  cursor = bags[bag][slot]
+  bags[bag][slot] = held
+end
+function PickupInventoryItem(slot)
+  table.insert(pickupCalls, { kind = "inv", slot = slot, held = cursor })
+  -- WoW engine rule: equipping Crossbow (21459) into slot 18 while Bullets (15997) are in slot 0 REJECTS!
+  if slot == 18 and cursor == 21459 and inventory[0] == 15997 then
+    return -- engine destination_rejected! Cursor retains Crossbow!
+  end
+  local held = cursor
+  cursor = inventory[slot]
+  inventory[slot] = held
+end
+`,
+  String.raw`
+local stepAmmo = ItemRack.NewEquipmentMove(0, 1, 0, nil)
+local stepRanged = ItemRack.NewEquipmentMove(0, 2, 18, nil)
+local completed, failed = 0, 0
+
+local status, request = ItemRack.StartEquipmentTransaction({
+  steps = { stepAmmo, stepRanged },
+  onComplete = function() completed = completed + 1 end,
+  onFailure = function() failed = failed + 1 end,
+})
+
+assert(status == "submitted", "transaction must be submitted")
+assert(request.steps[1].status == "submitted", "step 1 (Ammo) must be submitted in Frame 1")
+assert(request.steps[2].status == "planned", "step 2 (Ranged) MUST remain planned and not submitted in Frame 1 due to engine co-dependency")
+
+RunTimers()
+
+assert(request.status == "complete", "transaction must complete successfully across frames")
+assert(completed == 1 and failed == 0, "transaction must report completion exactly once without failure")
+assert(inventory[0] == 18042, "slot 0 (Ammo) must be equipped with Arrows")
+assert(inventory[18] == 21459, "slot 18 (Ranged) must be equipped with Crossbow")
+assert(bags[0][1] == 15997, "displaced Bullets must be returned to bag 0 slot 1")
+assert(bags[0][2] == 23557, "displaced Gun must be returned to bag 0 slot 2")
+assert(cursor == nil, "cursor must remain clear")
+`
+);
+
+runCase(
+  'asynchronous server latency and stack merging on slot 0 allows clean single-click ranged set swap (Rummelboxer99 Issue 37 hardened regression)',
+  `${common}
+local bags = { [0] = { [1] = 18042, [2] = 21459, [3] = 15997 } } -- displaced bullets may merge into slot 3
+local inventory = { [0] = 15997, [18] = 23557 } -- slot 0: Bullets, slot 18: Gun
+local lockedInv = {}
+local lockedBags = {}
+cursor = nil
+local pendingAcks = {}
+
+function ItemRack.GetID(bag, slot)
+  if slot then return bags[bag] and bags[bag][slot] or 0 end
+  return inventory[bag] or 0
+end
+function CursorHasItem() return cursor ~= nil end
+function GetCursorInfo()
+  if cursor then return "item", cursor end
+  return nil
+end
+function IsInventoryItemLocked(slot)
+  return lockedInv[slot] == true
+end
+function GetContainerItemInfo(bag, slot)
+  local key = tostring(bag) .. "," .. tostring(slot)
+  return nil, nil, lockedBags[key] == true
+end
+
+function PickupContainerItem(bag, slot)
+  local held = cursor
+  local key = tostring(bag) .. "," .. tostring(slot)
+  if not held then
+    cursor = bags[bag][slot]
+    -- Neither endpoint of this ammo move advertises a lock. Keep the old
+    -- identity visible for >100ms so both unchanged observations really run.
+    lockedBags[key] = not (bag == 0 and slot == 1)
+  else
+    cursor = nil
+    -- Ammo (slot 1) can stack-merge in bags, changing its representation:
+    local returnedItem = held
+    if bag == 0 and slot == 1 then
+      returnedItem = 0 -- displaced bullets merged into the existing slot 3 stack
+    end
+    table.insert(pendingAcks, { due = now + 0.18, apply = function()
+      lockedBags[key] = false
+      bags[bag][slot] = returnedItem
+    end })
+  end
+end
+
+function PickupInventoryItem(slot)
+  if slot == 18 and cursor == 21459 and inventory[0] == 15997 then
+    return -- engine destination_rejected! Cursor retains Crossbow!
+  end
+  if slot == 0 then
+    -- Real WoW Classic engine quirk: slot 0 (ammo) does NOT trigger IsInventoryItemLocked!
+    local held = cursor
+    cursor = inventory[slot]
+    table.insert(pendingAcks, { due = now + 0.18, apply = function()
+      inventory[slot] = held
+    end })
+    return
+  end
+  if slot == 18 then
+    -- Normal equipment slots lock until server ACK
+    local held = cursor
+    cursor = inventory[slot]
+    lockedInv[slot] = true
+    table.insert(pendingAcks, { due = now + 0.08, apply = function()
+      lockedInv[slot] = false
+      inventory[slot] = held
+    end })
+    return
+  end
+  local held = cursor
+  cursor = inventory[slot]
+  inventory[slot] = held
+end
+
+function RunAsyncTimers(limit)
+  local runs = 0
+  while (#timers > 0 or #pendingAcks > 0) and runs < (limit or 100) do
+    runs = runs + 1
+    table.sort(timers, function(a, b) return a.due < b.due end)
+    table.sort(pendingAcks, function(a, b) return a.due < b.due end)
+    local nextTimerDue = timers[1] and timers[1].due or 999999
+    local nextAckDue = pendingAcks[1] and pendingAcks[1].due or 999999
+    if nextAckDue <= nextTimerDue and nextAckDue < 999999 then
+      local ack = table.remove(pendingAcks, 1)
+      now = ack.due
+      ack.apply()
+      ItemRack.ReconcileEquipmentTransaction("UNIT_INVENTORY_CHANGED")
+    elseif nextTimerDue < 999999 then
+      local t = table.remove(timers, 1)
+      now = t.due
+      t.callback()
+    end
+  end
+end
+`,
+  String.raw`
+local stepAmmo = ItemRack.NewEquipmentMove(0, 1, 0, nil)
+local stepRanged = ItemRack.NewEquipmentMove(0, 2, 18, nil)
+local completed, failed = 0, 0
+
+local status, request = ItemRack.StartEquipmentTransaction({
+  steps = { stepAmmo, stepRanged },
+  onComplete = function() completed = completed + 1 end,
+  onFailure = function() failed = failed + 1 end,
+})
+
+local survivedUnlockedWindow=false
+C_Timer.After(0.12,function()
+  assert(ItemRack.ActiveEquipmentTransaction==request and request.steps[1].status=='submitted',
+    'issue-37-unlocked-ammo-ack-window: ammo must survive two unchanged samples before the server ACK')
+  assert(request.steps[2].status=='planned','dependent ranged pickup must wait for confirmed ammo')
+  survivedUnlockedWindow=true
+end)
+RunAsyncTimers()
+
+assert(request.status == "complete", "transaction must complete successfully across asynchronous network frames")
+assert(completed == 1 and failed == 0, "transaction must report completion exactly once without failure")
+assert(inventory[0] == 18042, "slot 0 (Ammo) must be equipped with Arrows")
+assert(inventory[18] == 21459, "slot 18 (Ranged) must be equipped with Crossbow")
+assert(survivedUnlockedWindow and bags[0][1]==0 and bags[0][3]==15997,
+  'ack-window coverage must include a real stack merge rather than changing the ammo base identity')
+assert(ItemRack.ActiveEquipmentTransaction==nil,'successful ammo swap must release transaction ownership')
+assert(cursor == nil, "cursor must remain clear")
+`
+);
+
+console.log('[TRANSACTION ENGINE LUA] 35 production-Lua assertions passed.');
+

@@ -4,6 +4,394 @@ const { extractFunction, runLua } = require('./lib/lua_harness');
 const core = 'ItemRack/ItemRack.lua';
 const queue = 'ItemRack/ItemRackQueue.lua';
 const options = 'ItemRackOptions/ItemRackOptions.lua';
+runLua(String.raw`
+CUSTOM='Custom'
+local worn={[4]='14617::::::::60::::::::::',[15]='23045:849:::::::60::::::::::'}
+local cloakQueue={{id='15138:2619:::::::60:::::::::'},{id=worn[15]}}
+ItemRack={QueueStateReady=true,DebugTags={},
+ GetID=function(slot) return worn[slot] or 0 end,
+ GetQueueContext=function(slot,name) return {enabled=name=='Drakes' and slot==15,list=cloakQueue} end,
+ MatchesStoredItemID=function(a,b) return a==b end,
+ IsEquippedSlotStateReady=function() return true end,
+ FindQueueEntryIndex=function(list,id) for i,v in ipairs(list) do if v.id==id then return i end end end,
+ GetIRString=function(id) return id end,
+ ShouldHoldEquippedItem=function() return true end,
+ AutoQueueItemToEquip=function() return nil,worn[15] end,
+ Debug=function() end,GetTextureBySlot=function() return 1 end}
+function GetInventoryItemCooldown() return 0,0,1 end
+ItemRackUser={EnableQueues='ON',EnablePerSetQueues='ON',CurrentSet='Tank',
+ Sets={Tank={equip={[4]='2579::::::::60::::::::::'}},
+ Drakes={equip={[15]='15138:2619:::::::60:::::::::'},Queues={[15]=cloakQueue},QueuesEnabled={[15]=true}}}}
+${extractFunction('ItemRack/ItemRackEquip.lua','ItemRack.IsSetEquipped')}
+${extractFunction(core,'ItemRack.UpdateCurrentSet')}
+assert(ItemRack.IsSetEquipped('Drakes'),'active-set checks must retain queue-aware compatibility')
+ItemRack.UpdateCurrentSet()
+assert(ItemRackUser.CurrentSet=='Tank' and ItemRack.HybridSet==nil and ItemRack.CustomHybridOwner=='Tank',
+ 'issue-38-beta18-queue-only-hybrid: queue membership alone must not infer an unrelated saved cloak set')
+worn[15]=ItemRackUser.Sets.Drakes.equip[15];ItemRack.UpdateCurrentSet()
+assert(ItemRack.HybridSet=='Drakes' and ItemRackUser.CurrentSet=='Tank',
+ 'a physically matching partial cloak set must still be recognized without taking queue authority')
+print('[ISSUE 38 BETA18 HYBRID LUA] Reporter shirt/cloak mismatch, active queue compatibility and physical candidate recognition passed.')
+`, 'issue-38-beta18-queue-only-hybrid');
+runLua(String.raw`
+CUSTOM='Custom'
+local reads=0
+ItemRack={HybridSet='Stable',IsSetEquipped=function() reads=reads+1;return true end,GetTextureBySlot=function() return 1 end}
+ItemRackUser={CurrentSet='Active',EnableQueues='OFF',Sets={Active={equip={}},Stable={equip={}}}}
+${extractFunction(core,'ItemRack.UpdateCurrentSet')}
+for _,field in ipairs({'SetSwapping','ActiveEquipmentTransaction','PendingQueueEquipSet'}) do
+ ItemRack[field]={};ItemRack.UpdateCurrentSet()
+ assert(reads==0 and ItemRack.HybridSet=='Stable' and ItemRack.HybridDetectionStatus=='inventory_settling',
+  'hybrid-unresolved-state: pending work must retain stable recognition without probing intermediate gear')
+ ItemRack[field]=nil
+end
+-- Issue #38: out-of-combat CombatQueue holds chained AutoQueue slots waiting behind an active transaction or locks
+ItemRack.CombatQueue={[17]='19019'}; InCombatLockdown=function() return false end; ItemRack.IsPlayerReallyDead=function() return false end
+ItemRack.UpdateCurrentSet()
+assert(reads==0 and ItemRack.HybridSet=='Stable' and ItemRack.HybridDetectionStatus=='inventory_settling',
+ 'issue-38-ooc-combatqueue-settling: out-of-combat queued swaps must hold set recognition as inventory_settling')
+-- In combat or while dead, CombatQueue must NOT suspend set detection
+InCombatLockdown=function() return true end; ItemRack.UpdateCurrentSet()
+assert(reads==1 and ItemRack.HybridDetectionStatus=='ready','combat queue entries during combat must not suspend set detection')
+ItemRack.HybridSet='Stable'; reads=0; InCombatLockdown=function() return false end; ItemRack.IsPlayerReallyDead=function() return true end
+ItemRack.UpdateCurrentSet()
+assert(reads==1 and ItemRack.HybridDetectionStatus=='ready','dead player CombatQueue entries must not suspend set detection')
+ItemRack.CombatQueue=nil; InCombatLockdown=nil; ItemRack.IsPlayerReallyDead=nil; ItemRack.HybridSet='Stable'; reads=0
+ItemRack.UnresolvedEquippedSlots={[13]=true};ItemRack.UpdateCurrentSet()
+assert(reads==0 and ItemRack.HybridSet=='Stable' and ItemRack.HybridDetectionStatus=='inventory_unresolved')
+ItemRack.UnresolvedEquippedSlots={};ItemRackUser.EnableQueues='ON';ItemRack.UpdateCurrentSet()
+assert(reads==0 and ItemRack.HybridSet=='Stable','unknown queue state must not become a negative set match')
+ItemRack.QueueStateReady=true;ItemRack.UpdateCurrentSet()
+assert(reads==1 and ItemRack.HybridSet==nil and ItemRackUser.CurrentSet=='Active' and ItemRack.HybridDetectionStatus=='ready',
+ 'resolved gear matching the active set must deliberately clear the old Hybrid match')
+ItemRack.HybridSet='Stable';reads=0
+ItemRack.IsSetEquipped=function(name)
+ reads=reads+1
+ if name=='Active' then ItemRack.UnresolvedEquippedSlots={[13]=true};return false end
+ return true
+end
+ItemRack.UpdateCurrentSet()
+assert(reads==1 and ItemRack.HybridSet=='Stable' and ItemRack.HybridDetectionStatus=='inventory_unresolved',
+ 'hybrid-mid-probe-readiness: a matcher discovering unresolved gear must not fall through to another set')
+ItemRack.UnresolvedEquippedSlots={};reads=0
+ItemRackUser.Sets.Stable.equip[1]='candidate-head'
+ItemRack.IsSetEquipped=function(name)
+ reads=reads+1
+ if name=='Active' then return false end
+ ItemRack.UnresolvedEquippedSlots={[13]=true};return true
+end
+ItemRack.UpdateCurrentSet()
+assert(reads==2 and ItemRack.HybridSet=='Stable' and ItemRack.HybridDetectionStatus=='inventory_unresolved',
+ 'hybrid-candidate-readiness: candidate probing must not commit a match after readiness changes')
+ItemRackUser=nil;ItemRack.UpdateCurrentSet()
+assert(ItemRack.HybridDetectionStatus=='profile_unavailable','profile initialization must not throw or infer an empty set')
+print('[HYBRID UNRESOLVED LUA] Transactions, pending sets, unresolved slots, startup and resumed recognition passed.')
+`, 'hybrid-unresolved-state');
+runLua(String.raw`
+CUSTOM='Custom'
+local events={}
+ItemRack={DebugAll=true,QueueStateReady=true,
+ IsSetEquipped=function(name) return name=='Drakes' end,
+ GetID=function() return 'worn-cloak' end,
+ GetQueueContext=function() return {enabled=true,owner='Drakes',list={{id='worn-cloak'}}} end,
+ MatchesStoredItemID=function(a,b) return a==b end,
+ FindQueueEntryIndex=function() return 1 end,
+ QueueDiagnostic=function(event,details) events[#events+1]={event=event,details=details} end}
+ItemRackUser={CurrentSet='Dungeon',EnableQueues='ON',EnablePerSetQueues='ON',Sets={Dungeon={equip={[1]='head'}},Drakes={equip={[15]='banked-cloak'}}}}
+${extractFunction(core,'ItemRack.UpdateCurrentSet')}
+ItemRack.UpdateCurrentSet()
+assert(#events==2 and events[1].event=='set_detection_transition' and events[1].details.toHybrid=='Drakes',
+ 'issue-38-missing-hybrid-transition: debug must retain the brief matched set name')
+assert(events[2].event=='hybrid_match_slot' and events[2].details.expected=='banked-cloak'
+ and events[2].details.actual=='worn-cloak' and events[2].details.explicitMatch==false
+ and events[2].details.queueEnabled and events[2].details.queueIndex==1,
+ 'diagnostics must distinguish saved physical gear from queue acceptance')
+ItemRack.UpdateCurrentSet();assert(#events==2,'unchanged detection must not spam transition records')
+ItemRack.IsSetEquipped=function(name) return name=='Dungeon' end
+ItemRack.GetTextureBySlot=function() return 1 end
+ItemRack.UpdateCurrentSet()
+assert(#events==3 and events[3].details.fromHybrid=='Drakes' and events[3].details.toHybrid=='<none>',
+ 'the transition out must survive even when the final dump has no HybridSet')
+ItemRack.DebugAll=false;ItemRack.DebugTags={Queue=false};ItemRack.IsSetEquipped=function(name) return name=='Drakes' end
+ItemRack.GetID=function() error('disabled diagnostics must not read slot evidence') end
+ItemRack.UpdateCurrentSet();assert(#events==3,'diagnostics must remain silent and avoid extra reads when disabled')
+assert(ItemRackUser.CurrentSet=='Dungeon','diagnostics must not change active queue authority')
+print('[HYBRID TRANSITION LUA] Enter/exit, explicit versus queued match, deduplication and disabled behavior passed.')
+`, 'issue-38-missing-hybrid-transition');
+// November 14: the attempted synchronous handoff ran (132 calls, no errors)
+// but did not fix the live bounce. Capture actual late writes/rendered geometry;
+// a modeled handoff contract cannot establish a client rendering correction.
+runLua(String.raw`
+local now,writer,writes,pointHooks,scriptHooks=0,'native layout',0,0,0
+local owner={}
+local secret={}
+local messages={}
+function GetTime() return now end
+function issecretvalue(value) return rawequal(value,secret) end
+function debugstack() return writer end
+ItemRack={TooltipOwner=owner,Print=function(message) messages[#messages+1]=message end,ClearQueueDiagnostics=function() end}
+local function frame(name)
+ local f={top=500,height=180,y=0,scripts={}}
+ function f:GetName() return name end
+ function f:IsForbidden() return self.forbidden end
+ function f:GetOwner() return self.owner end
+ function f:GetTop() return self.top end
+ function f:GetBottom() return self.top-self.height end
+ function f:GetHeight() return self.height end
+ function f:GetEffectiveScale() return 1 end
+ function f:GetPoint() return 'TOP',GameTooltip,'TOP',0,self.y end
+ function f:SetPoint(_,_,anchor,x,y)
+  writes=writes+1
+  self.y=type(anchor)=='number' and x or y
+  self.top=500+self.y
+ end
+ function f:HookScript(event,callback)
+  scriptHooks=scriptHooks+1;self.scripts[event]=callback
+ end
+ return f
+end
+GameTooltip=frame('GameTooltip');GameTooltip.owner=owner
+ShoppingTooltip1=frame('ShoppingTooltip1');ShoppingTooltip2=frame('ShoppingTooltip2')
+function hooksecurefunc(target,name,callback)
+ pointHooks=pointHooks+1
+ local original=target[name]
+ target[name]=function(self,...) original(self,...);callback(self,...) end
+end
+local controllerCalls=0
+TipTac={SetAnchorToTip=function() controllerCalls=controllerCalls+1 end}
+${extractFunction(core,'ItemRack.MenuDiagnosticValue')}
+${extractFunction(core,'ItemRack.MenuDiagnosticCall')}
+${extractFunction(core,'ItemRack.RecordTooltipAnchor')}
+${extractFunction(core,'ItemRack.StartTooltipAnchorTrace')}
+${extractFunction(core,'ItemRack.GetTooltipAnchorTraceReport')}
+${extractFunction(core,'ItemRack.SlashHandler')}
+ItemRack.SlashHandler('debug tooltips')
+assert(messages[#messages]:find('/itemrack dump tooltips',1,true),'capture instructions must lead to the focused export')
+assert(pointHooks==3 and scriptHooks==6,'capture must hook the three existing tooltip endpoints once')
+ShoppingTooltip1:SetPoint('TOP',GameTooltip,0,0)
+writer='TipTac layout';ShoppingTooltip1:SetPoint('TOP',GameTooltip,0,-10)
+writer='late layout after the handoff';ShoppingTooltip1:SetPoint('TOP',GameTooltip,0,0)
+ShoppingTooltip1.scripts.OnUpdate(ShoppingTooltip1)
+local entries=ItemRack.GetTooltipAnchorTraceReport(true).entries
+assert(#entries==4 and entries[1].y==0 and entries[2].y==-10 and entries[3].y==0,
+ 'actual native/controller/late writer sequence must survive the capture')
+assert(entries[3].caller==writer and entries[4].event=='OnUpdate' and entries[4].top==500,
+ 'capture must identify a writer after the attempted handoff and final rendered geometry')
+assert(writes==3 and controllerCalls==0,'diagnostics must never add positioning or controller calls')
+ShoppingTooltip1.scripts.OnUpdate(ShoppingTooltip1)
+assert(#ItemRack.TooltipAnchorTrace.entries==4,'unchanged frame samples must not fill the buffer')
+ShoppingTooltip1.height=250
+ShoppingTooltip1.scripts.OnSizeChanged(ShoppingTooltip1)
+assert(ItemRack.TooltipAnchorTrace.entries[5].height==250,'content sizing must be distinguishable from point changes')
+GameTooltip.owner={}
+ShoppingTooltip1:SetPoint('TOP',GameTooltip,0,4)
+assert(#ItemRack.TooltipAnchorTrace.entries==5,'other addons tooltip owners must not be captured')
+GameTooltip.owner=owner
+ShoppingTooltip1.forbidden=true
+ShoppingTooltip1:SetPoint('TOP',GameTooltip,0,5)
+assert(#ItemRack.TooltipAnchorTrace.entries==5,'forbidden frames must be skipped')
+ShoppingTooltip1.forbidden=false
+writer=string.rep('caller ',200)
+ItemRack.RecordTooltipAnchor('ShoppingTooltip1',ShoppingTooltip1,'SetPoint',secret,secret,secret,secret,secret)
+entries=ItemRack.TooltipAnchorTrace.entries
+assert(entries[6].point=='<secret>' and entries[6].relative=='<secret>' and entries[6].x=='<secret>',
+ 'secret argument values must be redacted before inspection or serialization')
+assert(#entries[6].caller==640,'caller stacks must have a fixed bound')
+for i=1,200 do ShoppingTooltip1:SetPoint('TOP',GameTooltip,0,i%2) end
+local full=ItemRack.GetTooltipAnchorTraceReport(true)
+local normal=ItemRack.GetTooltipAnchorTraceReport(false)
+assert(full.retained==128 and #full.entries==128 and full.status=='limit','capture must stop at capacity')
+assert(#normal.entries==16 and normal.omitted==112 and normal.entries[1]==full.entries[113],
+ 'normal dumps must keep a small recent tail; full dumps retain every capture entry')
+ItemRack.SlashHandler('debug tooltips')
+assert(pointHooks==3 and scriptHooks==6 and #ItemRack.TooltipAnchorTrace.entries==0,'rearming must not multiply hooks')
+now=11
+ShoppingTooltip1:SetPoint('TOP',GameTooltip,0,8)
+assert(ItemRack.GetTooltipAnchorTraceReport().status=='expired' and #ItemRack.TooltipAnchorTrace.entries==0,
+ 'expired captures must not consume later unrelated frames')
+now=20;ItemRack.SlashHandler('debug tooltips');ItemRack.SlashHandler('debug tooltips stop')
+ShoppingTooltip1:SetPoint('TOP',GameTooltip,0,9)
+assert(ItemRack.TooltipAnchorTrace.status=='stopped' and #ItemRack.TooltipAnchorTrace.entries==0,'explicit stop must preserve evidence without further collection')
+ItemRack.SlashHandler('debug clear')
+assert(ItemRack.GetTooltipAnchorTraceReport().status=='off','existing debug clear must clear the capture')
+assert(controllerCalls==0,'no capture mode may invoke TipTac positioning')
+print('[TOOLTIP ANCHOR TRACE LUA] Actual command, late writers, render/size samples, bounds, expiry, redaction and read-only behavior passed.')
+`, 'reported-tiptac-comparison-anchor-trace');
+
+// November 14 actual capture: native comparison and TipTac layout repeat during
+// one hover. Verify redundant requests, not a reproduction of native rendering.
+runLua(String.raw`
+local nativeBuilds,manualCalls,hookCalls,renders=0,0,0,0
+local native=true
+local hidden,foreign=false,false
+local itemSlot=1
+local owner={GetID=function() return 1 end,GetName=function() return 'ItemRackMenu1' end}
+local secret={}
+function issecretvalue(v) return rawequal(v,secret) end
+function GetContainerItemCooldown() return 0 end
+function GetInventoryItemCooldown() return 0 end
+function IsShiftKeyDown() return false end
+function GetCVarBool() return native end
+function hooksecurefunc(target,name,callback)
+ hookCalls=hookCalls+1
+ local original=target[name]
+ target[name]=function(self,...) original(self,...);callback(self,...) end
+end
+local function shopping()
+ return {shown=false,IsShown=function(s) return s.shown end,GetOwner=function(s) return s.owner end,
+  Hide=function(s) s.shown=false end,EnableMouse=function(s,v) s.mouse=v end}
+end
+ShoppingTooltip1=shopping();ShoppingTooltip2=shopping()
+GameTooltip={Show=function() end,IsEquippedItem=function() return false end}
+local function nativeManager()
+ return {CompareItem=function(self,item,tip)
+  if not item then ShoppingTooltip1:Hide();return end
+  nativeBuilds=nativeBuilds+1
+  ShoppingTooltip1.owner=foreign or tip
+  ShoppingTooltip1.shown=not hidden
+  ShoppingTooltip1.item=item.id
+ end}
+end
+TooltipComparisonManager=nativeManager()
+function GameTooltip:SetBagItem(bag,slot)
+ renders=renders+1;self.item=bag..':'..slot
+ if native and TooltipComparisonManager then TooltipComparisonManager:CompareItem({id=self.item},self) end
+end
+function GameTooltip:SetInventoryItem(_,slot) self:SetBagItem('inventory',slot) end
+function GameTooltip_ShowCompareItem(tip)
+ manualCalls=manualCalls+1
+ if TooltipComparisonManager then TooltipComparisonManager:CompareItem({id=tip.item},tip) end
+end
+ItemRackSettings={ShowTooltips='ON',AlwaysCompareBreakoutItems='ON',MenuOnShift='OFF'}
+ItemRack={Menu={'100'},AnchorTooltip=function() end,ShrinkTooltip=function() end,
+ FindItem=function() return nil,0,itemSlot end,StartTimer=function() end,StopTimer=function() end,
+ IsBareItemID=function() return true end}
+${extractFunction(core,'ItemRack.GetNativeComparisonRevision')}
+${extractFunction(core,'ItemRack.ShouldCompareBreakoutItems')}
+${extractFunction(core,'ItemRack.ShowBreakoutComparison')}
+${extractFunction(core,'ItemRack.TooltipUpdate')}
+${extractFunction(core,'ItemRack.MenuTooltip')}
+${extractFunction(core,'ItemRack.IDTooltip')}
+for i=1,11 do ItemRack.MenuTooltip(owner) end
+assert(renders==11 and nativeBuilds==11 and manualCalls==0,
+ 'reported-tiptac-native-comparison-duplicate: native item rendering must not be followed by a second explicit comparison rebuild')
+assert(ItemRack.nativeComparisonObserver.reused==11,'support counters must show whether this correction actually ran')
+assert(hookCalls==1 and ShoppingTooltip1.mouse==false,'observation must hook once and preserve comparison mouse exclusion')
+itemSlot=2;ItemRack.MenuTooltip(owner)
+assert(ShoppingTooltip1.item=='0:2' and nativeBuilds==12 and manualCalls==0,'new bag content must still render and compare immediately')
+ItemRack.IDTooltip(owner,'100')
+assert(nativeBuilds==13 and manualCalls==0,'direct item tooltips must also avoid rebuilding a comparison native rendering already supplied')
+native=false;itemSlot=3
+ItemRack.MenuTooltip(owner)
+assert(manualCalls==1 and ShoppingTooltip1.item=='0:3',
+ 'a visible comparison for the previous item must never suppress a fresh forced request when native comparison did not run')
+native=true;hidden=true;ItemRack.MenuTooltip(owner)
+assert(manualCalls==2,'a native request without a visible result must retain the explicit fallback')
+hidden=false;foreign={};ItemRack.MenuTooltip(owner)
+assert(manualCalls==3,'a foreign comparison owner must not count as a native result for this tooltip')
+foreign=secret;ItemRack.MenuTooltip(owner)
+assert(manualCalls==4,'secret ownership must fall back without comparing or trusting it')
+foreign=false
+ItemRackSettings.AlwaysCompareBreakoutItems='OFF';native=false
+ItemRack.MenuTooltip(owner)
+assert(manualCalls==4 and not ShoppingTooltip1.shown,'comparison policy must still hide results when disabled')
+ItemRackSettings.AlwaysCompareBreakoutItems='ON';native=true
+TooltipComparisonManager=nativeManager();ItemRack.MenuTooltip(owner)
+assert(hookCalls==2 and manualCalls==4,'a replacement native manager must get its own observer')
+TooltipComparisonManager=nil;ItemRack.MenuTooltip(owner)
+assert(manualCalls==5,'legacy clients without a native manager must retain the original explicit path')
+TooltipComparisonManager=nativeManager()
+hooksecurefunc=function() hookCalls=hookCalls+1;error('hook unavailable') end
+local before=hookCalls
+for i=1,3 do ItemRack.MenuTooltip(owner) end
+assert(hookCalls==before+1 and manualCalls==8,'an unavailable observer must fail once and retain comparisons on every render')
+print('[NATIVE COMPARISON DUPLICATE LUA] Production render paths, native reuse, forced/stale/hidden/foreign/secret fallbacks and hook lifecycle passed.')
+`, 'reported-tiptac-native-comparison-duplicate');
+
+// November 13 / prokn4h: TipTac Forever Mouse Anchor + floating item button.
+// Models its documented SetOwner/default-anchor hooks; this proves anchor-reset
+// behavior, not native rendering, scoring or the reporter's complete flicker.
+runLua(String.raw`
+ItemRack={CombatQueue={},SlotInfo={},StartTimer=function() end,StopTimer=function() end,
+  GetPendingSetBindingDisplayID=function() end,GetInfoByID=function(id) return id end,
+  ShrinkTooltip=function() end,ShowBreakoutComparison=function() end}
+ItemRackSettings={ShowTooltips='ON',TooltipFollow='OFF',MenuOnShift='OFF'}
+local function button(id)
+  return {GetID=function() return id end,GetName=function() return 'ItemRackButton'..id end,
+    GetLeft=function() return 100 end}
+end
+local owner,other=button(13),button(14)
+local defaultCalls,ownerCalls,inventoryCalls,bagCalls=0,0,0,0
+local cooldown,firstShowPosition=10,nil
+GameTooltip={shown=false,lines={}}
+function GameTooltip:GetOwner() return self.owner end
+function GameTooltip:IsShown() return self.shown end
+function GameTooltip:SetOwner(o,side)
+  self.owner=o; self.anchor=side; self.position=side; self.lines={}; ownerCalls=ownerCalls+1
+end
+function GameTooltip:SetInventoryItem(_,slot) self.item=slot; self.lines={}; inventoryCalls=inventoryCalls+1 end
+function GameTooltip:SetBagItem(bag,slot) self.item=bag..':'..slot; self.lines={}; bagCalls=bagCalls+1 end
+function GameTooltip:AddLine(line) self.lines[#self.lines+1]=line end
+function GameTooltip:Show() firstShowPosition=firstShowPosition or self.position; self.shown=true end
+function GameTooltip:Hide() self.shown=false end
+function GameTooltip_SetDefaultAnchor(tip,o)
+  defaultCalls=defaultCalls+1
+  tip:SetOwner(o,'ANCHOR_NONE')
+  -- Contract from TipTac 11.12: its default-anchor hook chooses Mouse Anchor.
+  tip.position='tiptac-mouse'
+end
+function GetInventoryItemCooldown() return cooldown end
+function GetContainerItemCooldown() return cooldown end
+function IsShiftKeyDown() return false end
+${extractFunction(core,'ItemRack.InventoryTooltip')}
+${extractFunction(core,'ItemRack.AnchorTooltip')}
+${extractFunction(core,'ItemRack.GetNativeComparisonRevision')}
+${extractFunction(core,'ItemRack.TooltipUpdate')}
+${extractFunction(core,'ItemRack.ClearTooltip')}
+${extractFunction(core,'ItemRack.OnTooltip')}
+owner.UpdateTooltip=ItemRack.InventoryTooltip
+other.UpdateTooltip=ItemRack.InventoryTooltip
+owner:UpdateTooltip(); ItemRack.TooltipUpdate()
+assert(defaultCalls==1 and GameTooltip.position=='tiptac-mouse','initial hover must allow the default-anchor hook')
+assert(firstShowPosition=='tiptac-mouse','default-anchor hook must position the tooltip before the first explicit Show')
+GameTooltip.position='external-custom-position'
+for i=1,10 do owner:UpdateTooltip(); ItemRack.TooltipUpdate() end
+assert(defaultCalls==1 and ownerCalls==1,
+  'reported-tiptac-mouse-anchor-floating-button: same-owner refresh must not reset anchor/owner')
+assert(inventoryCalls==11 and GameTooltip.position=='external-custom-position',
+  'content refresh must continue while preserving another addon placement')
+ItemRack.CombatQueue[13]='Pending item'
+owner:UpdateTooltip(); ItemRack.TooltipUpdate()
+assert(GameTooltip.lines[1]=='Queued: Pending item' and defaultCalls==1,'pending text must refresh without resetting placement')
+ItemRack.TooltipType='BAG'; ItemRack.TooltipBag=0; ItemRack.TooltipSlot=4
+ItemRack.TooltipUpdate()
+assert(bagCalls==1 and GameTooltip.item=='0:4' and defaultCalls==1,'bag content changes must retain placement')
+other:UpdateTooltip(); ItemRack.TooltipUpdate()
+assert(defaultCalls==2 and GameTooltip.owner==other,'a different button must acquire its own anchor')
+GameTooltip.owner={} -- another addon owns the shared tooltip now
+ItemRack.TooltipUpdate()
+assert(defaultCalls==3 and GameTooltip.owner==other,'a foreign owner must not satisfy the refresh guard')
+GameTooltip:Hide(); ItemRack.TooltipUpdate()
+assert(defaultCalls==4,'a hidden tooltip must reinitialize the default anchor')
+ItemRack.ClearTooltip(); other:UpdateTooltip(); ItemRack.TooltipUpdate()
+assert(defaultCalls==5,'leave/reenter must establish a fresh tooltip')
+ItemRackSettings.TooltipFollow='ON'
+ItemRack.TooltipUpdate()
+assert(GameTooltip.anchor=='ANCHOR_RIGHT','explicit TooltipFollow placement must still apply')
+ItemRackSettings.TooltipFollow='OFF'
+ItemRack.TooltipUpdate()
+assert(defaultCalls==6 and GameTooltip.position=='tiptac-mouse','switching back to default mode must reinitialize its hook')
+ItemRack.OnTooltip(other,'Options title','Options detail')
+assert(defaultCalls==7 and #GameTooltip.lines==2,'fresh non-refresh tooltips must clear old content and establish their anchor')
+cooldown=0
+ItemRack.TooltipUpdate()
+assert(defaultCalls==7,'zero-cooldown refresh must preserve the default anchor too')
+-- Without a positioning addon, the same policy preserves the native anchor.
+ItemRack.ClearTooltip()
+function GameTooltip_SetDefaultAnchor(tip,o) defaultCalls=defaultCalls+1; tip:SetOwner(o,'ANCHOR_RIGHT') end
+owner:UpdateTooltip(); ItemRack.TooltipUpdate(); ItemRack.TooltipUpdate()
+assert(defaultCalls==8 and GameTooltip.anchor=='ANCHOR_RIGHT','native default placement must remain supported')
+`, 'reported-tiptac-mouse-anchor-floating-button');
 // October 8 report/video & GitHub Issue #34 (Spiritshroud08 / Zackk):
 // Verifies character-slot and flyout tooltip anchoring without ANCHOR_NONE
 // (which broke GameTooltip_ShowCompareItem on Rings/Weapons/TipTac/RatingBuster)
@@ -50,19 +438,36 @@ ItemRack.oldPaperDollItemSlotButton_OnEnter=function(s) nativeEnterCalls=nativeE
 ${extractFunction(core,'ItemRack.GetMenuFrameTooltipSide')}
 ${extractFunction(core,'ItemRack.AnchorTooltip')}
 ${extractFunction(core,'ItemRack.ApplyTooltipAnchor')}
+${extractFunction(core,'ItemRack.PaperDollItemSlotButton_UpdateTooltip')}
+${extractFunction(core,'ItemRack.CallCharacterSlotOnEnter')}
 ${extractFunction(core,'PaperDollItemSlotButton_OnEnter')}
 ${extractFunction(core,'ItemRack.RegisterCharacterSlotOnEnterHandlers')}
 ${anchorHooks}
 -- Issue #34 + Forever evidence: both OnEnter script AND button.UpdateTooltip field
--- must be updated from oldPaperDollItemSlotButton_OnEnter to PaperDollItemSlotButton_OnEnter.
+-- must be updated from oldPaperDollItemSlotButton_OnEnter to ItemRack's non-flickering handlers.
 slot.scripts.OnEnter=ItemRack.oldPaperDollItemSlotButton_OnEnter
 slot.UpdateTooltip=ItemRack.oldPaperDollItemSlotButton_OnEnter
 assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==1,'Native character OnEnter and UpdateTooltip handlers must be replaced explicitly')
 assert(slot:GetScript('OnEnter')==PaperDollItemSlotButton_OnEnter,'character slot OnEnter must dispatch through ItemRack wrapper')
-assert(slot.UpdateTooltip==PaperDollItemSlotButton_OnEnter,'character slot UpdateTooltip must dispatch through ItemRack wrapper to prevent 0.2s flicker')
+assert(slot.UpdateTooltip==ItemRack.PaperDollItemSlotButton_UpdateTooltip,'character slot UpdateTooltip must dispatch through ItemRack safe updater to prevent 0.2s flicker')
 assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==0,'character handler registration must be idempotent')
 slot:GetScript('OnEnter')(slot)
 assert(nativeEnterCalls==1,'registered ItemRack wrapper must invoke the captured native handler exactly once')
+
+-- GearQuest load order: when another addon hooks OnEnter before ItemRack loads,
+-- ItemRack must wrap and chain that hook so both breakout menus and third-party hooks run.
+local gqHookCalls = 0
+local gqSlot = {scripts={}, GetName=function() return 'CharacterHeadSlot' end, GetTop=function() return 300 end}
+function gqSlot:GetScript(name) return self.scripts[name] end
+function gqSlot:SetScript(name,handler) self.scripts[name]=handler end
+gqSlot.scripts.OnEnter = function(s) gqHookCalls = gqHookCalls + 1; nativeEnterCalls = nativeEnterCalls + 1 end
+ItemRack.SlotInfo[1].name = 'HeadSlot'
+CharacterHeadSlot = gqSlot
+local prevReg = ItemRack.RegisterCharacterSlotOnEnterHandlers()
+assert(prevReg >= 1, 'Pre-hooked third-party character slot must be registered')
+assert(gqSlot:GetScript('OnEnter') == PaperDollItemSlotButton_OnEnter, 'Pre-hooked slot OnEnter must dispatch through ItemRack wrapper')
+gqSlot:GetScript('OnEnter')(gqSlot)
+assert(gqHookCalls == 1, 'Pre-hooked third-party handler must execute when ItemRack wrapper runs')
 for _,count in ipairs({1,2,40}) do
   ItemRack.Menu={}; for i=1,count do ItemRack.Menu[i]=i end
   ItemRack.menuDockedTo=nil
@@ -82,6 +487,16 @@ ItemRackMenuFrame.left=1600; ItemRackMenuFrame.right=1850
 PaperDollItemSlotButton_OnEnter(slot)
 assert(GameTooltip.side=='LEFT' and GameTooltip.relTo==slot,'near right screen edge, slot tooltip must fall back to left of slot')
 ItemRackMenuFrame.left=300; ItemRackMenuFrame.right=420
+
+-- Verify UpdateTooltip on character slot does NOT call nativeEnterCalls, does not wipe tooltip, and updates cursor
+local cursorUpdateCalls = 0
+function CursorUpdate(button) if button == slot then cursorUpdateCalls = cursorUpdateCalls + 1 end end
+local enterCallsBefore = nativeEnterCalls
+local ownerCallsBefore = GameTooltip.ownerCalls
+slot:UpdateTooltip()
+assert(nativeEnterCalls == enterCallsBefore, 'character slot UpdateTooltip must not re-invoke PaperDollItemSlotButton_OnEnter at 5Hz')
+assert(GameTooltip.ownerCalls == ownerCallsBefore, 'character slot UpdateTooltip must not reset GameTooltip owner or wipe content')
+assert(cursorUpdateCalls == 1, 'character slot UpdateTooltip must update cursor state via CursorUpdate')
 
 -- Opposite menu direction (RightSlotsGoLeft == ON): leave Blizzard native ANCHOR_RIGHT untouched
 ItemRackSettings.RightSlotsGoLeft='ON'; PaperDollItemSlotButton_OnEnter(slot)
@@ -117,6 +532,58 @@ ItemRackSettings.CharacterSheetMenus='OFF'; ItemRack.pendingTooltipAnchor=nil; I
 PaperDollItemSlotButton_OnEnter(slot)
 assert(GameTooltip.nativeAnchor=='ANCHOR_RIGHT','disabled character menus must retain native tooltip behavior')
 `, 'reported-character-tooltip-anchor-hop');
+
+// November 12 SoD report: PaperDollFrame.xml's script forwards to the global
+// OnEnter, rather than retaining the native function object (beta6/beta7).
+runLua(String.raw`
+ItemRack={SlotInfo={},IsEquipmentManagerOpen=function() return false end}
+for i=0,19 do ItemRack.SlotInfo[i]={name='Slot'..i} end
+ItemRack.SlotInfo[7].name='LegsSlot'
+ItemRackSettings={CharacterSheetMenus='ON',MenuOnShift='OFF',RightSlotsGoLeft='OFF'}
+local nativeCalls,xmlCalls,addonCalls,docks=0,0,0,0
+local slot={GetName=function() return 'CharacterLegsSlot' end,scripts={}}
+function slot:GetScript(name) return self.scripts[name] end
+function slot:SetScript(name,handler) self.scripts[name]=handler end
+CharacterLegsSlot=slot
+ItemRackMenuFrame={IsVisible=function() return ItemRack.menuDockedTo~=nil end,Hide=function() end}
+ItemRack.DockMenuToCharacterSheet=function(self) docks=docks+1; ItemRack.menuDockedTo=self:GetName() end
+ItemRack.ApplyTooltipAnchor=function() end
+function IsShiftKeyDown() return false end
+ItemRack.oldPaperDollItemSlotButton_OnEnter=function(self) nativeCalls=nativeCalls+1 end
+${extractFunction(core,'ItemRack.CallCharacterSlotOnEnter')}
+${extractFunction(core,'ItemRack.PaperDollItemSlotButton_UpdateTooltip')}
+${extractFunction(core,'PaperDollItemSlotButton_OnEnter')}
+${extractFunction(core,'ItemRack.RegisterCharacterSlotOnEnterHandlers')}
+local function xmlForward(self)
+  xmlCalls=xmlCalls+1
+  assert(xmlCalls<10,'reported-sod-character-onenter-recursion: XML forwarding must not re-enter indefinitely')
+  PaperDollItemSlotButton_OnEnter(self)
+end
+slot.scripts.OnEnter=function(self) xmlForward(self); addonCalls=addonCalls+1 end
+ItemRack.RegisterCharacterSlotOnEnterHandlers()
+slot:GetScript('OnEnter')(slot)
+assert(nativeCalls==1 and xmlCalls==1 and addonCalls==1 and docks==1,
+  'SoD XML forwarding must execute native, addon and docking exactly once')
+assert(ItemRack.RegisterCharacterSlotOnEnterHandlers()==0,'registration must stay idempotent')
+-- A later addon may wrap the installed handler before another registration.
+local installed=slot:GetScript('OnEnter')
+slot.scripts.OnEnter=function(self) installed(self); addonCalls=addonCalls+1 end
+ItemRack.RegisterCharacterSlotOnEnterHandlers()
+slot:GetScript('OnEnter')(slot)
+assert(nativeCalls==2 and addonCalls==3,'late wrapping must retain both addon hooks without a recursion cycle')
+-- Disabled menus must still chain the captured addon/native handler.
+ItemRackSettings.CharacterSheetMenus='OFF'
+slot:GetScript('OnEnter')(slot)
+assert(nativeCalls==3 and addonCalls==5,'disabled menus must preserve native and addon hooks')
+-- Errors must remain visible and must not leave a sticky recursion guard.
+slot._ItemRackOriginalOnEnter=function() error('addon hover failure') end
+local ok,err=pcall(slot:GetScript('OnEnter'),slot)
+assert(not ok and tostring(err):find('addon hover failure'),'do not swallow third-party errors')
+slot._ItemRackOriginalOnEnter=xmlForward
+slot:GetScript('OnEnter')(slot)
+assert(nativeCalls==4,'a failed hook must not disable later tooltips')
+print('[SOD ONENTER LUA] XML forwarding, addon chaining and error cleanup passed.')
+`, 'reported-sod-character-onenter-recursion');
 // Forever user report, October 8, 2026: data-processed tooltips bypass legacy setters.
 runLua(String.raw`
 local lines,hooks,registrations={},0,0
@@ -162,6 +629,81 @@ assert(hooks==6,"Classic must retain all three legacy hooks")
 `, 'forever-modern-set-tooltip');
 
 // User report October 31, 2026: TooltipDataProcessor fails to show set info when hovering bag items (e.g. Baganator / modern WoW tooltips).
+// November 14 / Forever beta14: SetLootItem(Copper Ore, 2770) invokes the
+// registered item post-call with a secret GameTooltipTextLeft1 string. Lua does
+// not implement WoW secrets; poison method lookup on marked *strings* to model
+// the exact forbidden operation without pretending to reproduce engine taint.
+runLua(String.raw`
+local secret,forbiddenReads,lines={},0,{}
+local stringMeta=getmetatable('')
+local originalIndex=stringMeta.__index
+stringMeta.__index=function(value,key)
+  if secret[value] then forbiddenReads=forbiddenReads+1; error('attempt to index secret tooltip string') end
+  return originalIndex[key]
+end
+function issecretvalue(value) return secret[value] or false end
+ItemRack={MatchesStoredItemFields=function(a,b) return a==b end}
+ItemRackSettings={ShowTooltips='ON',ShowSetInTooltip='ON'}
+ItemRackUser={Sets={Basic={equip={[13]='15086'}},['~Internal']={equip={[13]='15086'}}}}
+local data={}
+${extractFunction(core,'ItemRack.GetIRString')}
+${extractFunction(core,'ItemRack.OnSetHyperlink')}
+${extractFunction(core,'ItemRack.OnTooltipItemData')}
+${extractFunction(core,'ItemRack.ListSetsHavingItem')}
+${extractFunction(core,'ItemRack.RegisterSetTooltipHooks')}
+local texts={}
+local tip={GetName=function() return 'GameTooltip' end,NumLines=function() return #texts end}
+function tip:AddDoubleLine(left,right)
+  texts[#texts+1]=left
+  _G['GameTooltipTextLeft'..#texts]={GetText=function() return left end}
+  lines[#lines+1]=right
+end
+local function title(value)
+  texts={value}; lines={}
+  GameTooltipTextLeft1={GetText=function() return value end}
+end
+local callback
+Enum={TooltipDataType={Item=0}}
+TooltipDataProcessor={AddTooltipPostCall=function(_,fn) callback=fn end}
+GameTooltip=tip
+ItemRack.RegisterSetTooltipHooks()
+assert(callback==ItemRack.OnTooltipItemData,'reported path must use the registered item-data post-call')
+secret['Copper Ore']=true
+title('Copper Ore')
+callback(tip,{type=0,id=2770,hyperlink='|cnIQ1:|Hitem:2770::::::::13:1485:::::::::|h[Copper Ore]|h|r'})
+assert(#lines==0 and forbiddenReads==0,'reported loot item must not inspect its secret title or invent a saved set')
+secret['Devilsaur Tooth']=true
+title('Devilsaur Tooth')
+callback(tip,{type=0,id=15086,hyperlink='item:15086'})
+assert(#lines==1 and lines[1]=='Basic','public item identity may still add its public set beside an unreadable title')
+callback(tip,{type=0,id=15086,hyperlink='item:15086'})
+assert(#lines==1,'public ItemRack set marker must still prevent duplicate modern callbacks')
+title('Devilsaur Tooth')
+ItemRack.ListSetsHavingItem(tip,'15086')
+ItemRack.ListSetsHavingItem(tip,'15086')
+assert(#lines==1,'legacy set-line entry must protect the same secret title and retain deduplication')
+title('Public title')
+secret['item:15086']=true
+ItemRack.OnSetHyperlink(tip,'item:15086')
+assert(#lines==0 and forbiddenReads==0,'direct hyperlink hooks must reject secret links before string parsing')
+secret['item:15086']=nil
+issecretvalue=nil
+callback(tip,{hyperlink='item:15086'})
+callback(tip,{hyperlink='item:15086'})
+assert(#lines==1,'clients without secret APIs must retain normal set lines and deduplication')
+ItemRackSettings.ShowSetInTooltip='OFF'
+tip.NumLines=function() error('disabled set info must not read tooltip text') end
+callback(tip,{hyperlink='item:15086'})
+ItemRack.ListSetsHavingItem(tip,'15086')
+ItemRackSettings.ShowSetInTooltip='ON'
+tip.IsForbidden=function() return true end
+callback(tip,{hyperlink='item:15086'})
+ItemRack.ListSetsHavingItem(tip,'15086')
+assert(forbiddenReads==0,'no secret string method may be indexed')
+stringMeta.__index=originalIndex
+print('[SECRET TOOLTIP TEXT LUA] Registered loot post-call, legacy reads, public deduplication and secret-link rejection passed.')
+`, 'reported-forever-secret-loot-tooltip-text');
+
 runLua(String.raw`
 local lines = {}
 local _G = _G or getfenv()
@@ -312,6 +854,7 @@ assert(#lines == 1 and lines[1].right == "Bis", "OnTooltipSetItem must add Bis s
 // enable automatic comparison tooltips by default, so ItemRack flyout rows only
 // compare while the player holds the client comparison modifier.
 const breakoutComparisonFunctions = [
+  extractFunction(core, 'ItemRack.GetNativeComparisonRevision'),
   extractFunction(core, 'ItemRack.ShouldCompareBreakoutItems'),
   extractFunction(core, 'ItemRack.OnModifierStateChanged'),
   extractFunction(core, 'ItemRack.MenuTooltip'),
@@ -484,6 +1027,7 @@ const functions = [
   extractFunction(core, 'ItemRack.FindItemInBags'),
   extractFunction(core, 'ItemRack.ShouldCompareBreakoutItems'),
   extractFunction(core, 'ItemRack.ShowBreakoutComparison'),
+  extractFunction(core, 'ItemRack.GetNativeComparisonRevision'),
   extractFunction(core, 'ItemRack.IDTooltip'),
   extractFunction(queue, 'ItemRack.QueueHasExplicitIdentityEntry'),
   extractFunction(queue, 'ItemRack.IsQueueEntryUnambiguous'),

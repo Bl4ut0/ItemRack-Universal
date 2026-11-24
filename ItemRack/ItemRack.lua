@@ -56,7 +56,9 @@ ItemRack.DebugTags = { -- per-tag toggles; explicit defaults allow /itemrack deb
 	CombatQueue = false,
 	API = false,
 	UI = false,
-	Combat = false
+	Combat = false,
+	Breakouts = false,
+	SpecialItems = false
 }
 ItemRack.DebugAll = false -- master override to enable all tags
 
@@ -86,13 +88,17 @@ end
 
 function ItemRack.PrintDebugStatus()
 	local states = {}
-	local sortedTags = { "Events", "Equip", "Queue", "CombatQueue", "API", "UI", "Combat" }
+	local sortedTags = { "Events", "Equip", "Queue", "CombatQueue", "API", "UI", "Combat", "Breakouts", "SpecialItems" }
 	for _, tag in ipairs(sortedTags) do
 		local state = ItemRack.DebugTags[tag] and "|cff00ff00ON|r" or "|cffff0000OFF|r"
 		table.insert(states, tag .. "=" .. state)
 	end
 	ItemRack.Print("Debug Status: MasterAll=" .. (ItemRack.DebugAll and "|cff00ff00ON|r" or "|cffff0000OFF|r") .. ", Chat=" .. (ItemRack.DebugChat and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
 	ItemRack.Print("Layers: " .. table.concat(states, ", "))
+	if ItemRack.SpecialItems then
+		local active=ItemRack.SpecialItems.IsTraceActive()
+		ItemRack.Print("Special-item capture: "..(active and (math.ceil(ItemRack.SpecialItems.TraceUntil-GetTime()).." seconds remaining") or "OFF/expired"))
+	end
 end
 
 -- by Mikinho - Fix for latest update for Classic Era/SoD v11504 & Modern/Camelot 1.60+
@@ -127,8 +133,12 @@ end
 if not SetActiveTalentGroup and C_SpecializationInfo and C_SpecializationInfo.SetActiveSpecGroup then
 	SetActiveTalentGroup = C_SpecializationInfo.SetActiveSpecGroup
 end
-if not GetNumTalentGroups and C_SpecializationInfo and C_SpecializationInfo.GetNumSpecGroups then
-	GetNumTalentGroups = C_SpecializationInfo.GetNumSpecGroups
+if not GetNumTalentGroups then
+	if C_SpecializationInfo and C_SpecializationInfo.GetNumSpecGroups then
+		GetNumTalentGroups = C_SpecializationInfo.GetNumSpecGroups
+	elseif _G.GetNumSpecGroups then
+		GetNumTalentGroups = _G.GetNumSpecGroups
+	end
 end
 if not GetTalentTabInfo and C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo then
 	GetTalentTabInfo = function(specializationIndex, isInspect, isPet, groupIndex)
@@ -144,18 +154,64 @@ if not GetNumTalentTabs and C_SpecializationInfo and C_SpecializationInfo.GetNum
 end
 
 -- Safe aura lookup for player across all client versions (Retail/Classic/TBC/Wrath/Cata).
--- Protected against nil-unpack errors in Blizzard's AuraUtil during Edit Mode or UI transitions.
-function ItemRack.FindPlayerAura(buff)
+-- Protected against nil-unpack errors in Blizzard's AuraUtil during Edit Mode or UI transitions,
+-- and shielded against modern client secret number values during tainted execution.
+function ItemRack.FindPlayerAura(buff, spellID)
 	if not buff then return nil end
+	-- Ordinary on-use effects use this shared reader, including clients without
+	-- UnitBuff. An item catalog entry is not needed for a normal player aura.
+	local function public(value)
+		return not issecretvalue or not issecretvalue(value)
+	end
+	if not public(buff) then return nil end
+	spellID = public(spellID) and type(spellID)=="number" and spellID or nil
+	-- Item-linked self effects may be helpful or harmful. Existing event callers
+	-- that supply only a buff name keep their helpful-only lookup semantics.
+	local filters = spellID and {"HELPFUL","HARMFUL"} or {"HELPFUL"}
+	if C_UnitAuras then
+		if spellID and C_UnitAuras.GetUnitAuraBySpellID then
+			local ok,aura=pcall(C_UnitAuras.GetUnitAuraBySpellID,"player",spellID)
+			if ok and public(aura) and type(aura)=="table" then return buff end
+		end
+		if C_UnitAuras.GetAuraDataBySpellName then
+			for _,filter in ipairs(filters) do
+				local ok,aura=pcall(C_UnitAuras.GetAuraDataBySpellName,"player",buff,filter)
+				if ok and public(aura) and type(aura)=="table" then return buff end
+			end
+		end
+		if C_UnitAuras.GetAuraDataByIndex then
+			for _,filter in ipairs(filters) do
+				for index=1,40 do
+					local ok,aura=pcall(C_UnitAuras.GetAuraDataByIndex,"player",index,filter)
+					if not ok or not public(aura) or type(aura)~="table" then break end
+					if (public(aura.name) and aura.name==buff)
+						or (spellID and public(aura.spellId) and aura.spellId==spellID) then return buff end
+				end
+			end
+		end
+	end
 	if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellName then
 		local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellName, buff)
 		if ok and aura then
-			return aura.name or buff
+			if issecretvalue and issecretvalue(aura) then
+				return buff
+			end
+			local auraName = type(aura) == "table" and aura.name or nil
+			if auraName then
+				if issecretvalue and issecretvalue(auraName) then
+					return buff
+				end
+				return auraName
+			end
+			return buff
 		end
 	end
-	if AuraUtil and AuraUtil.FindAuraByName then
+	if AuraUtil and AuraUtil.FindAuraByName and AuraUtil.FindAuraByName ~= ItemRack.FindAuraByName then
 		local ok, result = pcall(AuraUtil.FindAuraByName, buff, "player")
 		if ok and result then
+			if issecretvalue and issecretvalue(result) then
+				return buff
+			end
 			return result
 		end
 	end
@@ -164,7 +220,63 @@ function ItemRack.FindPlayerAura(buff)
 			for i = 1, 40 do
 				local name = UnitBuff("player", i)
 				if not name then break end
-				if name == buff then return name end
+				if issecretvalue and issecretvalue(name) then
+					-- Cannot compare secret values directly
+				elseif name == buff then
+					return name
+				end
+			end
+			return nil
+		end)
+		if ok and result then
+			return result
+		end
+	end
+	if spellID and UnitDebuff then
+		for index=1,40 do
+			local ok,name=pcall(UnitDebuff,"player",index)
+			if not ok or not public(name) or not name then break end
+			if name==buff then return name end
+		end
+	end
+	return nil
+end
+
+-- Safe internal aura search by name and unit across all client versions.
+-- Completely self-contained within ItemRack to prevent tainting Blizzard's secure AuraUtil table.
+function ItemRack.FindAuraByName(name, unit, filter)
+	if not name then return nil end
+	unit = unit or "player"
+	if unit == "player" then
+		return ItemRack.FindPlayerAura(name)
+	end
+	if UnitBuff then
+		local ok, result = pcall(function()
+			for i = 1, 40 do
+				local buffName = UnitBuff(unit, i, filter)
+				if not buffName then break end
+				if issecretvalue and issecretvalue(buffName) then
+					-- Cannot compare secret values directly
+				elseif buffName == name then
+					return buffName
+				end
+			end
+			return nil
+		end)
+		if ok and result then
+			return result
+		end
+	end
+	if UnitDebuff then
+		local ok, result = pcall(function()
+			for i = 1, 40 do
+				local debuffName = UnitDebuff(unit, i, filter)
+				if not debuffName then break end
+				if issecretvalue and issecretvalue(debuffName) then
+					-- Cannot compare secret values directly
+				elseif debuffName == name then
+					return debuffName
+				end
 			end
 			return nil
 		end)
@@ -175,25 +287,12 @@ function ItemRack.FindPlayerAura(buff)
 	return nil
 end
 
--- Compatibility shim for AuraUtil.FindAuraByName (may not exist in TBC 2.5.5)
-if not AuraUtil or not AuraUtil.FindAuraByName then
-	AuraUtil = AuraUtil or {}
-	AuraUtil.FindAuraByName = function(name, unit, filter)
-		if unit == "player" then
-			return ItemRack.FindPlayerAura(name)
-		end
-		for i = 1, 40 do
-			local buffName = UnitBuff and UnitBuff(unit, i, filter)
-			if not buffName then break end
-			if buffName == name then return buffName end
-		end
-		for i = 1, 40 do
-			local debuffName = UnitDebuff and UnitDebuff(unit, i, filter)
-			if not debuffName then break end
-			if debuffName == name then return debuffName end
-		end
-		return nil
-	end
+-- Backward compatibility for legacy custom event scripts only in clients where Blizzard does NOT provide AuraUtil (e.g. TBC 2.5.5).
+-- NEVER touch, add fields to, or modify _G.AuraUtil if it already exists, as doing so taints Blizzard's aura library in modern clients.
+if not _G.AuraUtil then
+	_G.AuraUtil = {
+		FindAuraByName = ItemRack.FindAuraByName
+	}
 end
 
 -- Compatibility shims for Item APIs (may not have globals if deprecation fallbacks disabled)
@@ -462,6 +561,7 @@ ItemRackUser = {
 
 ItemRackSettings = {
 	CombatSetWeapons = "OFF", -- full-set hotkeys may submit weapons before deferred armor
+	KeepMenuOpen = "OFF", -- Shift+Left-Click toggles a quick-access item breakout open until unlocked
 	MenuOnShift = "OFF", -- open menus on shift only
 	MenuOnRight = "OFF", -- open menus on right-click only
 	RightClickUse = "OFF", -- use the item on right-click instead of manually advancing the queue
@@ -477,7 +577,7 @@ ItemRackSettings = {
 	TinyTooltipsQuickAccess = "OFF", -- whether to apply tiny tooltips only to quick access (not character sheet menus)
 	TinyTooltipsSubMenusOnly = "OFF", -- whether to restrict tiny tooltips to popup sub-menu items only (not the main slot button)
 	DisableTooltipsInCombat = "OFF", -- whether to hide item tooltips on ItemRack menus/buttons during combat
-	TooltipFollow = "OFF", -- whether tooltip follows pointer
+	TooltipFollow = "OFF", -- anchor beside hovered buttons instead of default placement
 	CooldownCount = "OFF", -- whether cooldowns displayed numerically over buttons
 	LargeNumbers = "OFF", -- whether cooldown numbers displayed in large font
 	AllowEmpty = "ON", -- allow empty slot as a choice in menus
@@ -515,11 +615,10 @@ ItemRack.NoTitansGrip = {
 -- here. Give buff as a spell ID so the name resolves in the client's own locale.
 -- Mana gem ranks share one cooldown category tracked independent of possession,
 -- so any single rank ID is a valid probe.
-ItemRack.CooldownProxies = {
-	[30720] = { id = 22044, buff = 37445 }, -- Serpent-Coil Braid <- mana gems (Mana Surge)
-}
+ItemRack.CooldownProxies = {} -- compatibility overrides; built-in rules are client-specific
 
 ItemRack.Menu = {}
+ItemRack.PinnedMenu = {}
 ItemRack.MenuSnapshots = {}
 ItemRack.LockList = {} -- index -2 to 11, flag whether item is tagged already for swap
 if ItemRack.IsClassic() then
@@ -583,7 +682,7 @@ ItemRack.TooltipInfo = {
 	{"ItemRackOptItemStatsPriority","Priority","Check this to make this item auto equip when it comes off cooldown even if the equipped item is off cooldown and waiting to be used."},
 	{"ItemRackOptItemStatsKeepEquipped","Pause Queue","Check this to suspend the auto queue for this slot until the item is unequipped. (For instance if you have another mod handling the auto equip of a riding crop."},
 	{"ItemRackOptItemStatsSwapOnUse","Burn on Use","Check this to permanently ignore this item in the queue for the rest of the play session once its cooldown is triggered. It will not be equipped again until you manually re-equip the set."},
-	{"ItemRackOptItemStatsSwapInEnable","Custom Swap In","Check this to override the default aggressive swap-in cooldown (30s for trinkets, 0s for others) and specify exactly how many seconds remaining on this item's cooldown it should be aggressively swapped back into the slot."},
+	{"ItemRackOptItemStatsSwapInEnable","Custom Swap In","Override the default remaining-cooldown threshold (30s for trinkets, 0s for others) at which this item becomes eligible to swap back in. Larger values allow earlier eligibility. This does not extend temporary manual protection after verified use; active buffs, Pause Queue and delay settings still apply."},
 	{"ItemRackOptQueueEnable","Auto Queue This Slot","Check this to allow this slot to auto queue.  When an item goes on cooldown, it will swap for an item higher on the list that's off cooldown."},
 	{"ItemRackOptSetsHideCheckButton","Hide","Hide this set in menus. (Equivalent of Alt+clicking the set in the menu)"},
 	{"ItemRackOptSetsSaveButton","Save Set","Save this set. Some settings like key binding, cloak/helm visibility and whether it's hidden can only be changed to a saved set."},
@@ -609,10 +708,13 @@ ItemRack.ExternalEventHandlers = {}
 
 function ItemRack.InitEventHandlers()
 	local handler = ItemRack.EventHandlers
+	handler.ADDON_ACTION_BLOCKED = ItemRack.OnBlockedAction
+	handler.ADDON_ACTION_FORBIDDEN = ItemRack.OnBlockedAction
 	handler.ITEM_LOCK_CHANGED = ItemRack.OnItemLockChanged
 	handler.ACTIONBAR_UPDATE_COOLDOWN = ItemRack.UpdateButtonCooldowns
 	handler.UNIT_AURA = ItemRack.OnUnitAura
 	handler.UNIT_INVENTORY_CHANGED = ItemRack.OnUnitInventoryChanged
+	handler.PLAYER_EQUIPMENT_CHANGED = ItemRack.OnPlayerEquipmentChanged
 	handler.UPDATE_BINDINGS = ItemRack.OnBindingsChanged
 	handler.PLAYER_REGEN_ENABLED = ItemRack.OnLeavingCombatOrDeath
 	handler.PLAYER_UNGHOST = ItemRack.OnLeavingCombatOrDeath
@@ -637,6 +739,7 @@ function ItemRack.InitEventHandlers()
 	handler.CANCEL_SUMMON = ItemRack.OnSummonCanceled
 	handler.PLAYER_LOGOUT = ItemRack.OnPlayerLogout
 	handler.ACTIVE_TALENT_GROUP_CHANGED = ItemRack.OnActiveTalentGroupChanged
+	handler.ACTIVE_COMBAT_CONFIG_CHANGED = ItemRack.OnActiveTalentGroupChanged
 	if ItemRack.IsEngravingActive() then
 		handler.RUNE_UPDATED = ItemRack.OnRuneUpdated
 		handler.ENGRAVING_MODE_CHANGED = ItemRack.OnRuneUpdated
@@ -656,6 +759,24 @@ do
 		ItemRack.MasqueGroups[3] = Masque:Group("ItemRack", "Character info menus")
 		ItemRack.MasqueGroups[4] = Masque:Group("ItemRack", "Map icon menu")
 	end
+end
+
+function ItemRack.OnBlockedAction(self,event,addonName,functionName)
+	if not ItemRack.DebugAll and not (ItemRack.DebugTags and ItemRack.DebugTags.Queue) then return end
+	local function readable(value)
+		if issecretvalue and issecretvalue(value) then return "<secret>" end
+		return type(value)=="string" and value or "<unavailable>"
+	end
+	-- Attribution is evidence, not proof of the original taint source. Keep other
+	-- addons' names too so reports do not silently blame ItemRack for every block.
+	ItemRack.QueueDiagnostic("blocked_action",{
+		event=event,addon=readable(addonName),action=readable(functionName),
+		set=ItemRackUser and ItemRackUser.CurrentSet or "<none>",
+		swapping=ItemRack.SetSwapping or "<none>",
+		transaction=ItemRack.ActiveEquipmentTransaction and true or false,
+		automatic=ItemRack.IsEventEquipment and true or false,
+		combat=InCombatLockdown() and true or false,
+	})
 end
 
 function ItemRack.OnEvent(self,event,...)
@@ -683,7 +804,7 @@ function ItemRack.FireItemRackEvent(self,event,...)
 end
 
 StaticPopupDialogs["ITEMRACK_MISSING_LSI"] = {
-	text = "ItemRack: 'Disable swap sounds' requires LibSoundIndex, but the library is missing.\n\nItemRack will continue swapping normally and will not modify the game's global SFX setting. Install LibSoundIndex to mute only equipment-swap sounds.",
+	text = "ItemRack: 'Disable swap sounds' requires a version of LibSoundIndex with item sound data for this client.\n\nSwaps will play with normal game audio until that support is available.",
 	button1 = "OK",
 	OnAccept = function()
 		ItemRackSettings.LSIWarningSeen = true
@@ -1015,6 +1136,7 @@ function ItemRack.OnPlayerLogin()
 
 	-- Audit SavedVariables on startup before subsystems initialize
 	ItemRack.AuditSavedVariables(false)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.RefreshCatalog(); ItemRack.SpecialItems.LoadSaved() end
 
 	-- Normally some of these methods cannot be called in combat without causing errors, but since we run these IMMEDIATELY
 	-- on PLAYER_LOGIN event we get a grace period where it allows us to run secure code in combat.
@@ -1027,13 +1149,14 @@ function ItemRack.OnPlayerLogin()
 	
 	-- Check LibSoundIndex presence
 	C_Timer.After(3, function()
-		if ItemRackSettings.DisableSwapSound == "ON" and not ItemRackSettings.LSIWarningSeen and not (LibStub and LibStub("LibSoundIndex-1.0", true)) then
+		if ItemRackSettings.DisableSwapSound == "ON" and not ItemRackSettings.LSIWarningSeen and not ItemRack.GetSwapSoundLibrary() then
 			StaticPopup_Show("ITEMRACK_MISSING_LSI")
 		end
 	end)
 end
 
 function ItemRack.OnPlayerLogout()
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.SaveHistory() end
 	-- SavedVariables are written after this event. Remove or roll back every
 	-- Script event that was neither saved through ItemRack's editor nor accepted
 	-- through its approval prompt so injected source cannot persist via ItemRack.
@@ -1218,6 +1341,7 @@ function ItemRack.RunAllEvents(reason, forceSpecialization)
 		ItemRack.ForceSpecializationCheck = nil
 		ItemRack.ProcessSpecializationEvent(forceSpec)
 	end
+	if ItemRack.ProcessSwimmingEvent then ItemRack.ProcessSwimmingEvent() end
 end
 
 function ItemRack.ScheduleEventRecheck(reason, delay)
@@ -1270,6 +1394,10 @@ function ItemRack.ClearQueueDiagnostics()
 end
 
 function ItemRack.GetEquippedSlotState(slot)
+	-- Secure hooks may supply a numeric slot as text; runtime tables use numbers.
+	if issecretvalue and issecretvalue(slot) then return "unresolved" end
+	slot = (type(slot)=="number" or type(slot)=="string") and tonumber(slot) or nil
+	if not slot or slot<0 or slot>19 or slot~=math.floor(slot) then return "unresolved" end
 	local exactID = ItemRack.GetID(slot)
 	local inventoryID = GetInventoryItemID and GetInventoryItemID("player", slot)
 	local texture = GetInventoryItemTexture and GetInventoryItemTexture("player", slot)
@@ -1297,12 +1425,20 @@ function ItemRack.GetEquippedSlotState(slot)
 end
 
 function ItemRack.IsEquippedSlotStateReady(slot)
+	-- Secure hooks may supply a numeric slot as text; runtime tables use numbers.
+	if issecretvalue and issecretvalue(slot) then return false end
+	slot = (type(slot)=="number" or type(slot)=="string") and tonumber(slot) or nil
+	if not slot or slot<0 or slot>19 or slot~=math.floor(slot) then return false end
 	if ItemRack.QueueStateReady ~= true or type(ItemRack.EquippedSnapshot) ~= "table"
 	or ItemRack.EquippedSnapshot[slot] == false
 	or (ItemRack.UnresolvedEquippedSlots and ItemRack.UnresolvedEquippedSlots[slot]) then
 		return false
 	end
 
+	-- Discard obsolete text-key quarantines created by older use hooks. The
+	-- numeric quarantine and live identity check remain authoritative.
+	if ItemRack.UnresolvedEquippedSlots then ItemRack.UnresolvedEquippedSlots[tostring(slot)] = nil end
+	if ItemRack.PendingEquipTransitionTimes then ItemRack.PendingEquipTransitionTimes[tostring(slot)] = nil end
 	local state, currentID = ItemRack.GetEquippedSlotState(slot)
 	local snapshotID = ItemRack.EquippedSnapshot[slot]
 	local matchesSnapshot = (state == "resolved" and ItemRack.SameExactID(snapshotID, currentID))
@@ -1563,6 +1699,7 @@ function ItemRack.TryInitializeQueueState(isLogin, isReload, inventoryEventTime)
 	ItemRack.EquippedSnapshot = tempSnapshot
 	ItemRack.UnresolvedEquippedSlots = tempUnresolvedSlots
 	ItemRack.QueueStateReady = true
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.RestoreSaved() end
 	ItemRack.QueueStateInitStarted = nil
 	ItemRack.PreReadyInventoryEventTime = nil
 	ItemRack.PreReadyEquippedObservations = nil
@@ -1611,7 +1748,7 @@ function ItemRack.ClearEquipTimer(slot)
 	end
 end
 
-function ItemRack.ReconcileEquippedSnapshot(fromInventoryEvent)
+function ItemRack.ReconcileEquippedSnapshot(fromInventoryEvent,finishedTransaction)
 	if ItemRack.QueueStateReady ~= true or type(ItemRack.EquippedSnapshot) ~= "table" then
 		return false, false
 	end
@@ -1619,6 +1756,18 @@ function ItemRack.ReconcileEquippedSnapshot(fromInventoryEvent)
 	local hasUnresolvedSlot = false
 	local stateChanged = false
 	local readinessRestored = false
+	-- FinishRequest clears ActiveEquipmentTransaction before this callback.
+	-- Keep its touched slots attributed to the internal request, including rollback.
+	local transactionSlots = {}
+	if finishedTransaction then
+		for _,steps in ipairs({finishedTransaction.steps or {},finishedTransaction.originalSteps or {}}) do
+			for _,step in ipairs(steps) do
+				for _,location in ipairs({step.from,step.to}) do
+					if location and location.slot == nil then transactionSlots[location.bag] = true end
+				end
+			end
+		end
+	end
 	local now = GetTime()
 	ItemRack.UnresolvedEquippedSlots = ItemRack.UnresolvedEquippedSlots or {}
 	ItemRack.PendingEquipTransitionTimes = ItemRack.PendingEquipTransitionTimes or {}
@@ -1689,6 +1838,16 @@ function ItemRack.ReconcileEquippedSnapshot(fromInventoryEvent)
 					end
 					stateChanged = true
 					isNewTransition = true
+					if currentID and currentID ~= 0 and not transactionSlots[i] and not ItemRack.ActiveEquipmentTransaction and not ItemRack.SetSwapping then
+						if ItemRack.GetQueuesEnabled and ItemRack.GetQueuesEnabled()[i] and ItemRack.SetManualQueueChoice then
+							ItemRack.ClearManualQueueChoice(i)
+							ItemRack.SetManualQueueChoice(i, currentID)
+						end
+					elseif currentID == 0 and not transactionSlots[i] and not ItemRack.ActiveEquipmentTransaction and not ItemRack.SetSwapping then
+						if ItemRack.ClearManualQueueChoice then
+							ItemRack.ClearManualQueueChoice(i)
+						end
+					end
 				end
 				ItemRack.EquippedSnapshot[i] = currentID
 				local record = ItemRack.EquipTimers and ItemRack.EquipTimers[i]
@@ -1770,6 +1929,9 @@ function ItemRack.FlushInventoryRefresh()
 	if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.BuildMenu then
 		ItemRack.BuildMenu()
 	end
+	if ItemRack.RefreshPinnedMenu then
+		ItemRack.RefreshPinnedMenu()
+	end
 	if ItemRackOptFrame and ItemRackOptFrame:IsVisible()
 	and ItemRackOpt and ItemRackOpt.Inv and ItemRackOpt.UpdateInv then
 		for i=0,19 do
@@ -1819,7 +1981,7 @@ end
 
 function ItemRack.OnEquipmentTransactionFinalized(request)
 	if ItemRack.QueueStateReady == true and ItemRack.ReconcileEquippedSnapshot then
-		local unresolved, changed, readinessRestored = ItemRack.ReconcileEquippedSnapshot(false)
+		local unresolved, changed, readinessRestored = ItemRack.ReconcileEquippedSnapshot(false,request)
 		if unresolved and ItemRack.ScheduleEquippedStateRetry then
 			ItemRack.ScheduleEquippedStateRetry()
 		end
@@ -1834,6 +1996,21 @@ function ItemRack.OnEquipmentTransactionFinalized(request)
 	end
 	if ItemRack.CheckCombatQueue then
 		ItemRack.CheckCombatQueue()
+	end
+	if request and request.status == "complete"
+	and not ItemRack.ActiveEquipmentTransaction
+	and not ItemRack.SetSwapping
+	and type(ItemRack.CombatQueue) == "table" and next(ItemRack.CombatQueue)
+	and ItemRack.ProcessCombatQueue
+	and not (InCombatLockdown and InCombatLockdown())
+	and not ItemRack.NowCasting
+	and not (CursorHasItem and CursorHasItem())
+	and not (ItemRack.AnythingLocked and ItemRack.AnythingLocked())
+	and not (ItemRack.IsPlayerReallyDead and ItemRack.IsPlayerReallyDead())
+	and not (ItemRack.IsAutomaticSwapBlocked and ItemRack.IsAutomaticSwapBlocked()) then
+		-- Immediately chain out-of-combat deferred swaps (e.g. multiple AutoQueue slots after Set swaps)
+		-- rather than waiting for the periodic tick and leaving intermediate inventory settled.
+		ItemRack.ProcessCombatQueue()
 	end
 	ItemRack.RequestInventoryRefresh("transaction_"..tostring(request and request.status or "finished"))
 end
@@ -1877,6 +2054,10 @@ function ItemRack.ScheduleEquippedStateRetry(delay)
 end
 
 function ItemRack.OnEnterWorld(self,event,...)
+	if ItemRack.SpecialItems then
+		ItemRack.SpecialItems.Intents={}
+		ItemRack.SpecialItems.RefreshCatalog()
+	end
 	local isLogin,isReload = ...
 	ItemRack.WorldTransitioning = nil
 	ItemRack.SummonPending = nil
@@ -1965,7 +2146,8 @@ local loader = CreateFrame("Frame",nil, self, BackdropTemplateMixin and "Backdro
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", ItemRack.OnPlayerLogin)
 
-function ItemRack.OnCastingStart(self,event,unit,castID)
+function ItemRack.OnCastingStart(self,event,unit,castID,spellID)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.OnSpellEvent(event,unit,castID,spellID) end
 	if unit=="player" then
 		if CastingInfo() or ChannelInfo() then
 			ItemRack.NowCasting = castID or true
@@ -1983,7 +2165,8 @@ function ItemRack.OnCastingStart(self,event,unit,castID)
 	end
 end
 
-function ItemRack.OnCastingStop(self,event,unit,castID)
+function ItemRack.OnCastingStop(self,event,unit,castID,spellID)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.OnSpellEvent(event,unit,castID,spellID) end
 	if unit=="player" then
 		-- Use castID to ensure we only clear the current cast. 
 		-- If a new cast has already started, its castID will differ.
@@ -2059,20 +2242,20 @@ function ItemRack.DelayedCombatQueue()
 	end
 end
 
-function ItemRack.OnUnitInventoryChanged(self,event,unit)
-	if unit=="player" then
-		-- Inventory events are observations, not proof by themselves.  Let the
-		-- transaction service compare exact endpoint identities before any queue or
-		-- UI consumer treats the requested move as complete.
-		if ItemRack.ActiveEquipmentTransaction then
-			ItemRack.ReconcileEquipmentTransaction("UNIT_INVENTORY_CHANGED")
-		end
-		if not ItemRack.ActiveEquipmentTransaction and ItemRack.RetryBlockedEventFrames then
-			ItemRack.RetryBlockedEventFrames()
-		elseif not ItemRack.ActiveEquipmentTransaction and ItemRack.TryReconcileEventFrames then
-			ItemRack.TryReconcileEventFrames(true)
-		end
-		local stateWasReady = ItemRack.QueueStateReady == true
+function ItemRack.ReconcileInventoryState(reason, allowQueueInit)
+	-- Inventory events are observations, not proof by themselves. Let the
+	-- transaction service compare exact endpoint identities before any queue or
+	-- UI consumer treats the requested move as complete.
+	if ItemRack.ActiveEquipmentTransaction then
+		ItemRack.ReconcileEquipmentTransaction(reason)
+	end
+	if not ItemRack.ActiveEquipmentTransaction and ItemRack.RetryBlockedEventFrames then
+		ItemRack.RetryBlockedEventFrames()
+	elseif not ItemRack.ActiveEquipmentTransaction and ItemRack.TryReconcileEventFrames then
+		ItemRack.TryReconcileEventFrames(true)
+	end
+	local stateWasReady = ItemRack.QueueStateReady == true
+	if allowQueueInit then
 		ItemRack.QueueDiagnostic("inventory_changed", { stateReady = stateWasReady })
 		local preReadyEventTime
 		if not stateWasReady then
@@ -2084,33 +2267,44 @@ function ItemRack.OnUnitInventoryChanged(self,event,unit)
 				ItemRack.ScheduleQueueStateRetry()
 			end
 		end
+	end
 
-		local unresolvedSlot, readinessRestored
-		if stateWasReady and not ItemRack.ActiveEquipmentTransaction then
-			local _
-			unresolvedSlot, _, readinessRestored = ItemRack.ReconcileEquippedSnapshot(true)
+	local unresolvedSlot, stateChanged, readinessRestored
+	if stateWasReady and not ItemRack.ActiveEquipmentTransaction then
+		unresolvedSlot, stateChanged, readinessRestored = ItemRack.ReconcileEquippedSnapshot(true)
+	end
+	if unresolvedSlot then
+		ItemRack.ScheduleEquippedStateRetry()
+	end
+	if readinessRestored then
+		ItemRack.TryEquipPendingQueueSet()
+		if ItemRack.RunAllEvents then
+			ItemRack.RunAllEvents("Equipped item data resolved")
 		end
-		if unresolvedSlot then
-			ItemRack.ScheduleEquippedStateRetry()
-		end
-		if readinessRestored then
-			ItemRack.TryEquipPendingQueueSet()
-			if ItemRack.RunAllEvents then
-				ItemRack.RunAllEvents("Equipped item data resolved")
-			end
-		end
-		-- Clear any CombatQueue entries that have been fulfilled by the swap
-		if not ItemRack.ActiveEquipmentTransaction and ItemRack.CheckCombatQueue then
-			ItemRack.CheckCombatQueue()
-		end
-		-- Secure set macros can update weapon slots after PostClick has projected
-		-- the full pending set. Refresh that projection on the observed inventory
-		-- event so completed weapons disappear while deferred armor remains shown.
-		if ItemRack.PendingSetBindingRequest then
-			ItemRack.UpdateCombatQueue()
-		end
+	end
+	-- Clear any CombatQueue entries that have been fulfilled by the swap
+	if not ItemRack.ActiveEquipmentTransaction and ItemRack.CheckCombatQueue then
+		ItemRack.CheckCombatQueue()
+	end
+	-- Secure set macros can update weapon slots after PostClick has projected
+	-- the full pending set. Refresh that projection on the observed inventory
+	-- event so completed weapons disappear while deferred armor remains shown.
+	if ItemRack.PendingSetBindingRequest then
+		ItemRack.UpdateCombatQueue()
+	end
+	return stateChanged and true or false
+end
+
+function ItemRack.OnUnitInventoryChanged(self,event,unit)
+	if unit=="player" then
+		ItemRack.ReconcileInventoryState("UNIT_INVENTORY_CHANGED", true)
 		ItemRack.RequestInventoryRefresh("UNIT_INVENTORY_CHANGED")
 	end
+end
+
+function ItemRack.OnPlayerEquipmentChanged(self,event,slot,hasCurrent)
+	ItemRack.ReconcileInventoryState("PLAYER_EQUIPMENT_CHANGED", false)
+	ItemRack.RequestInventoryRefresh("PLAYER_EQUIPMENT_CHANGED")
 end
 
 
@@ -2180,14 +2374,17 @@ function ItemRack.ProcessCombatQueue()
 		for i in pairs(combat) do
 			combat[i] = nil
 		end
+		local hasNonAutoQueueSlot = false
+		local batchOwner, mixedOwner = nil, false
 		for i in pairs(queue) do
 			-- This processor is ordinary Lua, not a secure weapon macro. Keep all
 			-- slots queued until combat ends; permitted secure swaps happen elsewhere.
 			local canSwap = not inCombat
 			ItemRack.Debug("CombatQueue", "  ProcessCQ slot="..tostring(i).." canSwap="..tostring(canSwap))
 			if canSwap then
+				local isAuto = ItemRack.AutoQueueFlag and ItemRack.AutoQueueFlag[i]
 				local discard = false
-				if ItemRack.AutoQueueFlag and ItemRack.AutoQueueFlag[i] then
+				if isAuto then
 					local sourceOwner = ItemRack.AutoQueueOwner and ItemRack.AutoQueueOwner[i]
 					local sourceList = ItemRack.AutoQueueList and ItemRack.AutoQueueList[i]
 					local queueContext = ItemRack.GetQueueContext(i)
@@ -2209,17 +2406,30 @@ function ItemRack.ProcessCombatQueue()
 				else
 					combat[i] = queue[i]
 					queue[i] = nil
+					if not isAuto then
+						hasNonAutoQueueSlot = true
+						local owner = ItemRack.CombatQueueSetOwner and ItemRack.CombatQueueSetOwner[i]
+						if not owner or (batchOwner and batchOwner~=owner) then mixedOwner=true end
+						batchOwner = batchOwner or owner
+					end
 				end
 				ItemRack.ClearCombatQueueMetadata(i)
 			end
 		end
 		if next(combat) then
-			ItemRackUser.Sets["~CombatQueue"].oldset = ItemRack.CombatSet
+			ItemRack.CombatQueueRestoreGeneration = ItemRack.ManualSetGeneration or 0
+			ItemRackUser.Sets["~CombatQueue"].oldset = hasNonAutoQueueSlot and not mixedOwner
+				and batchOwner==ItemRack.CombatSet and batchOwner or nil
+			if not next(queue) then
+				ItemRack.CombatSet = nil
+			end
 			ItemRack.UpdateCombatQueue()
 			local previousDeferredEquipment = ItemRack.IsDeferredEquipment
 			ItemRack.IsDeferredEquipment = true
 			ItemRack.EquipSet("~CombatQueue")
 			ItemRack.IsDeferredEquipment = previousDeferredEquipment
+		elseif not next(queue) then
+			ItemRack.CombatSet = nil
 		end
 	end
 
@@ -2280,7 +2490,17 @@ end
 
 function ItemRack.OnBankClose()
 	ItemRack.BankOpen = nil
+	if ItemRackMenuFrame and type(ItemRackMenuFrame.IsVisible)=="function" and ItemRackMenuFrame:IsVisible() and ItemRack.RecordBreakoutEvent then
+		ItemRack.RecordBreakoutEvent("hide", "hover", ItemRack.menuOpen, "bank_close")
+	end
 	ItemRackMenuFrame:Hide()
+	if ItemRack.RefreshQuickAccessMenuSnapshots and not InCombatLockdown()
+	and not (UnitAffectingCombat and UnitAffectingCombat("player")) then
+		ItemRack.RefreshQuickAccessMenuSnapshots(nil,"bank_close_refresh")
+	end
+	if ItemRack.RefreshPinnedMenu then
+		ItemRack.RefreshPinnedMenu()
+	end
 end
 
 function ItemRack.OnBankOpen()
@@ -2435,7 +2655,9 @@ function ItemRack.OnSetInventoryItem(tooltip, unit, inv_slot)
 end
 
 function ItemRack.OnSetHyperlink(tooltip, link)
-	if type(link) == "string" then ItemRack.ListSetsHavingItem(tooltip,ItemRack.GetIRString(link)) end
+	if type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
+		ItemRack.ListSetsHavingItem(tooltip,ItemRack.GetIRString(link))
+	end
 end
 
 function ItemRack.OnTooltipItemData(tooltip, data)
@@ -2447,7 +2669,9 @@ function ItemRack.OnTooltipItemData(tooltip, data)
 		for i = 1, tooltip:NumLines() do
 			local left = _G[tooltipName .. "TextLeft" .. i]
 			local text = left and left.GetText and left:GetText()
-			if text and text:find("^ItemRack Set:") then
+			-- Forever may return secret text even for ordinary loot. Do not index
+			-- it to check our marker; public item metadata remains usable below.
+			if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and text:find("^ItemRack Set:") then
 				return
 			end
 		end
@@ -2623,7 +2847,7 @@ do
 			for i = 1, tooltip:NumLines() do
 				local left = _G[tooltipName .. "TextLeft" .. i]
 				local text = left and left.GetText and left:GetText()
-				if text and text:find("^ItemRack Set:") then
+				if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and text:find("^ItemRack Set:") then
 					return
 				end
 			end
@@ -2682,6 +2906,11 @@ function ItemRack.InitCore()
 
 	ItemRack.DURABILITY_PATTERN = string.match(DURABILITY_TEMPLATE,"(.+) .+/.+") or ""
 	ItemRack.REQUIRES_PATTERN = string.gsub(ITEM_MIN_SKILL,"%%.",".+")
+	ItemRack.MIN_LEVEL_PATTERN = ITEM_MIN_LEVEL and string.gsub(string.gsub(ITEM_MIN_LEVEL, "%%d", "%%d+"), "%%s", ".+") or "^Requires Level"
+	ItemRack.CLASSES_PATTERN = ITEM_CLASSES_ALLOWED and string.gsub(ITEM_CLASSES_ALLOWED, "%%s", ".+") or "^Classes:"
+	ItemRack.RACES_PATTERN = ITEM_RACES_ALLOWED and string.gsub(ITEM_RACES_ALLOWED, "%%s", ".+") or "^Races:"
+	ItemRack.MIN_SKILL_PATTERN = ITEM_MIN_SKILL and string.gsub(string.gsub(ITEM_MIN_SKILL, "%%d", "%%d+"), "%%s", ".+") or "^Requires "
+	ItemRack.REQ_REP_PATTERN = ITEM_REQ_REPUTATION and string.gsub(ITEM_REQ_REPUTATION, "%%s", ".+") or "^Requires "
 
 	-- pattern splitter by Maldivia http://forums.worldofwarcraft.com/thread.html?topicId=6441208576
 	local function split(str, t)
@@ -2720,6 +2949,8 @@ function ItemRack.InitCore()
 	ItemRack.RegisterSetTooltipHooks()
 
 	ItemRackFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+	ItemRackFrame:RegisterEvent("ADDON_ACTION_BLOCKED")
+	ItemRackFrame:RegisterEvent("ADDON_ACTION_FORBIDDEN")
 	ItemRackFrame:RegisterEvent("PLAYER_LOGOUT")
 	ItemRackFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 	ItemRackFrame:RegisterEvent("PLAYER_UNGHOST")
@@ -2727,9 +2958,12 @@ function ItemRack.InitCore()
 	ItemRackFrame:RegisterEvent("BANKFRAME_CLOSED")
 	ItemRackFrame:RegisterEvent("BANKFRAME_OPENED")
 	ItemRackFrame:RegisterEvent("CHARACTER_POINTS_CHANGED")
-	if ItemRack.IsWrath() or ItemRack.IsBCC() or ItemRack.IsCata() or (GetNumTalentGroups and GetNumTalentGroups() > 0) then
+	if ItemRack.IsWrath() or ItemRack.IsBCC() or ItemRack.IsCata() or ItemRack.IsForever() or (GetNumTalentGroups and GetNumTalentGroups() > 0) then
 		ItemRackFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 		ItemRackFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+		if ItemRack.IsForever() then
+			pcall(ItemRackFrame.RegisterEvent, ItemRackFrame, "ACTIVE_COMBAT_CONFIG_CHANGED")
+		end
 	end
 	-- ItemRackFrame:RegisterEvent("PET_BATTLE_OPENING_START")
 	-- ItemRackFrame:RegisterEvent("PET_BATTLE_CLOSE")
@@ -2822,6 +3056,8 @@ function ItemRack.MigrateQueues()
 	ItemRack.QueueSchemaUnsupported = report.skipped == "future_schema" and true or nil
 	if ItemRack.QueueSchemaUnsupported then
 		ItemRack.Print("This profile uses a newer queue schema. Queue data was left unchanged and automatic swaps are suspended to prevent corruption.")
+	else
+		ItemRack.QueuePolicy.InitializeMirroredStates(ItemRackUser)
 	end
 	ItemRack.Debug("Queue","Queue schema migration",report.fromVersion,"->",report.toVersion,
 		report.queuesVisited,"queues",report.entriesChanged,"changed",
@@ -2835,11 +3071,252 @@ function ItemRack.Print(msg)
 	end
 end
 
+function ItemRack.SetButton20Visual(currentSetName, hybridSetName)
+	local button = ItemRackButton20
+	if not button then return end
+
+	local icon = ItemRackButton20ItemRackIcon or (button.GetName and _G[button:GetName().."ItemRackIcon"])
+	if not icon then return end
+
+	local splitIcon = ItemRackButton20SplitIcon
+	local divider = ItemRackButton20Divider
+
+	local customTexture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+	local hasActiveSet = currentSetName and currentSetName ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets
+		and ItemRackUser.Sets[currentSetName]
+	local isCustomSplit = (hybridSetName == _G.CUSTOM) and hasActiveSet
+	local isHybrid = isCustomSplit or (hasActiveSet and hybridSetName and hybridSetName ~= _G.CUSTOM
+		and ItemRackUser.Sets[hybridSetName])
+
+	if isHybrid then
+		local set1Icon = ItemRackUser.Sets[currentSetName].icon or customTexture
+		local set2Icon = isCustomSplit and customTexture or (ItemRackUser.Sets[hybridSetName].icon or customTexture)
+
+		if not splitIcon and button.CreateTexture then
+			splitIcon = button:CreateTexture("ItemRackButton20SplitIcon", "ARTWORK")
+			ItemRackButton20SplitIcon = splitIcon
+		end
+		if not divider and button.CreateTexture then
+			divider = button:CreateTexture("ItemRackButton20Divider", "OVERLAY")
+			ItemRackButton20Divider = divider
+		end
+
+		if icon.ClearAllPoints then icon:ClearAllPoints() end
+		if icon.SetPoint then
+			icon:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+			icon:SetPoint("BOTTOMRIGHT", button, "BOTTOM", 0, 0)
+		end
+		if icon.SetTexCoord then icon:SetTexCoord(0, 0.5, 0, 1) end
+		if icon.SetTexture then icon:SetTexture(set1Icon) end
+		if icon.Show then icon:Show() end
+
+		if splitIcon then
+			if splitIcon.ClearAllPoints then splitIcon:ClearAllPoints() end
+			if splitIcon.SetPoint then
+				splitIcon:SetPoint("TOPLEFT", button, "TOP", 0, 0)
+				splitIcon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
+			end
+			if splitIcon.SetTexCoord then splitIcon:SetTexCoord(0.5, 1, 0, 1) end
+			if splitIcon.SetTexture then splitIcon:SetTexture(set2Icon) end
+			if splitIcon.Show then splitIcon:Show() end
+		end
+
+		if divider then
+			if divider.ClearAllPoints then divider:ClearAllPoints() end
+			if divider.SetPoint then
+				divider:SetPoint("TOP", button, "TOP", 0, 0)
+				divider:SetPoint("BOTTOM", button, "BOTTOM", 0, 0)
+			end
+			if divider.SetWidth then divider:SetWidth(2) end
+			if divider.SetTexture then divider:SetTexture("Interface\\Buttons\\WHITE8X8") end
+			if divider.SetVertexColor then divider:SetVertexColor(1, 0.82, 0, 0.9) end
+			if divider.SetDrawLayer then divider:SetDrawLayer("OVERLAY", 1) end
+			if divider.Show then divider:Show() end
+		end
+	else
+		local solidTexture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+		if currentSetName and currentSetName ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[currentSetName] then
+			solidTexture = ItemRackUser.Sets[currentSetName].icon or solidTexture
+		end
+
+		if icon.ClearAllPoints then icon:ClearAllPoints() end
+		if icon.SetPoint then
+			icon:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+			icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
+		end
+		if icon.SetTexCoord then icon:SetTexCoord(0, 1, 0, 1) end
+		if icon.SetTexture then icon:SetTexture(solidTexture) end
+		if icon.Show then icon:Show() end
+
+		if splitIcon and splitIcon.Hide then
+			splitIcon:Hide()
+		end
+		if divider and divider.Hide then
+			divider:Hide()
+		end
+	end
+
+	local nameText = _G["ItemRackButton20Name"]
+	if nameText then
+		nameText:ClearAllPoints()
+		nameText:SetPoint("BOTTOM", button, "BOTTOM", 0, 2)
+		nameText:SetWidth(button:GetWidth() or 36)
+		nameText:SetJustifyH("CENTER")
+		if nameText.SetDrawLayer then
+			nameText:SetDrawLayer("OVERLAY", 7)
+		end
+	end
+end
+
+function ItemRack.SetMinimapButtonVisual(currentSetName, hybridSetName)
+	local button = _G["LibDBIcon10_ItemRack"]
+	if not button then return end
+
+	local icon = button.icon
+	if not icon then return end
+
+	local customTexture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+	local hasActiveSet = currentSetName and currentSetName ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets
+		and ItemRackUser.Sets[currentSetName]
+	local isCustomSplit = (hybridSetName == _G.CUSTOM) and hasActiveSet
+	local isHybrid = isCustomSplit or (hasActiveSet and hybridSetName and hybridSetName ~= _G.CUSTOM
+		and ItemRackUser.Sets[hybridSetName])
+
+	if isHybrid then
+		local set1Icon = ItemRackUser.Sets[currentSetName].icon or customTexture
+		local set2Icon = isCustomSplit and customTexture or (ItemRackUser.Sets[hybridSetName].icon or customTexture)
+
+		local splitIcon = button.SplitIcon
+		local divider = button.Divider
+
+		if not splitIcon and button.CreateTexture then
+			splitIcon = button:CreateTexture(nil, "ARTWORK")
+			button.SplitIcon = splitIcon
+		end
+		if not divider and button.CreateTexture then
+			divider = button:CreateTexture(nil, "ARTWORK", nil, 7)
+			button.Divider = divider
+		end
+
+		-- Native LibDBIcon circular inset: 17x17 at TOPLEFT 7, -6
+		local insetX, insetY = 7, -6
+		local iconSize = 17
+		local halfWidth = 8.5
+
+		-- Left half: active queue set
+		if icon.ClearAllPoints then icon:ClearAllPoints() end
+		if icon.SetPoint then icon:SetPoint("TOPLEFT", button, "TOPLEFT", insetX, insetY) end
+		if icon.SetSize then icon:SetSize(halfWidth, iconSize) end
+		if icon.SetTexCoord then icon:SetTexCoord(0.05, 0.5, 0.05, 0.95) end
+		if icon.SetTexture then icon:SetTexture(set1Icon) end
+		if icon.Show then icon:Show() end
+
+		-- Right half: detected gear set
+		if splitIcon then
+			if splitIcon.ClearAllPoints then splitIcon:ClearAllPoints() end
+			if splitIcon.SetPoint then splitIcon:SetPoint("TOPLEFT", button, "TOPLEFT", insetX + halfWidth, insetY) end
+			if splitIcon.SetSize then splitIcon:SetSize(halfWidth, iconSize) end
+			if splitIcon.SetTexCoord then splitIcon:SetTexCoord(0.5, 0.95, 0.05, 0.95) end
+			if splitIcon.SetTexture then splitIcon:SetTexture(set2Icon) end
+			if splitIcon.Show then splitIcon:Show() end
+		end
+
+		-- Center divider line (1px, within 17px height so it sits under the gold circular tracking border)
+		if divider then
+			if divider.ClearAllPoints then divider:ClearAllPoints() end
+			if divider.SetPoint then
+				divider:SetPoint("TOP", button, "TOPLEFT", insetX + halfWidth, insetY)
+				divider:SetPoint("BOTTOM", button, "TOPLEFT", insetX + halfWidth, insetY - iconSize)
+			end
+			if divider.SetWidth then divider:SetWidth(1) end
+			if divider.SetTexture then divider:SetTexture("Interface\\Buttons\\WHITE8X8") end
+			if divider.SetVertexColor then divider:SetVertexColor(1, 0.82, 0, 0.9) end
+			if divider.Show then divider:Show() end
+		end
+
+		-- Prevent LibDBIcon mouse/drag events from resetting half-split texcoords
+		if not icon._ItemRackOrigUpdateCoord and icon.UpdateCoord then
+			icon._ItemRackOrigUpdateCoord = icon.UpdateCoord
+		end
+		icon.UpdateCoord = function(self)
+			if self.SetTexCoord then
+				self:SetTexCoord(0.05, 0.5, 0.05, 0.95)
+			end
+		end
+
+		-- Optional engine alpha mask for clients with CreateMaskTexture
+		if button.CreateMaskTexture and not button.CircleMask then
+			local mask = button:CreateMaskTexture()
+			mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+			mask:SetSize(iconSize, iconSize)
+			mask:SetPoint("TOPLEFT", button, "TOPLEFT", insetX, insetY)
+			button.CircleMask = mask
+		end
+		if button.CircleMask then
+			if icon.AddMaskTexture then icon:AddMaskTexture(button.CircleMask) end
+			if splitIcon and splitIcon.AddMaskTexture then splitIcon:AddMaskTexture(button.CircleMask) end
+		end
+	else
+		-- Restore solid icon inside native LibDBIcon 17x17 circular inset
+		if button.SplitIcon and button.SplitIcon.Hide then button.SplitIcon:Hide() end
+		if button.Divider and button.Divider.Hide then button.Divider:Hide() end
+
+		if icon._ItemRackOrigUpdateCoord then
+			icon.UpdateCoord = icon._ItemRackOrigUpdateCoord
+			icon._ItemRackOrigUpdateCoord = nil
+		end
+
+		local solidTexture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
+		if currentSetName and currentSetName ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[currentSetName] then
+			solidTexture = ItemRackUser.Sets[currentSetName].icon or solidTexture
+		end
+
+		if icon.ClearAllPoints then icon:ClearAllPoints() end
+		if icon.SetPoint then icon:SetPoint("TOPLEFT", button, "TOPLEFT", 7, -6) end
+		if icon.SetSize then icon:SetSize(17, 17) end
+		if icon.UpdateCoord then
+			icon:UpdateCoord()
+		else
+			if icon.SetTexCoord then icon:SetTexCoord(0.05, 0.95, 0.05, 0.95) end
+		end
+		if icon.SetTexture then icon:SetTexture(solidTexture) end
+		if icon.Show then icon:Show() end
+	end
+end
+
+function ItemRack.RestoreMinimapButtonVisual()
+	ItemRack.SetMinimapButtonVisual(nil, nil)
+end
+
 function ItemRack.UpdateCurrentSet()
+	local function deferDetection(reason)
+		if ItemRack.HybridDetectionStatus~=reason and ItemRack.QueueDiagnostic
+		and (ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Queue)) then
+			ItemRack.QueueDiagnostic("set_detection_pending",{reason=reason})
+		end
+		ItemRack.HybridDetectionStatus=reason
+	end
+	local pending
+	if not ItemRackUser or type(ItemRackUser.Sets)~="table" then pending="profile_unavailable"
+	elseif ItemRack.SetSwapping or ItemRack.ActiveEquipmentTransaction or ItemRack.PendingQueueEquipSet
+	or (type(ItemRack.CombatQueue)=="table" and next(ItemRack.CombatQueue)
+		and not (InCombatLockdown and InCombatLockdown())
+		and not (ItemRack.IsPlayerReallyDead and ItemRack.IsPlayerReallyDead())) then pending="inventory_settling"
+	elseif (ItemRackUser.EnableQueues=="ON" and ItemRack.QueueStateReady~=true)
+	or next(ItemRack.UnresolvedEquippedSlots or {}) then pending="inventory_unresolved" end
+	if pending then
+		return deferDetection(pending) -- Unknown observations must not clear a stable match.
+	end
+	ItemRack.HybridDetectionStatus="ready"
 	local texture = "Interface\\AddOns\\ItemRack\\ItemRackIcon"
-	local setname = ItemRackUser.CurrentSet or _G.CUSTOM
+	local previousSet = ItemRackUser and ItemRackUser.CurrentSet
+	local previousHybrid = ItemRack.HybridSet
+	local setname = previousSet or _G.CUSTOM
 	if setname and setname ~= _G.CUSTOM then
 		local equipped = ItemRack.IsSetEquipped(setname)
+		if next(ItemRack.UnresolvedEquippedSlots or {}) then
+			return deferDetection("inventory_unresolved")
+		end
 		
 		if equipped then
 			texture = ItemRack.GetTextureBySlot(20)
@@ -2847,6 +3324,7 @@ function ItemRack.UpdateCurrentSet()
 			setname = _G.CUSTOM
 		end
 	end
+	local perSetHybrid = ItemRackUser and ItemRackUser.EnablePerSetQueues == "ON" and ItemRackUser.EnableQueues == "ON"
 	if setname == _G.CUSTOM and not ItemRack.SetSwapping and ItemRackUser and ItemRackUser.Sets then
 		local bestSet, bestCount = nil, 0
 		for name, set in pairs(ItemRackUser.Sets) do
@@ -2857,30 +3335,92 @@ function ItemRack.UpdateCurrentSet()
 						count = count + 1
 					end
 				end
-				if count > bestCount and ItemRack.IsSetEquipped(name) then
+				local matches = count > bestCount and ItemRack.IsSetEquipped(name,nil,true)
+				if next(ItemRack.UnresolvedEquippedSlots or {}) then
+					return deferDetection("inventory_unresolved")
+				end
+				if matches then
 					bestSet = name
 					bestCount = count
 				end
 			end
 		end
 		if bestSet then
-			setname = bestSet
-			ItemRackUser.CurrentSet = bestSet
-			texture = ItemRack.GetTextureBySlot(20)
+			if perSetHybrid and previousSet and previousSet ~= _G.CUSTOM and bestSet ~= previousSet then
+				-- Hybrid state: player had an active per-set queue authority, while worn gear matches bestSet
+				ItemRack.HybridSet = bestSet
+				setname = previousSet
+				texture = (ItemRackUser.Sets[previousSet] and ItemRackUser.Sets[previousSet].icon) or texture
+			else
+				-- Startup recovery, matched previous set, or global queues (no per-set hybrid split)
+				ItemRack.HybridSet = nil
+				setname = bestSet
+				ItemRackUser.CurrentSet = bestSet
+				texture = ItemRack.GetTextureBySlot(20)
+			end
+		else
+			ItemRack.HybridSet = nil
+		end
+	else
+		ItemRack.HybridSet = nil
+	end
+
+	if ItemRack.QueueDiagnostic and (ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Queue))
+	and (previousHybrid~=ItemRack.HybridSet or previousSet~=ItemRackUser.CurrentSet) then
+		ItemRack.QueueDiagnostic("set_detection_transition",{from=previousSet or "<none>",to=ItemRackUser.CurrentSet or "<none>",
+			fromHybrid=previousHybrid or "<none>",toHybrid=ItemRack.HybridSet or "<none>",
+			swapping=ItemRack.SetSwapping or "<none>",transaction=ItemRack.ActiveEquipmentTransaction and true or false,
+			stateReady=ItemRack.QueueStateReady==true})
+		local matched = ItemRack.HybridSet and ItemRackUser.Sets[ItemRack.HybridSet]
+		if matched then
+			for slot=0,19 do
+				local expected = matched.equip and matched.equip[slot]
+				if expected~=nil then
+					local actual = ItemRack.GetID(slot)
+					local context = ItemRack.GetQueueContext(slot,ItemRack.HybridSet)
+					ItemRack.QueueDiagnostic("hybrid_match_slot",{set=ItemRack.HybridSet,slot=slot,expected=expected,actual=actual,
+						explicitMatch=ItemRack.MatchesStoredItemID(expected,actual) and true or false,
+						queueEnabled=context.enabled and true or false,queueOwner=context.owner or "global",
+						queueIndex=ItemRack.FindQueueEntryIndex(context.list,actual) or 0})
+				end
+			end
 		end
 	end
-	if ItemRackButton20 and ItemRackUser.Buttons and ItemRackUser.Buttons[20] then
+	local activeOwner = previousSet or ItemRackUser.CurrentSet
+	local isCustomSplit = perSetHybrid and not ItemRack.HybridSet and setname == _G.CUSTOM
+		and activeOwner and activeOwner ~= _G.CUSTOM and ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[activeOwner]
+	ItemRack.CustomHybridOwner = isCustomSplit and activeOwner or nil
+	local visualOwner = ItemRack.HybridSet and activeOwner or (isCustomSplit and activeOwner or setname)
+	local visualHybrid = ItemRack.HybridSet or (isCustomSplit and _G.CUSTOM or nil)
+	if ItemRack.SetButton20Visual then
+		ItemRack.SetButton20Visual(visualOwner, visualHybrid)
+	elseif ItemRackButton20 and ItemRackButton20ItemRackIcon and ItemRackButton20ItemRackIcon.SetTexture then
 		ItemRackButton20ItemRackIcon:SetTexture(texture)
+	end
+
+	if ItemRack.SetMinimapButtonVisual then
+		ItemRack.SetMinimapButtonVisual(visualOwner, visualHybrid)
+	elseif ItemRack.RestoreMinimapButtonVisual then
+		ItemRack.RestoreMinimapButtonVisual()
+	end
+
+	if ItemRackButton20 and ItemRackUser and ItemRackUser.Buttons and ItemRackUser.Buttons[20] then
 		local nameText = _G["ItemRackButton20Name"]
-		if nameText then
+		if nameText and nameText.SetText then
 			nameText:SetText(setname)
-			nameText:Show()
+			if nameText.Show then nameText:Show() end
 		end
 	end
+
 	if ItemRack.Broker then
 		ItemRack.Broker.icon = texture
-		ItemRack.Broker.text = setname
+		if ItemRack.HybridSet and activeOwner then
+			ItemRack.Broker.text = activeOwner .. " (" .. ItemRack.HybridSet .. ")"
+		else
+			ItemRack.Broker.text = setname
+		end
 	end
+
 	if ItemRack.RefreshCustomItemIcons then ItemRack.RefreshCustomItemIcons() end
 end
 
@@ -3116,6 +3656,9 @@ function ItemRack.RefreshRuneIconOverlays(rebuildLocations)
 	end
 	if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.menuOpen then
 		ItemRack.BuildMenu()
+	end
+	if ItemRack.RefreshPinnedMenu then
+		ItemRack.RefreshPinnedMenu()
 	end
 	if ItemRackOpt then
 		if rebuildLocations and ItemRackOpt.Inv then
@@ -3644,6 +4187,35 @@ function ItemRack.IsRed(which)
 	end
 end
 
+function ItemRack.IsCombatEquipRestrictionText(text)
+	if type(text) ~= "string" or (issecretvalue and issecretvalue(text))
+	or (canaccessvalue and not canaccessvalue(text)) or text == "" then
+		return false
+	end
+	if string.find(text, "Cannot change equip status while in combat", 1, true) then
+		return true
+	end
+	local function norm(s)
+		if type(s) ~= "string" or s == "" then return nil end
+		return (s:gsub("[%.!%?%s]+$", ""))
+	end
+	local trimmed = norm(text)
+	for _, globalName in ipairs({
+		"ERR_NOT_IN_COMBAT",
+		"SPELL_FAILED_AFFECTING_COMBAT",
+		"ERR_CANT_EQUIP_IN_COMBAT",
+		"ERR_CANNOT_EQUIP_IN_COMBAT",
+		"ITEM_CANNOT_BE_EQUIPPED_IN_COMBAT",
+	}) do
+		local raw = _G[globalName]
+		local candidate = norm(raw)
+		if candidate and (text == raw or trimmed == candidate) then
+			return true
+		end
+	end
+	return false
+end
+
 function ItemRack.PlayerCanWear(invslot,bag,slot,diagnostic)
 	local found = false
 	local txt = false
@@ -3658,18 +4230,54 @@ function ItemRack.PlayerCanWear(invslot,bag,slot,diagnostic)
 	ItemRackTooltip:SetBagItem(bag,slot)
 
 	for i=2,ItemRackTooltip:NumLines() do
-		txt = _G["ItemRackTooltipTextLeft"..i]:GetText()
+		local leftText = _G["ItemRackTooltipTextLeft"..i]:GetText()
+		local rightText = _G["ItemRackTooltipTextRight"..i] and _G["ItemRackTooltipTextRight"..i]:GetText()
+		if type(leftText) ~= "string" or (issecretvalue and issecretvalue(leftText))
+		or (canaccessvalue and not canaccessvalue(leftText)) then
+			leftText = ""
+		end
+		if type(rightText) ~= "string" or (issecretvalue and issecretvalue(rightText))
+		or (canaccessvalue and not canaccessvalue(rightText)) then
+			rightText = ""
+		end
+		txt = leftText
 		if diagnostic then
 			diagnostic.stage = "tooltip_filter"
 			diagnostic.tooltipLine = i
 			diagnostic.tooltipText = ItemRack.MenuDiagnosticValue(txt)
 		end
-		-- if either left or right text is red and this isn't a Durability x/x line, this item can't be worn
-		local red = ItemRack.IsRed("Left"..i) or ItemRack.IsRed("Right"..i)
+		-- if either left or right text is red and isn't Durability x/x or temporary combat lock, check if this is a genuine wear restriction
+		local function isWearRed(side, text)
+			return ItemRack.IsRed(side)
+				and not string.find(text,ItemRack.DURABILITY_PATTERN)
+				and not (ItemRack.IsCombatEquipRestrictionText and ItemRack.IsCombatEquipRestrictionText(text))
+		end
+		local red = isWearRed("Left"..i, leftText) or isWearRed("Right"..i, rightText)
 		if diagnostic then diagnostic.tooltipRed=ItemRack.MenuDiagnosticValue(red) end
-		if red and not string.find(txt,ItemRack.DURABILITY_PATTERN) and not string.match(txt,ItemRack.REQUIRES_PATTERN) then
-			if diagnostic then diagnostic.wearReason="red_tooltip" end
-			return nil
+		if red then
+			local isRestriction = false
+			if i <= 4 then
+				-- Lines 2-4 are native Blizzard header lines: weapon/armor proficiency (e.g. Two-Handed Axe, Plate)
+				isRestriction = true
+			else
+				-- Lines 5+ must match an actual requirement pattern (level, class, race, skill, rep)
+				-- to avoid rejecting items when third-party addons (GearQuest, BiS, Pawn) append red stat-loss or downgrade lines.
+				if (ItemRack.MIN_LEVEL_PATTERN and string.match(txt, ItemRack.MIN_LEVEL_PATTERN))
+				or (ItemRack.CLASSES_PATTERN and string.match(txt, ItemRack.CLASSES_PATTERN))
+				or (ItemRack.RACES_PATTERN and string.match(txt, ItemRack.RACES_PATTERN))
+				or (ItemRack.MIN_SKILL_PATTERN and string.match(txt, ItemRack.MIN_SKILL_PATTERN))
+				or (ItemRack.REQUIRES_PATTERN and string.match(txt, ItemRack.REQUIRES_PATTERN))
+				or (ItemRack.REQ_REP_PATTERN and string.match(txt, ItemRack.REQ_REP_PATTERN))
+				or string.find(txt, "^Requires ")
+				or string.find(txt, "^Classes:")
+				or string.find(txt, "^Races:") then
+					isRestriction = true
+				end
+			end
+			if isRestriction then
+				if diagnostic then diagnostic.wearReason="red_tooltip" end
+				return nil
+			end
 		end
 	end
 
@@ -3696,7 +4304,7 @@ end
 
 -- function happens .2 seconds after last ITEM_LOCK_CHANGE
 function ItemRack.LocksChanged()
-	ItemRack.UpdateButtonLocks()
+	local buttonUnlocked = ItemRack.UpdateButtonLocks()
 	if ItemRack.ActiveEquipmentTransaction then
 		ItemRack.ReconcileEquipmentTransaction("ITEM_LOCK_CHANGED")
 		if ItemRack.ActiveEquipmentTransaction then
@@ -3721,7 +4329,18 @@ function ItemRack.LocksChanged()
 	elseif ItemRackMenuFrame:IsVisible() and ItemRack.BankOpen and not ItemRack.AnythingLocked() then
 		ItemRackMenuFrame:Hide()
 		ItemRack.BuildMenu()
+		if ItemRack.RefreshPinnedMenu then
+			ItemRack.RefreshPinnedMenu()
+		end
+		if buttonUnlocked and ItemRack.RequestInventoryRefresh then
+			ItemRack.RequestInventoryRefresh("locks_changed")
+		end
 	else
+		local stateChanged = not ItemRack.AnythingLocked() and ItemRack.ReconcileInventoryState
+			and ItemRack.ReconcileInventoryState("ITEM_LOCK_CHANGED", false)
+		if (buttonUnlocked or stateChanged) and ItemRack.RequestInventoryRefresh then
+			ItemRack.RequestInventoryRefresh("locks_changed")
+		end
 		if next(ItemRack.CombatQueue) and not ItemRack.AnythingLocked() and not ItemRack.NowCasting and not InCombatLockdown() then
 			ItemRack.ProcessCombatQueue()
 		end
@@ -3872,24 +4491,214 @@ end
 
 --[[ Menu ]]
 
-function ItemRack.DockWindows(menuDock,relativeTo,mainDock,menuOrient,movable)
-	ItemRackMenuFrame:ClearAllPoints()
-	ItemRack.currentDock = mainDock..menuDock
-	ItemRackMenuFrame:SetPoint(menuDock,relativeTo,mainDock,ItemRack.DockInfo[ItemRack.currentDock].xoff,ItemRack.DockInfo[ItemRack.currentDock].yoff)
-	ItemRackMenuFrame:SetParent(relativeTo)
-	ItemRackMenuFrame:SetFrameStrata("HIGH")
-	ItemRack.mainDock = mainDock
-	ItemRack.menuDock = menuDock
-	ItemRack.menuOrient = menuOrient
-	ItemRack.menuMovable = movable
-	local name = relativeTo and type(relativeTo.GetName) == "function" and relativeTo:GetName()
-	if name then
-		ItemRack.menuDockedTo = name
-		ItemRack.MenuMouseoverFrames[name] = 1 -- add frame to mouseover candidates
-	else
-		ItemRack.menuDockedTo = "Minimap"
+function ItemRack.GetMenuView(target)
+	if target == "pinned" then
+		return {
+			key = "pinned",
+			isPinned = true,
+			frame = ItemRackPinnedMenuFrame,
+			prefix = "ItemRackPinnedMenu",
+			strata = "MEDIUM",
+		}
 	end
-	ItemRack.ReflectLock(not ItemRack.menuMovable)
+	return {
+		key = "hover",
+		isPinned = false,
+		frame = ItemRackMenuFrame,
+		prefix = "ItemRackMenu",
+		strata = "HIGH",
+	}
+end
+
+function ItemRack.ApplyMenuFrameBackdrop(frame,hideBorder)
+	if not frame then return end
+	if BackdropTemplateMixin and type(frame.SetBackdrop) ~= "function" then
+		Mixin(frame, BackdropTemplateMixin)
+	end
+	if type(frame.SetBackdrop) == "function" then
+		frame:SetBackdrop({
+			bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true, tileSize = 16, edgeSize = 16,
+			insets = { left = 4, right = 4, top = 4, bottom = 4 },
+		})
+		if hideBorder then
+			frame:SetBackdropBorderColor(0,0,0,0)
+			frame:SetBackdropColor(0,0,0,0)
+		else
+			frame:SetBackdropBorderColor(.3,.3,.3,1)
+			frame:SetBackdropColor(1,1,1,1)
+		end
+	end
+end
+
+function ItemRack.ResolveQuickAccessMenuTarget(slot)
+	if type(slot) ~= "number" or slot < 0 or slot >= 20 then
+		return slot
+	end
+	if (slot == 13 or slot == 14) and ItemRackSettings and ItemRackSettings.TrinketMenuMode == "ON"
+	and ItemRackUser and ItemRackUser.Buttons and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then
+		return 13 + (ItemRackSettings.AnchorOther == "ON" and 1 or 0)
+	end
+	return slot
+end
+
+function ItemRack.IsPinnedMenuVisible()
+	return ItemRackPinnedMenuFrame and type(ItemRackPinnedMenuFrame.IsVisible) == "function"
+		and ItemRackPinnedMenuFrame:IsVisible() and ItemRack.pinnedMenuOpen ~= nil
+end
+
+function ItemRack.IsSlotMenuPinned(slot)
+	if not ItemRack.IsPinnedMenuVisible() then return false end
+	return ItemRack.ResolveQuickAccessMenuTarget(slot) == ItemRack.pinnedMenuOpen
+end
+
+function ItemRack.SyncPinnedMenu()
+	if not ItemRackPinnedMenuFrame then return false end
+	local keepOpen = ItemRackSettings and ItemRackSettings.KeepMenuOpen == "ON"
+	local savedSlot = ItemRackUser and tonumber(ItemRackUser.PinnedMenuSlot)
+	if not keepOpen or not savedSlot or savedSlot < 0 or savedSlot >= 20
+	or not (ItemRackUser and ItemRackUser.Buttons and ItemRackUser.Buttons[savedSlot]) then
+		ItemRack.pinnedMenuOpen = nil
+		ItemRack.pinnedMenuInclude = nil
+		ItemRack.pinnedMenuMasqueGroup = nil
+		ItemRack.pinnedMenuDockedTo = nil
+		ItemRack.pinnedMenuMovable = nil
+		if ItemRackUser then
+			ItemRackUser.PinnedMenuSlot = nil
+		end
+		if type(ItemRackPinnedMenuFrame.Hide) == "function" then
+			ItemRackPinnedMenuFrame:Hide()
+		end
+		return false
+	end
+	local resolved = ItemRack.ResolveQuickAccessMenuTarget(savedSlot)
+	if not ItemRackUser.Buttons[resolved] then
+		return false
+	end
+	ItemRackUser.PinnedMenuSlot = resolved
+	local buttonFrame = _G["ItemRackButton"..resolved]
+	if buttonFrame and type(buttonFrame.IsShown) == "function" and not buttonFrame:IsShown() then
+		if type(ItemRackPinnedMenuFrame.Hide) == "function" then
+			ItemRackPinnedMenuFrame:Hide()
+		end
+		return false
+	end
+	if ItemRack.DockMenuToButton and ItemRack.BuildMenu then
+		ItemRack.DockMenuToButton(resolved, "pinned")
+		ItemRack.BuildMenu(resolved, nil, 2, "pinned")
+		return ItemRackPinnedMenuFrame:IsVisible() and true or false
+	end
+	return false
+end
+
+function ItemRack.RefreshPinnedMenu()
+	if not ItemRackPinnedMenuFrame then return false end
+	if not ItemRackSettings or ItemRackSettings.KeepMenuOpen ~= "ON" then
+		return ItemRack.SyncPinnedMenu()
+	end
+	if ItemRackUser and ItemRackUser.PinnedMenuSlot ~= nil then
+		return ItemRack.SyncPinnedMenu()
+	end
+	return false
+end
+
+function ItemRack.SetPinnedMenuSlot(slot)
+	if slot == nil then
+		if ItemRackUser then
+			ItemRackUser.PinnedMenuSlot = nil
+		end
+		return ItemRack.SyncPinnedMenu()
+	end
+	local resolved = ItemRack.ResolveQuickAccessMenuTarget(slot)
+	if type(resolved) ~= "number" or resolved < 0 or resolved >= 20
+	or not (ItemRackUser and ItemRackUser.Buttons and ItemRackUser.Buttons[resolved]) then
+		return false
+	end
+	if ItemRackUser then
+		ItemRackUser.PinnedMenuSlot = resolved
+	end
+	if ItemRackMenuFrame and type(ItemRackMenuFrame.IsVisible) == "function" and ItemRackMenuFrame:IsVisible()
+	and ItemRack.ResolveQuickAccessMenuTarget(ItemRack.menuOpen) == resolved then
+		if ItemRack.RecordBreakoutEvent then
+			ItemRack.RecordBreakoutEvent("hide", "hover", ItemRack.menuOpen, "promoted_to_pinned")
+		end
+		if ItemRack.StopTimer then
+			ItemRack.StopTimer("MenuMouseover")
+		end
+		ItemRackMenuFrame:Hide()
+	end
+	return ItemRack.SyncPinnedMenu()
+end
+
+function ItemRack.TogglePinnedMenu(slot)
+	if not ItemRackSettings or ItemRackSettings.KeepMenuOpen ~= "ON" then
+		return false
+	end
+	local resolved = ItemRack.ResolveQuickAccessMenuTarget(slot)
+	if type(resolved) ~= "number" or resolved < 0 or resolved >= 20
+	or not (ItemRackUser and ItemRackUser.Buttons and ItemRackUser.Buttons[resolved]) then
+		if ItemRack.RecordBreakoutEvent then
+			ItemRack.RecordBreakoutEvent("pin_toggle", "pinned", slot, "invalid_or_missing_button")
+		end
+		return false
+	end
+	local currentlyPinned = ItemRackUser and tonumber(ItemRackUser.PinnedMenuSlot)
+	if currentlyPinned == resolved and ItemRack.IsPinnedMenuVisible() then
+		if ItemRack.RecordBreakoutEvent then
+			ItemRack.RecordBreakoutEvent("pin_toggle", "pinned", resolved, "unpinned")
+		end
+		ItemRack.SetPinnedMenuSlot(nil)
+		return false
+	end
+	if ItemRack.RecordBreakoutEvent then
+		ItemRack.RecordBreakoutEvent("pin_toggle", "pinned", resolved, "pinned")
+	end
+	return ItemRack.SetPinnedMenuSlot(resolved)
+end
+
+function ItemRack.DockWindows(menuDock,relativeTo,mainDock,menuOrient,movable,target)
+	local isPinned = (target == "pinned")
+	local menuFrame = isPinned and ItemRackPinnedMenuFrame or ItemRackMenuFrame
+	if not menuFrame then return end
+	menuFrame:ClearAllPoints()
+	local dockKey = mainDock..menuDock
+	local dockInfo = ItemRack.DockInfo[dockKey]
+	menuFrame:SetPoint(menuDock,relativeTo,mainDock,dockInfo.xoff,dockInfo.yoff)
+	menuFrame:SetParent(relativeTo)
+	if type(menuFrame.SetFrameStrata) == "function" then
+		menuFrame:SetFrameStrata(isPinned and "MEDIUM" or "HIGH")
+	end
+	if type(menuFrame.SetFrameLevel) == "function" and relativeTo and type(relativeTo.GetFrameLevel) == "function" then
+		local baseLevel = relativeTo:GetFrameLevel() or 1
+		if isPinned then
+			menuFrame:SetFrameLevel(math.max(2, baseLevel + 2))
+		else
+			menuFrame:SetFrameLevel(math.max(10, baseLevel + 20))
+		end
+	end
+	local name = relativeTo and type(relativeTo.GetName) == "function" and relativeTo:GetName()
+	if isPinned then
+		ItemRack.pinnedCurrentDock = dockKey
+		ItemRack.pinnedMainDock = mainDock
+		ItemRack.pinnedMenuDock = menuDock
+		ItemRack.pinnedMenuOrient = menuOrient
+		ItemRack.pinnedMenuMovable = movable
+		ItemRack.pinnedMenuDockedTo = name
+	else
+		ItemRack.currentDock = dockKey
+		ItemRack.mainDock = mainDock
+		ItemRack.menuDock = menuDock
+		ItemRack.menuOrient = menuOrient
+		ItemRack.menuMovable = movable
+		if name then
+			ItemRack.menuDockedTo = name
+			ItemRack.MenuMouseoverFrames[name] = 1 -- add frame to mouseover candidates
+		else
+			ItemRack.menuDockedTo = "Minimap"
+		end
+	end
+	ItemRack.ReflectLock(not (movable and true or false))
 	ItemRack.ReflectMenuScale()
 end
 
@@ -3903,7 +4712,7 @@ end
 
 -- Bounded, always-on menu evidence. Only public scalars enter this recorder;
 -- recording does not rescan inventory or alter discovery/equip decisions.
-function ItemRack.MenuDiagnosticValue(value)
+function ItemRack.MenuDiagnosticValue(value,maxLength)
 	if issecretvalue then
 		local ok,secret = pcall(issecretvalue,value)
 		if not ok then return "<unavailable>" end
@@ -3914,7 +4723,7 @@ function ItemRack.MenuDiagnosticValue(value)
 		if not ok or not accessible then return "<inaccessible>" end
 	end
 	local kind = type(value)
-	if kind=="string" then return string.sub(value,1,180) end
+	if kind=="string" then return string.sub(value,1,maxLength or 180) end
 	if kind=="number" or kind=="boolean" then return value end
 	if kind=="nil" then return "<nil>" end
 	return "<"..kind..">"
@@ -3939,6 +4748,214 @@ function ItemRack.MenuDiagnosticCounts(items)
 		else counts.items=counts.items+1 end
 	end
 	return counts
+end
+
+function ItemRack.GetTopMouseFocusNames(limit)
+	local names = {}
+	local foci = {}
+	if type(GetMouseFoci) == "function" then
+		local ok, res = pcall(GetMouseFoci)
+		if ok and type(res) == "table" then foci = res end
+	elseif type(GetMouseFocus) == "function" then
+		local ok, res = pcall(GetMouseFocus)
+		if ok and res then foci = { res } end
+	end
+	for i = 1, math.min(#foci, limit or 4) do
+		local f = foci[i]
+		if f then
+			local status = ItemRack.MenuDiagnosticValue(f)
+			if status == "<secret>" or status == "<inaccessible>" or status == "<unavailable>" then
+				names[#names + 1] = status
+			elseif f.IsForbidden and select(1, pcall(f.IsForbidden, f)) == true and f:IsForbidden() then
+				names[#names + 1] = "<forbidden>"
+			else
+				names[#names + 1] = ItemRack.MenuDiagnosticCall(f.GetName, f)
+			end
+		end
+	end
+	return names
+end
+
+function ItemRack.CollectMenuFrameDiagnostics(frame,slot,items,dockedTo,buttonPrefix)
+	if not frame then return { exists=false } end
+	local parent = frame.GetParent and select(2, pcall(frame.GetParent, frame))
+	local left = ItemRack.MenuDiagnosticCall(frame.GetLeft, frame)
+	local right = ItemRack.MenuDiagnosticCall(frame.GetRight, frame)
+	local top = ItemRack.MenuDiagnosticCall(frame.GetTop, frame)
+	local bottom = ItemRack.MenuDiagnosticCall(frame.GetBottom, frame)
+	local scale = ItemRack.MenuDiagnosticCall(frame.GetEffectiveScale, frame)
+	local uiScale = ItemRack.MenuDiagnosticCall(UIParent and UIParent.GetEffectiveScale)
+	local screenW = ItemRack.MenuDiagnosticCall(GetScreenWidth)
+	local screenH = ItemRack.MenuDiagnosticCall(GetScreenHeight)
+	local offscreen
+	if type(left) == "number" and type(right) == "number" and type(top) == "number" and type(bottom) == "number"
+	and type(screenW) == "number" and type(screenH) == "number" then
+		local ratio = (type(scale) == "number" and type(uiScale) == "number" and uiScale > 0) and (scale / uiScale) or 1
+		offscreen = (right * ratio <= 0) or (left * ratio >= screenW) or (top * ratio <= 0) or (bottom * ratio >= screenH)
+	end
+	local firstButton = buttonPrefix and _G[buttonPrefix.."1"]
+	return {
+		exists=true,
+		slot=slot,
+		dockedTo=ItemRack.MenuDiagnosticValue(dockedTo),
+		menu=ItemRack.MenuDiagnosticCounts(items),
+		shown=ItemRack.MenuDiagnosticCall(frame.IsShown, frame),
+		visible=ItemRack.MenuDiagnosticCall(frame.IsVisible, frame),
+		protected=ItemRack.MenuDiagnosticCall(frame.IsProtected, frame),
+		strata=ItemRack.MenuDiagnosticCall(frame.GetFrameStrata, frame),
+		level=ItemRack.MenuDiagnosticCall(frame.GetFrameLevel, frame),
+		scale=ItemRack.MenuDiagnosticCall(frame.GetScale, frame),
+		effectiveScale=scale,
+		alpha=ItemRack.MenuDiagnosticCall(frame.GetAlpha, frame),
+		effectiveAlpha=ItemRack.MenuDiagnosticCall(frame.GetEffectiveAlpha, frame),
+		mouseEnabled=ItemRack.MenuDiagnosticCall(frame.IsMouseEnabled, frame),
+		width=ItemRack.MenuDiagnosticCall(frame.GetWidth, frame),
+		height=ItemRack.MenuDiagnosticCall(frame.GetHeight, frame),
+		left=left, right=right, top=top, bottom=bottom,
+		offscreen=offscreen,
+		parent=parent and ItemRack.MenuDiagnosticCall(parent.GetName, parent) or "<nil>",
+		parentVisible=parent and ItemRack.MenuDiagnosticCall(parent.IsVisible, parent) or "<nil>",
+		parentProtected=parent and ItemRack.MenuDiagnosticCall(parent.IsProtected, parent) or "<nil>",
+		button1Shown=firstButton and ItemRack.MenuDiagnosticCall(firstButton.IsShown, firstButton) or "<nil>",
+		button1Visible=firstButton and ItemRack.MenuDiagnosticCall(firstButton.IsVisible, firstButton) or "<nil>",
+	}
+end
+
+function ItemRack.RecordBreakoutEvent(stage,viewKey,slot,reason,details)
+	pcall(function()
+		local state = ItemRack.MenuDiagnostics or { sequence=0,recent={},latest={} }
+		ItemRack.MenuDiagnostics = state
+		state.gateSequence = (state.gateSequence or 0) + 1
+		state.gateEvents = state.gateEvents or {}
+		local targetView = viewKey == "pinned" and "pinned" or "hover"
+		local frame = targetView == "pinned" and ItemRackPinnedMenuFrame or ItemRackMenuFrame
+		local items = targetView == "pinned" and ItemRack.PinnedMenu or ItemRack.Menu
+		local record = {
+			sequence=state.gateSequence,
+			time=ItemRack.MenuDiagnosticCall(GetTime),
+			stage=ItemRack.MenuDiagnosticValue(stage),
+			view=targetView,
+			slot=ItemRack.MenuDiagnosticValue(slot),
+			reason=ItemRack.MenuDiagnosticValue(reason),
+			detail=details ~= nil and ItemRack.MenuDiagnosticValue(details) or nil,
+			lockdown=ItemRack.MenuDiagnosticCall(InCombatLockdown),
+			unitCombat=ItemRack.MenuDiagnosticCall(UnitAffectingCombat,"player"),
+			dockingActive=ItemRack.IsTimerActive and (ItemRack.IsTimerActive("ButtonsDocking") and true or false) or false,
+			keepMenuOpen=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.KeepMenuOpen),
+			menuOnShift=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.MenuOnShift),
+			menuOnRight=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.MenuOnRight),
+			hideOOC=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.HideOOC),
+			hideArena=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.HideArena),
+			hidePetBattle=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.HidePetBattle),
+			shift=ItemRack.MenuDiagnosticCall(IsShiftKeyDown),
+			alt=ItemRack.MenuDiagnosticCall(IsAltKeyDown),
+			menuCount=items and #(items) or 0,
+			frameShown=frame and ItemRack.MenuDiagnosticCall(frame.IsShown, frame) or false,
+			frameVisible=frame and ItemRack.MenuDiagnosticCall(frame.IsVisible, frame) or false,
+			mouseFocus=ItemRack.GetTopMouseFocusNames and ItemRack.GetTopMouseFocusNames(3) or {},
+		}
+		state.gateEvents[#state.gateEvents+1] = record
+		if #state.gateEvents>32 then table.remove(state.gateEvents,1) end
+		if ItemRack.Debug then
+			ItemRack.Debug("Breakouts", tostring(stage), tostring(targetView),
+				"slot="..tostring(slot), "reason="..tostring(reason),
+				details ~= nil and ("detail="..tostring(details)) or "")
+		end
+	end)
+end
+
+function ItemRack.ProbeQuickAccessBreakouts(printToChat)
+	local probe = {
+		time=ItemRack.MenuDiagnosticCall(GetTime),
+		lockdown=ItemRack.MenuDiagnosticCall(InCombatLockdown),
+		unitCombat=ItemRack.MenuDiagnosticCall(UnitAffectingCombat,"player"),
+		dockingActive=ItemRack.IsTimerActive and (ItemRack.IsTimerActive("ButtonsDocking") and true or false) or false,
+		mouseoverTimer=ItemRack.IsTimerActive and (ItemRack.IsTimerActive("MenuMouseover") and true or false) or false,
+		settings={
+			keepMenuOpen=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.KeepMenuOpen),
+			menuOnShift=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.MenuOnShift),
+			menuOnRight=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.MenuOnRight),
+			hideOOC=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.HideOOC),
+			hidePetBattle=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.HidePetBattle),
+			hideArena=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.HideArena),
+			trinketMenuMode=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.TrinketMenuMode),
+			anchorOther=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.AnchorOther),
+			characterSheetMenus=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.CharacterSheetMenus),
+			locked=ItemRack.MenuDiagnosticValue(ItemRackUser and ItemRackUser.Locked),
+			pinnedSlot=ItemRack.MenuDiagnosticValue(ItemRackUser and ItemRackUser.PinnedMenuSlot),
+		},
+		hoverMenu=ItemRack.CollectMenuFrameDiagnostics(ItemRackMenuFrame, ItemRack.menuOpen, ItemRack.Menu, ItemRack.menuDockedTo, "ItemRackMenu"),
+		pinnedMenu=ItemRack.CollectMenuFrameDiagnostics(ItemRackPinnedMenuFrame, ItemRack.pinnedMenuOpen, ItemRack.PinnedMenu, ItemRack.pinnedMenuDockedTo, "ItemRackPinnedMenu"),
+		mouseFocus=ItemRack.GetTopMouseFocusNames(4),
+		buttons={},
+	}
+	local blockers = {}
+	if probe.dockingActive then blockers[#blockers+1] = "ButtonsDocking timer active" end
+	if ItemRackSettings and ItemRackSettings.MenuOnShift == "ON" then blockers[#blockers+1] = "MenuOnShift=ON (requires Shift)" end
+	if ItemRackSettings and ItemRackSettings.MenuOnRight == "ON" then blockers[#blockers+1] = "MenuOnRight=ON (hover disabled; right-click opens)" end
+
+	for i=0,20 do
+		if ItemRackUser and ItemRackUser.Buttons and ItemRackUser.Buttons[i] then
+			local b = _G["ItemRackButton"..i]
+			local bagsSnap = ItemRack.MenuSnapshots and ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(i,nil)]
+			local incSnap = ItemRack.MenuSnapshots and ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(i,true)]
+			local info = {
+				slot=i,
+				exists=b ~= nil,
+				shown=b and ItemRack.MenuDiagnosticCall(b.IsShown, b) or false,
+				visible=b and ItemRack.MenuDiagnosticCall(b.IsVisible, b) or false,
+				mouseEnabled=b and ItemRack.MenuDiagnosticCall(b.IsMouseEnabled, b) or false,
+				effectiveAlpha=b and ItemRack.MenuDiagnosticCall(b.GetEffectiveAlpha, b) or 0,
+				scale=b and ItemRack.MenuDiagnosticCall(b.GetScale, b) or 1,
+				strata=b and ItemRack.MenuDiagnosticCall(b.GetFrameStrata, b) or "<nil>",
+				level=b and ItemRack.MenuDiagnosticCall(b.GetFrameLevel, b) or 0,
+				bagsSnapshot=bagsSnap and ItemRack.MenuDiagnosticCounts(bagsSnap).items or 0,
+				includedSnapshot=incSnap and ItemRack.MenuDiagnosticCounts(incSnap).items or 0,
+			}
+			probe.buttons[tostring(i)] = info
+			if b and info.shown == true and info.visible == false then
+				blockers[#blockers+1] = "ItemRackButton"..i.." shown=true but visible=false (parent hidden)"
+			elseif b and type(info.effectiveAlpha) == "number" and info.effectiveAlpha <= 0 then
+				blockers[#blockers+1] = "ItemRackButton"..i.." effectiveAlpha=0"
+			end
+		end
+	end
+	if probe.hoverMenu.exists and probe.hoverMenu.shown == true and probe.hoverMenu.visible == false then
+		blockers[#blockers+1] = "ItemRackMenuFrame shown=true but visible=false (parent="..tostring(probe.hoverMenu.parent)..")"
+	end
+	if probe.hoverMenu.offscreen == true then
+		blockers[#blockers+1] = "ItemRackMenuFrame offscreen"
+	end
+	if probe.pinnedMenu.exists and probe.pinnedMenu.shown == true and probe.pinnedMenu.visible == false then
+		blockers[#blockers+1] = "ItemRackPinnedMenuFrame shown=true but visible=false (parent="..tostring(probe.pinnedMenu.parent)..")"
+	end
+	probe.blockers = blockers
+	local state = ItemRack.MenuDiagnostics or { sequence=0,recent={},latest={} }
+	ItemRack.MenuDiagnostics = state
+	state.lastBreakoutProbe = probe
+	if ItemRack.RecordButtonInput then
+		ItemRack.RecordButtonInput("breakout_probe")
+	end
+	if printToChat and ItemRack.Print then
+		ItemRack.Print("Breakout Probe: KeepMenuOpen="..tostring(probe.settings.keepMenuOpen)
+			.." PinnedSlot="..tostring(probe.settings.pinnedSlot)
+			.." MenuOnShift="..tostring(probe.settings.menuOnShift)
+			.." MenuOnRight="..tostring(probe.settings.menuOnRight))
+		ItemRack.Print("HoverMenu: shown="..tostring(probe.hoverMenu.shown).." vis="..tostring(probe.hoverMenu.visible)
+			.." slot="..tostring(probe.hoverMenu.slot).." items="..tostring(probe.hoverMenu.menu and probe.hoverMenu.menu.items or 0)
+			.." | PinnedMenu: shown="..tostring(probe.pinnedMenu.shown).." vis="..tostring(probe.pinnedMenu.visible)
+			.." slot="..tostring(probe.pinnedMenu.slot))
+		ItemRack.Print("MouseFocus="..(#probe.mouseFocus > 0 and table.concat(probe.mouseFocus,", ") or "<none>")
+			.." | ActiveBlockers="..(#blockers > 0 and table.concat(blockers, "; ") or "none"))
+		local recentGates = state.gateEvents or {}
+		if #recentGates > 0 then
+			local last = recentGates[#recentGates]
+			ItemRack.Print("Last breakout gate: ["..tostring(last.stage).."] "..tostring(last.view)
+				.." slot="..tostring(last.slot).." reason="..tostring(last.reason)
+				..(last.detail and (" ("..tostring(last.detail)..")") or ""))
+		end
+	end
+	return probe
 end
 
 function ItemRack.BeginMenuDiagnostic(slot,menuInclude,source)
@@ -3991,7 +5008,64 @@ function ItemRack.FinishMenuDiagnostic(record)
 	record.stage = "complete"
 end
 
-function ItemRack.GetMenuDiagnosticReport()
+-- Keep only public mouse-routing evidence, never frame references or scripts.
+-- Optional diagnostics must not interrupt the hover/click they are observing.
+function ItemRack.RecordButtonInput(source,button,mouseButton)
+	local ok = pcall(function()
+		local state = ItemRack.ButtonInputDiagnostics or { sequence=0,recent={},clicks={} }
+		ItemRack.ButtonInputDiagnostics = state
+		state.sequence = state.sequence+1
+		local record = { sequence=state.sequence,source=source,
+			time=ItemRack.MenuDiagnosticCall(GetTime),mouseButton=mouseButton,
+			alt=ItemRack.MenuDiagnosticCall(IsAltKeyDown),shift=ItemRack.MenuDiagnosticCall(IsShiftKeyDown),
+			control=ItemRack.MenuDiagnosticCall(IsControlKeyDown),focus={},completed=false }
+		state.recent[#state.recent+1] = record
+		if #state.recent>16 then table.remove(state.recent,1) end
+		if button then
+			record.button = ItemRack.MenuDiagnosticCall(button.GetName,button)
+			record.slot = ItemRack.MenuDiagnosticCall(button.GetID,button)
+			if source=="preclick" then state.clicks[tostring(record.slot)] = record.sequence end
+			if type(record.slot)=="number" and record.slot<20 and ItemRack.GetQueueContext then
+				local context = ItemRack.GetQueueContext(record.slot)
+				record.queueEnabled = ItemRack.MenuDiagnosticValue(context.enabled)
+				record.queueOwner = ItemRack.MenuDiagnosticValue(context.owner)
+				record.mirroredFrom = ItemRack.MenuDiagnosticValue(context.mirroredFrom)
+			end
+		end
+		if GetCursorPosition then
+			local cursorOK,x,y = pcall(GetCursorPosition)
+			if cursorOK then record.x=ItemRack.MenuDiagnosticValue(x); record.y=ItemRack.MenuDiagnosticValue(y) end
+		end
+		local foci = {}
+		if GetMouseFoci then foci=GetMouseFoci() or {}
+		elseif GetMouseFocus then foci={GetMouseFocus()} end
+		for i=1,math.min(#foci,8) do
+			local frame = foci[i]
+			local frameOK,description = pcall(function()
+				local value = ItemRack.MenuDiagnosticValue(frame)
+				if value=="<secret>" or value=="<inaccessible>" or value=="<unavailable>" then return {status=value} end
+				if frame.IsForbidden and frame:IsForbidden() then return {forbidden=true} end
+				local info = {name=ItemRack.MenuDiagnosticCall(frame.GetName,frame),
+					shown=ItemRack.MenuDiagnosticCall(frame.IsShown,frame),
+					mouseEnabled=ItemRack.MenuDiagnosticCall(frame.IsMouseEnabled,frame),
+					alpha=ItemRack.MenuDiagnosticCall(frame.GetAlpha,frame),
+					effectiveAlpha=ItemRack.MenuDiagnosticCall(frame.GetEffectiveAlpha,frame),parents={}}
+				for depth=1,4 do
+					if not frame.GetParent then break end
+					frame = frame:GetParent()
+					if not frame or (frame.IsForbidden and frame:IsForbidden()) then break end
+					info.parents[#info.parents+1] = ItemRack.MenuDiagnosticCall(frame.GetName,frame)
+				end
+				return info
+			end)
+			record.focus[#record.focus+1] = frameOK and description or {status="<unavailable>"}
+		end
+		record.completed = true
+	end)
+	return ok
+end
+
+function ItemRack.GetMenuDiagnosticReport(fullDump)
 	local state = ItemRack.MenuDiagnostics or { recent={},latest={} }
 	local frame = ItemRackMenuFrame
 	local parent = frame and frame.GetParent and frame:GetParent()
@@ -4012,6 +5086,14 @@ function ItemRack.GetMenuDiagnosticReport()
 			end
 		end
 	end
+	local hoverInfo = ItemRack.CollectMenuFrameDiagnostics and ItemRack.CollectMenuFrameDiagnostics(frame, ItemRack.menuOpen, ItemRack.Menu, ItemRack.menuDockedTo, "ItemRackMenu")
+	local pinnedInfo = ItemRack.CollectMenuFrameDiagnostics and ItemRack.CollectMenuFrameDiagnostics(ItemRackPinnedMenuFrame, ItemRack.pinnedMenuOpen, ItemRack.PinnedMenu, ItemRack.pinnedMenuDockedTo, "ItemRackPinnedMenu")
+	local gateEvents = {}
+	local storedGates = state.gateEvents or {}
+	local firstGate = fullDump and 1 or math.max(1, #storedGates - 15)
+	for i=firstGate,#storedGates do
+		gateEvents[#gateEvents+1] = storedGates[i]
+	end
 	return {
 		schema=1,clientVersion=wowver,clientBuild=wowbuild,interface=wowtoc,
 		locale=ItemRack.MenuDiagnosticCall(GetLocale),
@@ -4025,6 +5107,13 @@ function ItemRack.GetMenuDiagnosticReport()
 		protected=frame and ItemRack.MenuDiagnosticCall(frame.IsProtected,frame),
 		parent=parent and ItemRack.MenuDiagnosticCall(parent.GetName,parent),
 		parentProtected=parent and ItemRack.MenuDiagnosticCall(parent.IsProtected,parent),
+		hoverMenu=hoverInfo,
+		pinnedMenu=pinnedInfo,
+		pinnedSlot=ItemRack.MenuDiagnosticValue(ItemRackUser and ItemRackUser.PinnedMenuSlot),
+		keepMenuOpen=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.KeepMenuOpen),
+		menuOnShift=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.MenuOnShift),
+		menuOnRight=ItemRack.MenuDiagnosticValue(ItemRackSettings and ItemRackSettings.MenuOnRight),
+		dockingActive=ItemRack.IsTimerActive and (ItemRack.IsTimerActive("ButtonsDocking") and true or false) or false,
 		customMenuIcons=ItemRackUser.CustomMenuIcons,customCharacterIcons=ItemRackUser.CustomCharacterIcons,
 		providers={
 			itemInfoNamespaced=C_Item and GetItemInfo==C_Item.GetItemInfo or false,
@@ -4032,7 +5121,10 @@ function ItemRack.GetMenuDiagnosticReport()
 			containerNamespaced=C_Container and GetContainerNumSlots==C_Container.GetContainerNumSlots or false,
 			nativeCandidates=type(GetInventoryItemsForSlot)=="function",
 		},
-		snapshots=snapshots,latest=state.latest,recent=state.recent,loadedAddons=addons,
+		snapshots=snapshots,latest=state.latest,recent=state.recent,
+		gateEvents=gateEvents,lastBreakoutProbe=state.lastBreakoutProbe,
+		loadedAddons=addons,
+		tooltipAnchorTrace=ItemRack.GetTooltipAnchorTraceReport and ItemRack.GetTooltipAnchorTraceReport(fullDump),
 	}
 end
 
@@ -4049,8 +5141,18 @@ end
 function ItemRack.StoreMenuSnapshot(id,menuInclude,diagnostic)
 	if type(id)~="number" or id<0 or id>=20 then return false end
 	ItemRack.MenuSnapshots = ItemRack.MenuSnapshots or {}
+	local key = ItemRack.GetMenuSnapshotKey(id,menuInclude)
+	local previous = ItemRack.MenuSnapshots[key]
+	local function countSnapshotItems(items)
+		local total = 0
+		for i=1,#(items or {}) do
+			local item = items[i]
+			if item~=0 and item~="MENU" then total = total+1 end
+		end
+		return total
+	end
 	if diagnostic then
-		diagnostic.snapshotPrevious = ItemRack.MenuDiagnosticCounts(ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(id,menuInclude)])
+		diagnostic.snapshotPrevious = ItemRack.MenuDiagnosticCounts(previous)
 	end
 	local snapshot = {}
 	for i=1,#(ItemRack.Menu) do
@@ -4059,7 +5161,18 @@ function ItemRack.StoreMenuSnapshot(id,menuInclude,diagnostic)
 			snapshot[#snapshot+1] = item
 		end
 	end
-	ItemRack.MenuSnapshots[ItemRack.GetMenuSnapshotKey(id,menuInclude)] = snapshot
+	local inCombatOrTransition = InCombatLockdown()
+		or (UnitAffectingCombat and UnitAffectingCombat("player"))
+		or ItemRack.inCombat
+	if countSnapshotItems(previous) > 0 and countSnapshotItems(snapshot) == 0
+	and inCombatOrTransition then
+		if diagnostic then
+			diagnostic.snapshotPreserved = true
+			diagnostic.snapshotWritten = ItemRack.MenuDiagnosticCounts(previous)
+		end
+		return false
+	end
+	ItemRack.MenuSnapshots[key] = snapshot
 	if diagnostic then diagnostic.snapshotWritten=ItemRack.MenuDiagnosticCounts(snapshot) end
 	return true
 end
@@ -4172,16 +5285,35 @@ end
 function ItemRack.RefreshQuickAccessMenuSnapshots(onlySlot,reason)
 	if not ItemRack.IsForever() or InCombatLockdown() then return false end
 	local activeMenu = ItemRack.Menu
-	for id in pairs(ItemRackUser.Buttons or {}) do
-		if id<20 and (onlySlot==nil or onlySlot==id) then
-			local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,nil,reason or "snapshot_refresh")
-			ItemRack.Menu = {}
-			ItemRack.DiscoverEquipmentMenuItems(id,nil,diagnostic)
-			ItemRack.StoreMenuSnapshot(id,nil,diagnostic)
-			if diagnostic then ItemRack.FinishMenuDiagnostic(diagnostic) end
+	local slotsToRefresh = {}
+	if onlySlot then
+		slotsToRefresh[onlySlot] = true
+	else
+		for id in pairs(ItemRackUser.Buttons or {}) do
+			if id<20 then
+				slotsToRefresh[id] = true
+			end
+		end
+		-- Always ensure weapon and trinket slots have fresh snapshots for combat breakouts,
+		-- even when the player has no buttons placed on the quick-access bar.
+		for _, slot in ipairs({13, 14, 16, 17, 18}) do
+			slotsToRefresh[slot] = true
 		end
 	end
+
+	local ok, err = pcall(function()
+		for id in pairs(slotsToRefresh) do
+			for _, includeWorn in ipairs({false, true}) do
+				local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,includeWorn,reason or "snapshot_refresh")
+				ItemRack.Menu = {}
+				ItemRack.DiscoverEquipmentMenuItems(id,includeWorn,diagnostic)
+				ItemRack.StoreMenuSnapshot(id,includeWorn,diagnostic)
+				if diagnostic then ItemRack.FinishMenuDiagnostic(diagnostic) end
+			end
+		end
+	end)
 	ItemRack.Menu = activeMenu
+	if not ok then error(err, 0) end
 	return true
 end
 
@@ -4189,249 +5321,308 @@ end
 -- id = 0-19 for inventory slots, or 20 for set, or nil for last defined slot/set menu (ItemRack.menuOpen)
 -- before calling ItemRack.BuildMenu, you should call ItemRack.DockWindows
 -- if menuInclude, then also include the worn item(s) in the menu
-function ItemRack.BuildMenu(id,menuInclude,masqueGroup)
-	if id then
-		ItemRack.menuOpen = id
-		ItemRack.menuInclude = menuInclude
-		ItemRack.menuMasqueGroup = masqueGroup
+function ItemRack.BuildMenu(id,menuInclude,masqueGroup,viewKey)
+	local isPinned = (viewKey == "pinned")
+	local menuFrame = isPinned and ItemRackPinnedMenuFrame or ItemRackMenuFrame
+	if not menuFrame then return end
+	local prefix = isPinned and "ItemRackPinnedMenu" or "ItemRackMenu"
+	if isPinned then
+		if id then
+			ItemRack.pinnedMenuOpen = id
+			ItemRack.pinnedMenuInclude = menuInclude
+			ItemRack.pinnedMenuMasqueGroup = masqueGroup
+		else
+			id = ItemRack.pinnedMenuOpen
+			menuInclude = ItemRack.pinnedMenuInclude
+			masqueGroup = ItemRack.pinnedMenuMasqueGroup
+		end
 	else
-		id = ItemRack.menuOpen
-		menuInclude = ItemRack.menuInclude
-		masqueGroup = ItemRack.menuMasqueGroup
+		if id then
+			ItemRack.menuOpen = id
+			ItemRack.menuInclude = menuInclude
+			ItemRack.menuMasqueGroup = masqueGroup
+		else
+			id = ItemRack.menuOpen
+			menuInclude = ItemRack.menuInclude
+			masqueGroup = ItemRack.menuMasqueGroup
+		end
 	end
+	if not id then return end
 
 	local inCombat = InCombatLockdown()
-	local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,menuInclude,"build")
-	ItemRack.Debug("UI", "BuildMenu called. id:", id, "InCombat:", inCombat, "menuOpen:", ItemRack.menuOpen)
+	local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,menuInclude,isPinned and "build_pinned" or "build")
+	ItemRack.Debug("UI", "BuildMenu called. id:", id, "InCombat:", inCombat, "view:", isPinned and "pinned" or "hover")
 
-	local showButtonMenu = (ItemRackButtonMenu and ItemRack.menuMovable) and (IsAltKeyDown() or ItemRackUser.Locked=="OFF")
+	local menuMovable = isPinned and ItemRack.pinnedMenuMovable or ItemRack.menuMovable
+	local menuDockedTo = isPinned and ItemRack.pinnedMenuDockedTo or ItemRack.menuDockedTo
+	local menuOrient = isPinned and ItemRack.pinnedMenuOrient or ItemRack.menuOrient
+	local menuDock = isPinned and ItemRack.pinnedMenuDock or ItemRack.menuDock
+	local currentDock = isPinned and ItemRack.pinnedCurrentDock or ItemRack.currentDock
+	local dockInfo = ItemRack.DockInfo[currentDock] or ItemRack.DockInfo[ItemRack.currentDock]
 
-	for i in pairs(ItemRack.Menu) do
-		ItemRack.Menu[i] = nil
+	local showButtonMenu = (not isPinned) and (ItemRackButtonMenu and menuMovable) and (IsAltKeyDown() or ItemRackUser.Locked=="OFF")
+
+	local savedHoverMenu = ItemRack.Menu
+	local targetItems = isPinned and (ItemRack.PinnedMenu or {}) or ItemRack.Menu
+	if isPinned then
+		ItemRack.PinnedMenu = targetItems
+		ItemRack.Menu = targetItems
 	end
 
-	local itemLink,itemID,itemName,equipSlot,itemTexture
-
-	local restoredCombatSnapshot = id<20 and inCombat and ItemRack.IsForever()
-	and ItemRack.RestoreMenuSnapshot(id,menuInclude)
-	if restoredCombatSnapshot then
-		if diagnostic then diagnostic.restoredSnapshot=true end
-		ItemRack.Debug("UI", "BuildMenu restored Forever combat snapshot. id:", id, "items:", #(ItemRack.Menu))
-	elseif id<20 then
-		if diagnostic then diagnostic.restoredSnapshot=false end
-		ItemRack.DiscoverEquipmentMenuItems(id,menuInclude,diagnostic)
-		if not inCombat then
-			ItemRack.StoreMenuSnapshot(id,menuInclude,diagnostic)
+	local ok, err = pcall(function()
+		for i in pairs(targetItems) do
+			targetItems[i] = nil
 		end
-	else
-		for i in pairs(ItemRackUser.Sets) do
-			if not string.match(i,"^~") then --do not list internal sets, prefixed with ~
-				ItemRack.AddToMenu(i)
-			end
-			table.sort(ItemRack.Menu)
-		end
-	end
-	if showButtonMenu then
-		table.insert(ItemRack.Menu,"MENU")
-	end
-	if diagnostic then
-		diagnostic.result=ItemRack.MenuDiagnosticCounts(ItemRack.Menu)
-		diagnostic.stage="render"
-	end
 
-	if #(ItemRack.Menu)<1 then
-		ItemRackMenuFrame:Hide()
-	else
-		-- display outward from docking point
-		local col,row,xpos,ypos = 0,0,ItemRack.DockInfo[ItemRack.currentDock].xstart,ItemRack.DockInfo[ItemRack.currentDock].ystart
-		local menuCount = #(ItemRack.Menu)
-		local max_cols, button, icon
-		local isCharSheet = (masqueGroup == 3) or (ItemRack.menuDockedTo and string.find(ItemRack.menuDockedTo, "^Character"))
-		local isPrimaryX = (ItemRack.menuOrient == "VERTICAL" or ItemRack.menuOrient == "HORIZONTAL_ROW")
-		local isSingleFlow = (ItemRack.menuOrient == "HORIZONTAL" or ItemRack.menuOrient == "HORIZONTAL_ROW")
-		if isCharSheet then
-			if ItemRackUser.CharMenuWrap=="ON" then
-				max_cols = math.floor(tonumber(ItemRackUser.CharMenuWrapValue) or 3)
-			else
-				-- Dynamic wrap based on count to keep popups compact but manageable
-				if menuCount > 24 then
-					max_cols = 6
-				elseif menuCount > 12 then
-					max_cols = 4
-				elseif menuCount > 8 then
-					max_cols = 3
-				elseif menuCount > 4 then
-					max_cols = 2
-				else
-					max_cols = 1
-				end
+		local restoredCombatSnapshot = id<20 and inCombat and ItemRack.IsForever()
+		and ItemRack.RestoreMenuSnapshot(id,menuInclude)
+		if restoredCombatSnapshot then
+			if diagnostic then diagnostic.restoredSnapshot=true end
+			ItemRack.Debug("UI", "BuildMenu restored Forever combat snapshot. id:", id, "items:", #(targetItems))
+		elseif id<20 then
+			if diagnostic then diagnostic.restoredSnapshot=false end
+			ItemRack.DiscoverEquipmentMenuItems(id,menuInclude,diagnostic)
+			if not inCombat then
+				ItemRack.StoreMenuSnapshot(id,menuInclude,diagnostic)
 			end
 		else
-			if ItemRackUser.SetMenuWrap=="ON" then
-				max_cols = math.floor(tonumber(ItemRackUser.SetMenuWrapValue) or 3)
-			elseif ItemRack.menuOrient == "HORIZONTAL_ROW" or ItemRack.menuOrient == "VERTICAL_COL" then
-				-- When an explicit Breakout Side + Direction flow is active and wrapping is OFF,
-				-- grow along the chosen primary direction before wrapping outward.
-				if menuCount > 24 then
-					max_cols = math.ceil(menuCount / 6)
-				elseif menuCount > 12 then
-					max_cols = math.ceil(menuCount / 4)
-				elseif menuCount > 8 then
-					max_cols = math.ceil(menuCount / 3)
-				elseif menuCount > 4 then
-					max_cols = math.ceil(menuCount / 2)
-				else
-					max_cols = menuCount
+			for i in pairs(ItemRackUser.Sets) do
+				if not string.match(i,"^~") then --do not list internal sets, prefixed with ~
+					ItemRack.AddToMenu(i)
 				end
-			else
-				-- Dynamic wrap based on count to keep popups compact but manageable
-				if menuCount > 24 then
-					max_cols = 6
-				elseif menuCount > 12 then
-					max_cols = 4
-				elseif menuCount > 8 then
-					max_cols = 3
-				elseif menuCount > 4 then
-					max_cols = 2
-				else
-					max_cols = 1
-				end
-			end
-		end
-
-		-- Set menus retain their existing spacing; item breakouts have their own control.
-		local stride = 36 + (id < 20 and math.max(0,math.min(24,tonumber(ItemRackUser.BreakoutSpacing) or 4)) or 4)
-		local menuScale = ItemRackMenuFrame:GetEffectiveScale()
-		local screenHeight = GetScreenHeight() * UIParent:GetEffectiveScale() / menuScale
-		local availableRows = math.max(1,math.floor((screenHeight - 80) / stride))
-		max_cols = math.max(1,max_cols)
-		if not isPrimaryX then
-			-- Primary Y growth: max_cols is the HEIGHT in buttons
-			if (max_cols * stride + stride) > screenHeight then
-				max_cols = availableRows
-			end
-		else
-			-- Primary X growth: height grows with wrapped rows (menuCount / max_cols)
-			local rows = math.ceil(menuCount / max_cols)
-			if (rows * stride + stride) > screenHeight then
-				max_cols = math.ceil(menuCount / availableRows)
-			end
-		end
-
-		for i=1,#(ItemRack.Menu) do
-			if diagnostic then diagnostic.renderRow=i end
-			button = ItemRack.CreateMenuButton(i,ItemRack.Menu[i]) or ItemRackButtonMenu
-			button:SetPoint("TOPLEFT",ItemRackMenuFrame,ItemRack.menuDock,xpos,ypos)
-			button:SetFrameLevel(ItemRackMenuFrame:GetFrameLevel()+1)
-
-			if ItemRack.MasqueGroups then
-				for _, group in pairs(ItemRack.MasqueGroups) do
-					group:RemoveButton(button)
-				end
-
-				if ItemRack.MasqueGroups[masqueGroup] then
-					local name = button:GetName()
-					ItemRack.MasqueGroups[masqueGroup]:AddButton(button,{
-						Icon = _G[name.."Icon"],
-						Cooldown = _G[name.."Cooldown"],
-						Count = _G[name.."Count"],
-						HotKey = _G[name.."HotKey"],
-					})
-				end
-			end
-
-			if isPrimaryX then
-				xpos = xpos + ItemRack.DockInfo[ItemRack.currentDock].xdir*stride
-				col = col + 1
-				if col>=max_cols then
-					xpos = ItemRack.DockInfo[ItemRack.currentDock].xstart
-					col = 0
-					ypos = ypos + ItemRack.DockInfo[ItemRack.currentDock].ydir*stride
-					row = row + 1
-				end
-				button:Show()
-			else
-				ypos = ypos + ItemRack.DockInfo[ItemRack.currentDock].ydir*stride
-				col = col + 1
-				if col>=max_cols then
-					ypos = ItemRack.DockInfo[ItemRack.currentDock].ystart
-					col = 0
-					xpos = xpos + ItemRack.DockInfo[ItemRack.currentDock].xdir*stride
-					row = row + 1
-				end
-				button:Show()
-			end
-			icon = _G["ItemRackMenu"..i.."Icon"]
-			if icon then
-				icon:SetDesaturated(false)
-				if IsAltKeyDown() and ItemRackSettings.AllowHidden=="ON" and IsAltKeyDown() and ItemRack.IsHidden(ItemRack.Menu[i]) then
-					icon:SetDesaturated(true)
-				end
+				table.sort(targetItems)
 			end
 		end
 		if showButtonMenu then
-			table.remove(ItemRack.Menu)
+			table.insert(targetItems,"MENU")
+		end
+		if diagnostic then
+			diagnostic.result=ItemRack.MenuDiagnosticCounts(targetItems)
+			diagnostic.stage="render"
+		end
+
+		if #(targetItems)<1 then
+			menuFrame:Hide()
+			if ItemRack.RecordBreakoutEvent then
+				local detail = diagnostic and string.format("visited=%d wear=%d hidden=%d sb=%d",
+					diagnostic.visited or 0, diagnostic.wearRejected or 0, diagnostic.hiddenRejected or 0, diagnostic.soulboundRejected or 0) or nil
+				ItemRack.RecordBreakoutEvent("render", isPinned and "pinned" or "hover", id, "empty_items_hidden", detail)
+			end
 		else
-			ItemRackButtonMenu:Hide()
-		end
-		local i = #(ItemRack.Menu)+1
-		while _G["ItemRackMenu"..i] do
-			_G["ItemRackMenu"..i]:Hide()
-			i=i+1
-		end
-
-		if col==0 then
-			row = row-1
-		end
-
-		local usedCols = (row == 0 and col > 0) and col or max_cols
-		if isPrimaryX then
-			ItemRackMenuFrame:SetWidth(12+(usedCols*stride))
-			ItemRackMenuFrame:SetHeight(12+((row+1)*stride))
-		else
-			ItemRackMenuFrame:SetWidth(12+((row+1)*stride))
-			ItemRackMenuFrame:SetHeight(12+(usedCols*stride))
-		end
-
-		ItemRack.StartTimer("MenuMouseover")
-		ItemRackMenuFrame:Show()
-		if diagnostic then diagnostic.stage="cooldowns" end
-		ItemRack.UpdateMenuCooldowns()
-		if diagnostic then diagnostic.stage="row_overlays" end
-		local count
-		local border
-		for i=1,#(ItemRack.Menu) do
-			border = _G["ItemRackMenu"..i.."Border"]
-			border:Hide()
-			if ItemRack.menuOpen==20 then
-				_G["ItemRackMenu"..i.."Name"]:SetText(ItemRack.Menu[i])
-				local missing = ItemRack.MissingItems(ItemRack.Menu[i])
-				if missing==0 then
-					border:SetVertexColor(1,.1,.1)
-					border:Show()
-				elseif missing==1 then
-					border:SetVertexColor(.3,.5,1)
-					border:Show()
+			-- display outward from docking point
+			local col,row,xpos,ypos = 0,0,dockInfo.xstart,dockInfo.ystart
+			local menuCount = #(targetItems)
+			local max_cols, button, icon
+			local isCharSheet = (masqueGroup == 3) or (menuDockedTo and string.find(menuDockedTo, "^Character"))
+			local isPrimaryX = (menuOrient == "VERTICAL" or menuOrient == "HORIZONTAL_ROW")
+			if isCharSheet then
+				if ItemRackUser.CharMenuWrap=="ON" then
+					max_cols = math.floor(tonumber(ItemRackUser.CharMenuWrapValue) or 3)
+				else
+					-- Dynamic wrap based on count to keep popups compact but manageable
+					if menuCount > 24 then
+						max_cols = 6
+					elseif menuCount > 12 then
+						max_cols = 4
+					elseif menuCount > 8 then
+						max_cols = 3
+					elseif menuCount > 4 then
+						max_cols = 2
+					else
+						max_cols = 1
+					end
 				end
 			else
-				_G["ItemRackMenu"..i.."Name"]:SetText("")
-				if ItemRack.Menu[i]~=0 and ItemRack.GetCountByID(ItemRack.Menu[i])==0 then
-					border:SetVertexColor(.3,.5,1)
-					border:Show()
+				if ItemRackUser.SetMenuWrap=="ON" then
+					max_cols = math.floor(tonumber(ItemRackUser.SetMenuWrapValue) or 3)
+				elseif menuOrient == "HORIZONTAL_ROW" or menuOrient == "VERTICAL_COL" then
+					-- When an explicit Breakout Side + Direction flow is active and wrapping is OFF,
+					-- grow along the chosen primary direction before wrapping outward.
+					if menuCount > 24 then
+						max_cols = math.ceil(menuCount / 6)
+					elseif menuCount > 12 then
+						max_cols = math.ceil(menuCount / 4)
+					elseif menuCount > 8 then
+						max_cols = math.ceil(menuCount / 3)
+					elseif menuCount > 4 then
+						max_cols = math.ceil(menuCount / 2)
+					else
+						max_cols = menuCount
+					end
+				else
+					-- Dynamic wrap based on count to keep popups compact but manageable
+					if menuCount > 24 then
+						max_cols = 6
+					elseif menuCount > 12 then
+						max_cols = 4
+					elseif menuCount > 8 then
+						max_cols = 3
+					elseif menuCount > 4 then
+						max_cols = 2
+					else
+						max_cols = 1
+					end
 				end
 			end
-			count = ItemRack.GetCountByID(ItemRack.Menu[i])
-			if ItemRack.menuOpen==0 then
-				_G["ItemRackMenu"..i.."Count"]:SetText(count>0 and count or "")
+
+			-- Set menus retain their existing spacing; item breakouts have their own control.
+			local stride = 36 + (id < 20 and math.max(0,math.min(24,tonumber(ItemRackUser.BreakoutSpacing) or 4)) or 4)
+			local menuScale = menuFrame:GetEffectiveScale()
+			local screenHeight = GetScreenHeight() * UIParent:GetEffectiveScale() / menuScale
+			local availableRows = math.max(1,math.floor((screenHeight - 80) / stride))
+			max_cols = math.max(1,max_cols)
+			if not isPrimaryX then
+				-- Primary Y growth: max_cols is the HEIGHT in buttons
+				if (max_cols * stride + stride) > screenHeight then
+					max_cols = availableRows
+				end
 			else
-				_G["ItemRackMenu"..i.."Count"]:SetText(count>1 and count or "")
+				-- Primary X growth: height grows with wrapped rows (menuCount / max_cols)
+				local rows = math.ceil(menuCount / max_cols)
+				if (rows * stride + stride) > screenHeight then
+					max_cols = math.ceil(menuCount / availableRows)
+				end
 			end
-			-- Apply this after Masque and the bank-only border. Bottom-left keeps
-			-- the rune fully visible instead of clipping it beneath the border.
-			local runeItemID = ItemRack.menuOpen<20 and ItemRack.Menu[i]~=0 and ItemRack.Menu[i] or nil
-			ItemRack.SetRuneIconOverlay(_G["ItemRackMenu"..i],runeItemID,_G["ItemRackMenu"..i.."Icon"],16,"BOTTOMLEFT")
+
+			for i=1,#(targetItems) do
+				if diagnostic then diagnostic.renderRow=i end
+				button = ItemRack.CreateMenuButton(i,targetItems[i],viewKey) or (not isPinned and ItemRackButtonMenu or nil)
+				if button then
+					button:SetPoint("TOPLEFT",menuFrame,menuDock,xpos,ypos)
+					button:SetFrameLevel(menuFrame:GetFrameLevel()+1)
+
+					if ItemRack.MasqueGroups then
+						for _, group in pairs(ItemRack.MasqueGroups) do
+							group:RemoveButton(button)
+						end
+
+						if ItemRack.MasqueGroups[masqueGroup] then
+							local name = button:GetName()
+							ItemRack.MasqueGroups[masqueGroup]:AddButton(button,{
+								Icon = _G[name.."Icon"],
+								Cooldown = _G[name.."Cooldown"],
+								Count = _G[name.."Count"],
+								HotKey = _G[name.."HotKey"],
+							})
+						end
+					end
+					button:Show()
+				end
+
+				if isPrimaryX then
+					xpos = xpos + dockInfo.xdir*stride
+					col = col + 1
+					if col>=max_cols then
+						xpos = dockInfo.xstart
+						col = 0
+						ypos = ypos + dockInfo.ydir*stride
+						row = row + 1
+					end
+				else
+					ypos = ypos + dockInfo.ydir*stride
+					col = col + 1
+					if col>=max_cols then
+						ypos = dockInfo.ystart
+						col = 0
+						xpos = xpos + dockInfo.xdir*stride
+						row = row + 1
+					end
+				end
+				icon = _G[prefix..i.."Icon"]
+				if icon then
+					icon:SetDesaturated(false)
+					if IsAltKeyDown() and ItemRackSettings.AllowHidden=="ON" and ItemRack.IsHidden(targetItems[i]) then
+						icon:SetDesaturated(true)
+					end
+				end
+			end
+			if showButtonMenu then
+				table.remove(targetItems)
+			elseif not isPinned and ItemRackButtonMenu then
+				ItemRackButtonMenu:Hide()
+			end
+			local i = #(targetItems)+1
+			while _G[prefix..i] do
+				_G[prefix..i]:Hide()
+				i=i+1
+			end
+
+			if col==0 then
+				row = row-1
+			end
+
+			local usedCols = (row == 0 and col > 0) and col or max_cols
+			if isPrimaryX then
+				menuFrame:SetWidth(12+(usedCols*stride))
+				menuFrame:SetHeight(12+((row+1)*stride))
+			else
+				menuFrame:SetWidth(12+((row+1)*stride))
+				menuFrame:SetHeight(12+(usedCols*stride))
+			end
+
+			if not isPinned then
+				ItemRack.StartTimer("MenuMouseover")
+			end
+			menuFrame:Show()
+			if diagnostic then diagnostic.stage="cooldowns" end
+			ItemRack.UpdateMenuCooldowns(viewKey)
+			if diagnostic then diagnostic.stage="row_overlays" end
+			local count
+			local border
+			for i=1,#(targetItems) do
+				border = _G[prefix..i.."Border"]
+				if border then
+					border:Hide()
+					if id==20 then
+						_G[prefix..i.."Name"]:SetText(targetItems[i])
+						local missing = ItemRack.MissingItems(targetItems[i])
+						if missing==0 then
+							border:SetVertexColor(1,.1,.1)
+							border:Show()
+						elseif missing==1 then
+							border:SetVertexColor(.3,.5,1)
+							border:Show()
+						end
+					else
+						if _G[prefix..i.."Name"] then
+							_G[prefix..i.."Name"]:SetText("")
+						end
+						if targetItems[i]~=0 and ItemRack.GetCountByID(targetItems[i])==0 then
+							border:SetVertexColor(.3,.5,1)
+							border:Show()
+						end
+					end
+				end
+				count = ItemRack.GetCountByID(targetItems[i])
+				if _G[prefix..i.."Count"] then
+					if id==0 then
+						_G[prefix..i.."Count"]:SetText(count>0 and count or "")
+					else
+						_G[prefix..i.."Count"]:SetText(count>1 and count or "")
+					end
+				end
+				-- Apply this after Masque and the bank-only border. Bottom-left keeps
+				-- the rune fully visible instead of clipping it beneath the border.
+				local runeItemID = id<20 and targetItems[i]~=0 and targetItems[i] or nil
+				ItemRack.SetRuneIconOverlay(_G[prefix..i],runeItemID,_G[prefix..i.."Icon"],16,"BOTTOMLEFT")
+			end
+			if ItemRack.RecordBreakoutEvent then
+				local diag = ItemRack.CollectMenuFrameDiagnostics and ItemRack.CollectMenuFrameDiagnostics(menuFrame, id, targetItems, menuDockedTo, prefix)
+				local issue = "rendered"
+				if diag then
+					if diag.visible == false then issue = "rendered_parent_hidden"
+					elseif type(diag.effectiveAlpha) == "number" and diag.effectiveAlpha <= 0 then issue = "rendered_zero_alpha"
+					elseif diag.offscreen == true then issue = "rendered_offscreen" end
+				end
+				ItemRack.RecordBreakoutEvent("render", isPinned and "pinned" or "hover", id, issue,
+					"rows="..tostring(#(targetItems)))
+			end
 		end
+	end)
+	if isPinned then
+		ItemRack.Menu = savedHoverMenu
 	end
+	if not ok then error(err, 0) end
 	if diagnostic then ItemRack.FinishMenuDiagnostic(diagnostic) end
 end
 
@@ -4439,64 +5630,85 @@ end
 -- identity-keyed CooldownState remains authoritative even while this menu is closed.
 ItemRack.MenuCooldownCache = ItemRack.MenuCooldownCache or {}
 
-function ItemRack.UpdateMenuCooldowns()
-	for i=1,#(ItemRack.Menu) do
-		local exactID = ItemRack.Menu[i]
-		local baseID = tonumber(ItemRack.GetIRString(exactID,true))
-		if baseID and baseID>0 and ItemRack.menuOpen<20 then
-			local cdFrame = _G["ItemRackMenu"..i.."Cooldown"]
-			local start, duration, enable = GetItemCooldown(baseID)
-			-- Items gated by another item's cooldown (see ItemRack.CooldownProxies)
-			-- have no cooldown of their own. Show the gating item's instead.
-			if ItemRack.ApplyProxyCooldown then
-				start, duration, enable = ItemRack.ApplyProxyCooldown(baseID, start, duration, enable)
-			end
-			local observed = ItemRack.ObserveItemCooldown(exactID,baseID,
-				start,duration,enable,"menu")
+function ItemRack.UpdateMenuCooldowns(viewKey)
+	local isPinned = (viewKey == "pinned")
+	local menuItems = isPinned and ItemRack.PinnedMenu or ItemRack.Menu
+	local menuOpen = isPinned and ItemRack.pinnedMenuOpen or ItemRack.menuOpen
+	local prefix = isPinned and "ItemRackPinnedMenu" or "ItemRackMenu"
+	if menuItems then
+		for i=1,#(menuItems) do
+			local exactID = menuItems[i]
+			local baseID = tonumber(ItemRack.GetIRString(exactID,true))
+			if baseID and baseID>0 and menuOpen and menuOpen<20 then
+				local cdFrame = _G[prefix..i.."Cooldown"]
+				if cdFrame then
+					local start, duration, enable = GetItemCooldown(baseID)
+					-- Items gated by another item's cooldown (see ItemRack.CooldownProxies)
+					-- have no cooldown of their own. Show the gating item's instead.
+					if ItemRack.ApplyProxyCooldown then
+						start, duration, enable = ItemRack.ApplyProxyCooldown(baseID, start, duration, enable)
+					end
+					local observed = ItemRack.ObserveItemCooldown(exactID,baseID,
+						start,duration,enable,"menu")
 
-			-- Suppress Blizzard's built-in countdown numbers
-			if cdFrame and cdFrame.SetHideCountdownNumbers and not _G["OmniCC"] then
-				cdFrame:SetHideCountdownNumbers(true)
-			end
+					-- Suppress Blizzard's built-in countdown numbers
+					if cdFrame.SetHideCountdownNumbers and not _G["OmniCC"] then
+						cdFrame:SetHideCountdownNumbers(true)
+					end
 
-			if observed.active then
-				ItemRack.MenuCooldownCache[baseID] = {
-					start=observed.start, duration=observed.duration, exactID=exactID,
-				}
-				CooldownFrame_Set(cdFrame,observed.start,observed.duration,1)
-			else
-				ItemRack.MenuCooldownCache[baseID] = nil
-				-- Preserve only a genuine short global-cooldown presentation. Arena
-				-- barrier and disabled samples must never draw a synthetic item cooldown.
-				if observed.status ~= "arena_stale_sample"
-				and observed.status ~= "arena_reset"
-				and enable == 1 and start and start > 0
-				and duration and duration > 0 and duration <= 1.5 then
-					CooldownFrame_Set(cdFrame,start,duration,enable)
-				else
-					CooldownFrame_Clear(cdFrame)
+					if observed.active then
+						ItemRack.MenuCooldownCache[baseID] = {
+							start=observed.start, duration=observed.duration, exactID=exactID,
+						}
+						CooldownFrame_Set(cdFrame,observed.start,observed.duration,1)
+					else
+						ItemRack.MenuCooldownCache[baseID] = nil
+						-- Preserve only a genuine short global-cooldown presentation. Arena
+						-- barrier and disabled samples must never draw a synthetic item cooldown.
+						if observed.status ~= "arena_stale_sample"
+						and observed.status ~= "arena_reset"
+						and enable == 1 and start and start > 0
+						and duration and duration > 0 and duration <= 1.5 then
+							CooldownFrame_Set(cdFrame,start,duration,enable)
+						else
+							CooldownFrame_Clear(cdFrame)
+						end
+					end
 				end
+			elseif _G[prefix..i.."Cooldown"] then
+				_G[prefix..i.."Cooldown"]:Hide()
 			end
-		else
-			_G["ItemRackMenu"..i.."Cooldown"]:Hide()
 		end
 	end
-	ItemRack.WriteMenuCooldowns()
+	ItemRack.WriteMenuCooldowns(viewKey)
+	if not viewKey and ItemRackPinnedMenuFrame and type(ItemRackPinnedMenuFrame.IsVisible)=="function" and ItemRackPinnedMenuFrame:IsVisible() then
+		ItemRack.UpdateMenuCooldowns("pinned")
+	end
 end
 
-function ItemRack.WriteMenuCooldowns()
-	if ItemRackSettings.CooldownCount=="ON" and ItemRackMenuFrame:IsVisible() then
-		for i=1,#(ItemRack.Menu) do
-			local exactID = ItemRack.Menu[i]
-			local baseID = tonumber(ItemRack.GetIRString(exactID,true))
-			local observed = baseID and ItemRack.GetObservedItemCooldown(exactID,baseID)
-			if observed then
-				ItemRack.WriteCooldown(_G["ItemRackMenu"..i.."Time"],
-					observed.start,observed.duration)
-			else
-				_G["ItemRackMenu"..i.."Time"]:SetText("")
+function ItemRack.WriteMenuCooldowns(viewKey)
+	local isPinned = (viewKey == "pinned")
+	local menuFrame = isPinned and ItemRackPinnedMenuFrame or ItemRackMenuFrame
+	local menuItems = isPinned and ItemRack.PinnedMenu or ItemRack.Menu
+	local prefix = isPinned and "ItemRackPinnedMenu" or "ItemRackMenu"
+	if ItemRackSettings.CooldownCount=="ON" and menuFrame and type(menuFrame.IsVisible)=="function" and menuFrame:IsVisible() and menuItems then
+		for i=1,#(menuItems) do
+			local timeText = _G[prefix..i.."Time"]
+			if timeText then
+				local exactID = menuItems[i]
+				local baseID = tonumber(ItemRack.GetIRString(exactID,true))
+				local observed = baseID and ItemRack.GetObservedItemCooldown(exactID,baseID)
+				if observed then
+					ItemRack.WriteCooldown(timeText,
+						observed.start,observed.duration)
+				else
+					timeText:SetText("")
+				end
 			end
 		end
+	end
+	if not viewKey and ItemRackPinnedMenuFrame and type(ItemRackPinnedMenuFrame.IsVisible)=="function" and ItemRackPinnedMenuFrame:IsVisible() then
+		ItemRack.WriteMenuCooldowns("pinned")
 	end
 end
 
@@ -4515,9 +5727,13 @@ function ItemRack.MenuMouseover()
 		if ok then frameVisible = isVis end
 	end
 
-	local function SafeMouseIsOver(f)
+	local function SafeMouseIsOver(f, top, bottom, left, right)
 		if not f then return false end
 		if f.IsMouseOver then
+			if top and bottom and left and right then
+				local ok, res = pcall(f.IsMouseOver, f, top, bottom, left, right)
+				if ok and res then return true end
+			end
 			local ok, res = pcall(f.IsMouseOver, f)
 			return ok and res and true or false
 		elseif MouseIsOver then
@@ -4532,132 +5748,161 @@ function ItemRack.MenuMouseover()
 			IRmouseOverFrame = ItemRack.MenuMouseoverFrames[frameName]
 		end
 	end
-	if SafeMouseIsOver(ItemRackMenuFrame) or IsShiftKeyDown() or (frame and frameName and frameVisible and IRmouseOverFrame) then
+	if SafeMouseIsOver(ItemRackMenuFrame, 16, -16, -16, 16) or IsShiftKeyDown() or (frame and frameName and frameVisible and IRmouseOverFrame) then
 		return -- keep menu open if mouse over menu, shift is down or mouse is immediately over a mouseover frame
 	end
 	for i in pairs(ItemRack.MenuMouseoverFrames) do
 		if i ~= "PaperDollFrame" or ItemRackSettings.CharacterSheetMenus == "ON" then
 			frame = _G[i]
-			if frame and frame:IsVisible() and SafeMouseIsOver(frame) then
+			if frame and frame:IsVisible() and SafeMouseIsOver(frame, 8, -8, -8, 8) then
 				return -- keep menu open if some frame beneath mouse is a mouseover frame
 			end
 		end
+	end
+	if ItemRackMenuFrame and type(ItemRackMenuFrame.IsVisible)=="function" and ItemRackMenuFrame:IsVisible() and ItemRack.RecordBreakoutEvent then
+		ItemRack.RecordBreakoutEvent("hide", "hover", ItemRack.menuOpen, "mouseover_miss", frameName or "<none>")
 	end
 	ItemRack.StopTimer("MenuMouseover")
 	ItemRackMenuFrame:Hide()
 end
 
-function ItemRack.MenuOnHide()
-	ItemRack.menuDockedTo = nil
+function ItemRack.MenuOnHide(target)
+	if target == "pinned" then
+		ItemRack.pinnedMenuDockedTo = nil
+	else
+		ItemRack.menuDockedTo = nil
+	end
 end
 
-function ItemRack.CreateMenuButton(idx,itemID)
+function ItemRack.CreateMenuButton(idx,itemID,viewKey)
 	if itemID=="MENU" then return end
-	local button
-	if not _G["ItemRackMenu"..idx] then
-		button = CreateFrame("CheckButton","ItemRackMenu"..idx,ItemRackMenuFrame,"ItemRackMenuItemTemplate")
+	local isPinned = (viewKey == "pinned")
+	local prefix = isPinned and "ItemRackPinnedMenu" or "ItemRackMenu"
+	local parentFrame = isPinned and ItemRackPinnedMenuFrame or ItemRackMenuFrame
+	local menuOpen = isPinned and ItemRack.pinnedMenuOpen or ItemRack.menuOpen
+	local menuInclude = isPinned and ItemRack.pinnedMenuInclude or ItemRack.menuInclude
+	local buttonName = prefix..idx
+	local button = _G[buttonName]
+	if not button then
+		button = CreateFrame("CheckButton",buttonName,parentFrame,"ItemRackMenuItemTemplate")
 		button:SetID(idx)
-		button:SetFrameStrata("HIGH")
---		button:SetFrameLevel(ItemRackMenuFrame:GetFrameLevel()+1)
+		button:SetFrameStrata(isPinned and "MEDIUM" or "HIGH")
+		button.MenuViewKey = isPinned and "pinned" or "hover"
 		button:RegisterForClicks("LeftButtonUp","RightButtonUp")
 		button:SetScript("OnClick",ItemRack.MenuOnClick)
 		button:SetScript("OnEnter",ItemRack.MenuTooltip)
 		button:SetScript("OnLeave",ItemRack.ClearTooltip)
 		button.UpdateTooltip = ItemRack.MenuTooltip
-		button.icon = _G["ItemRackMenu"..idx.."Icon"]
+		button.icon = _G[buttonName.."Icon"]
 		CreateFrame("Frame",nil,button,"ItemRackTimeTemplate")
 
-		ItemRack.SetFont("ItemRackMenu"..idx)
---		local font = button:CreateFontString("ItemRackMenu"..idx.."Time","OVERLAY","NumberFontNormal")
---		font:SetJustifyH("CENTER")
---		font:SetWidth(36)
---		font:SetHeight(12)
---		font:SetPoint("BOTTOMRIGHT","ItemRackMenu"..idx,"BOTTOMRIGHT")
+		ItemRack.SetFont(buttonName)
 	end
+	button.MenuViewKey = isPinned and "pinned" or "hover"
 	if itemID~=0 then
 		if ItemRackUser.Sets[itemID] then
-			_G["ItemRackMenu"..idx.."Icon"]:SetTexture(ItemRackUser.Sets[itemID].icon)
+			_G[buttonName.."Icon"]:SetTexture(ItemRackUser.Sets[itemID].icon)
 		else
 			local _,texture = ItemRack.GetInfoByID(itemID)
-			if ItemRackUser.CustomMenuIcons == "ON" and not ItemRack.menuInclude then
-				texture = ItemRack.GetCustomItemIcon(ItemRack.menuOpen,itemID) or texture
+			if ItemRackUser.CustomMenuIcons == "ON" and not menuInclude then
+				texture = ItemRack.GetCustomItemIcon(menuOpen,itemID) or texture
 			end
-			_G["ItemRackMenu"..idx.."Icon"]:SetTexture(texture)
+			_G[buttonName.."Icon"]:SetTexture(texture)
 		end
 	else
-		_G["ItemRackMenu"..idx.."Icon"]:SetTexture(select(2,GetInventorySlotInfo(ItemRack.SlotInfo[ItemRack.menuOpen].name)))
+		_G[buttonName.."Icon"]:SetTexture(select(2,GetInventorySlotInfo(ItemRack.SlotInfo[menuOpen].name)))
 	end
-	button = _G["ItemRackMenu"..idx]
 	if button and not button.UpdateTooltip then
 		button.UpdateTooltip = ItemRack.MenuTooltip
 	end
 	return button
 end
 
+-- Returns the chat edit box only when chat input is actively open/focused for typing.
+function ItemRack.GetActiveChatEditBox()
+	local active = (ChatFrameUtil and type(ChatFrameUtil.GetActiveWindow) == "function" and ChatFrameUtil.GetActiveWindow())
+		or (type(ChatEdit_GetActiveWindow) == "function" and ChatEdit_GetActiveWindow())
+	if active and type(active.Insert) == "function"
+	and (not active.IsVisible or active:IsVisible())
+	and (not active.HasFocus or active:HasFocus()) then
+		return active
+	end
+	if type(GetCurrentKeyBoardFocus) == "function" then
+		local focus = GetCurrentKeyBoardFocus()
+		if focus and type(focus.Insert) == "function" and (not focus.IsVisible or focus:IsVisible()) then
+			local name = focus.GetName and focus:GetName() or ""
+			if focus == _G.ChatFrame1EditBox
+			or string.match(name, "^ChatFrame%d+EditBox$")
+			or string.find(name, "Chattynator", 1, true)
+			or string.find(name, "Chat", 1, true) then
+				return focus
+			end
+		end
+	end
+	local defaultBox = _G.ChatFrame1EditBox
+	if defaultBox and type(defaultBox.Insert) == "function"
+	and (not defaultBox.IsVisible or defaultBox:IsVisible())
+	and defaultBox.HasFocus and defaultBox:HasFocus() then
+		return defaultBox
+	end
+	return nil
+end
+
 -- takes an ItemRack-style ID, finds the best match in the player's inventory, and puts its ItemLink to the chat editbox.
 -- if the item is missing, it uses the ItemRack-style ID as-is to generate a clickable ItemLink from the stored data
-function ItemRack.ChatLinkID(itemID)
+function ItemRack.ChatLinkID(itemID, editBox)
+	local target = editBox or ItemRack.GetActiveChatEditBox() or ChatFrame1EditBox
+	if not target or type(target.Insert) ~= "function" then return end
 	local inv,bag,slot = ItemRack.FindItem(itemID)
 	if bag then
-		ChatFrame1EditBox:Insert(GetContainerItemLink(bag,slot))
+		target:Insert(GetContainerItemLink(bag,slot))
 	elseif inv then
-		ChatFrame1EditBox:Insert(GetInventoryItemLink("player",inv))
+		target:Insert(GetInventoryItemLink("player",inv))
 	else
 		local _,itemLink = GetItemInfo(ItemRack.IRStringToItemString(ItemRack.UpdateIRString(itemID))) --ensure the stored ID is brought up to date, then generate a regular ItemString from it and get the item info
 		if itemLink then
-			ChatFrame1EditBox:Insert(itemLink)
+			target:Insert(itemLink)
 		end
 	end
 end
 
 function ItemRack.MenuOnClick(self,button)
 	self:SetChecked(false)
-	local item = ItemRack.Menu[self:GetID()]
-	ItemRack.Debug("UI", "MenuOnClick:", self:GetName(), "button:", button, "item:", item, "InCombat:", InCombatLockdown(), "menuOpen:", ItemRack.menuOpen)
+	local buttonName = self.GetName and self:GetName() or ""
+	local isPinned = (self.MenuViewKey == "pinned") or (string.match(buttonName, "^ItemRackPinnedMenu%d+$") ~= nil)
+	local menuFrame = isPinned and ItemRackPinnedMenuFrame or ItemRackMenuFrame
+	local menuItems = isPinned and ItemRack.PinnedMenu or ItemRack.Menu
+	local menuOpen = isPinned and ItemRack.pinnedMenuOpen or ItemRack.menuOpen
+	local menuInclude = isPinned and ItemRack.pinnedMenuInclude or ItemRack.menuInclude
+	local viewKey = isPinned and "pinned" or nil
+	local item = menuItems and menuItems[self:GetID()]
+	ItemRack.Debug("UI", "MenuOnClick:", self:GetName(), "button:", button, "item:", item, "InCombat:", InCombatLockdown(), "menuOpen:", menuOpen, "view:", isPinned and "pinned" or "hover")
 	ItemRack.ClearLockList()
+	local activeChatEditBox = IsShiftKeyDown() and ItemRack.GetActiveChatEditBox and ItemRack.GetActiveChatEditBox()
 	if IsAltKeyDown() and ItemRackSettings.AllowHidden == "ON" and item ~= "MENU" then
 		ItemRack.ToggleHidden(item)
-		ItemRack.BuildMenu()
-	elseif IsAltKeyDown() and ItemRackSettings.DisableAltClick == "OFF" then
-		-- In the Quick Access Menu, Alt-Click toggles the queue for the slot this menu belongs to
-		local slot = ItemRack.menuOpen
-		if slot and slot < 20 then
-			if not ItemRack.GetQueues()[slot] then
-				LoadAddOn("ItemRackOptions")
-				ItemRackOptFrame:Show()
-				ItemRackOpt.TabOnClick(self, 4)
-				ItemRackOpt.SetupQueue(slot)
-			end
-			-- Ensure per-set table exists before writing
-			if ItemRackUser.EnablePerSetQueues == "ON" then
-				local currentSet = ItemRackUser.CurrentSet and ItemRackUser.Sets[ItemRackUser.CurrentSet]
-				if currentSet and not currentSet.QueuesEnabled then
-					currentSet.QueuesEnabled = {}
-				end
-			end
-			ItemRack.GetQueuesEnabled()[slot] = not ItemRack.GetQueuesEnabled()[slot]
-			if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() and ItemRackOpt.SelectedSlot == slot then
-				ItemRackOpt.UpdateQueueEnable()
-			end
-			ItemRack.UpdateCombatQueue()
-			
+		ItemRack.BuildMenu(nil, nil, nil, viewKey)
+		if not isPinned and ItemRack.RefreshPinnedMenu then
+			ItemRack.RefreshPinnedMenu()
 		end
-		-- Re-build the menu to reflect the new gear icon on the main button
-		ItemRack.BuildMenu()
-	elseif IsShiftKeyDown() and ChatFrame1EditBox:IsVisible() then
-		ItemRack.ChatLinkID(item)
-	elseif ItemRack.menuInclude then
+		return
+	elseif activeChatEditBox then
+		ItemRack.ChatLinkID(item, activeChatEditBox)
+		return
+	elseif menuInclude then
 		if ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
-			ItemRackOpt.Inv[ItemRack.menuOpen].id = item
-			ItemRackOpt.Inv[ItemRack.menuOpen].selected = 1
+			ItemRackOpt.Inv[menuOpen].id = item
+			ItemRackOpt.Inv[menuOpen].selected = 1
 			ItemRackOpt.SetModified = true
 			ItemRackOpt.UpdateInv()
-			ItemRackMenuFrame:Hide()
+			if not isPinned and menuFrame then
+				menuFrame:Hide()
+			end
 		end
-	elseif ItemRack.menuOpen<20 then
+	elseif menuOpen<20 then
 		if ItemRack.BankOpen then
 			if IsShiftKeyDown() then
-				local invSlot = ItemRack.menuOpen
+				local invSlot = menuOpen
 				local bankBag,bankSlot = ItemRack.FindInBank(item)
 				if bankBag then
 					if not SpellIsTargeting() and not GetCursorInfo() then
@@ -4676,7 +5921,9 @@ function ItemRack.MenuOnClick(self,button)
 						ItemRack.EquipItemByID(item,invSlot)
 					end
 				end
-				ItemRackMenuFrame:Hide()
+				if not isPinned and menuFrame then
+					menuFrame:Hide()
+				end
 			else
 				if ItemRack.GetCountByID(item)==0 then
 					local bankBag,bankSlot = ItemRack.FindInBank(item)
@@ -4704,18 +5951,33 @@ function ItemRack.MenuOnClick(self,button)
 			end
 		else
 			if ItemRackSettings.EquipOnSetPick=="ON" and ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
-				ItemRackOpt.Inv[ItemRack.menuOpen].id = item
-				ItemRackOpt.Inv[ItemRack.menuOpen].selected = 1
+				ItemRackOpt.Inv[menuOpen].id = item
+				ItemRackOpt.Inv[menuOpen].selected = 1
 				ItemRackOpt.SetModified = true
 				ItemRackOpt.UpdateInv()
 			end
-			if ItemRack.menuOpen>=13 and ItemRack.menuOpen<=14 and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then
-				ItemRack.menuOpen = button=="RightButton" and 14 or 13
+			local targetSlot = menuOpen
+			local requestHold = false
+			if targetSlot>=13 and targetSlot<=14 and ItemRackSettings.TrinketMenuMode=="ON" and ItemRackUser.Buttons[13] and ItemRackUser.Buttons[14] then
+				targetSlot = (button=="RightButton") and 14 or 13
+				requestHold = (IsControlKeyDown and IsControlKeyDown()) and true or false
+			else
+				requestHold = (button=="RightButton")
 			end
-			ItemRack.EquipItemByID(item,ItemRack.menuOpen)
-			ItemRackMenuFrame:Hide()
+			local origin = requestHold and "manual_hold" or "manual_swap"
+			ItemRack.EquipItemByID(item,targetSlot,false,nil,nil,origin)
+			if not isPinned then
+				if ItemRack.RecordBreakoutEvent then
+					ItemRack.RecordBreakoutEvent("hide", "hover", menuOpen, "click_hide")
+				end
+				if menuFrame then
+					menuFrame:Hide()
+				end
+			else
+				ItemRack.UpdateMenuCooldowns("pinned")
+			end
 		end
-	elseif ItemRack.menuOpen==20 then
+	elseif menuOpen==20 then
 		if ItemRack.BankOpen then
 			if IsShiftKeyDown() then
 				ItemRack.EquipSet(item)
@@ -4731,74 +5993,58 @@ function ItemRack.MenuOnClick(self,button)
 		else
 			ItemRack.EquipSet(item)
 		end
-		if not ItemRack.BankOpen or IsShiftKeyDown() then
+		if not isPinned and (not ItemRack.BankOpen or IsShiftKeyDown()) then
+			if ItemRack.RecordBreakoutEvent then
+				ItemRack.RecordBreakoutEvent("hide", "hover", menuOpen, "click_hide")
+			end
 			ItemRack.StopTimer("MenuMouseover")
 			ItemRackMenuFrame:Hide()
 		end
 	end
 end
 
--- UI SoundKit constants that fire during gear swaps
-ItemRack.SwapUISounds = {
-	"IG_BACKPACK_OPEN",          -- Bag opens during item move
-	"IG_BACKPACK_CLOSE",         -- Bag closes after item move
-	"IG_ABILITY_ICON_DROP",      -- Action bar spell swap
-	"IG_CHARACTER_INFO_OPEN",    -- Character panel opens
-	"IG_CHARACTER_INFO_CLOSE",   -- Character panel closes
-	"PUT_DOWN_GEMS",             -- Gem/item putdown
-	"PICK_UP_GEMS",              -- Gem/item pickup
-	"PUT_DOWN_SMALL_CHAIN",      -- Chain item putdown
-}
-
--- Mute all swap-related sounds using LibSoundIndex
--- Returns: LSI reference (truthy) if surgical muting was used, nil otherwise
-function ItemRack.MuteSwapSounds(duration)
-	duration = duration or 1.5
-	local LSI = LibStub and LibStub("LibSoundIndex-1.0", true)
-	if not LSI then return nil end
-
-	-- Mute equip material sounds (armor foley, weapon sheathe/unsheathe)
-	LSI:MuteEquipCategory("ALL_EQUIP")
-
-	-- Mute UI sounds that fire during item moves
-	for _, soundKit in ipairs(ItemRack.SwapUISounds) do
-		LSI:MuteSoundKit(soundKit)
+function ItemRack.GetSwapSoundLibrary()
+	local library = LibStub and LibStub("LibSoundIndex-1.0", true)
+	if library and library.CanMuteItemSounds and library:CanMuteItemSounds() then
+		return library
 	end
-
-	-- Auto-unmute after duration
-	if ItemRack.SwapMuteTimer then
-		ItemRack.SwapMuteTimer:Cancel()
-	end
-	ItemRack.SwapMuteTimer = C_Timer.NewTimer(duration, function()
-		ItemRack.UnmuteSwapSounds()
-		ItemRack.SwapMuteTimer = nil
-	end)
-
-	return LSI
 end
 
--- Unmute all swap-related sounds
-function ItemRack.UnmuteSwapSounds()
-	local LSI = LibStub and LibStub("LibSoundIndex-1.0", true)
-	if not LSI then return end
-
-	LSI:UnmuteEquipCategory("ALL_EQUIP")
-	for _, soundKit in ipairs(ItemRack.SwapUISounds) do
-		LSI:UnmuteSoundKit(soundKit)
+function ItemRack.MuteSwapSounds(source, destination)
+	local library = ItemRack.GetSwapSoundLibrary()
+	if library then
+		return library:MuteItemSwapSounds(source, destination)
 	end
 end
 
 function ItemRack.EquipItemByID(id,slot,isAutoQueue,sourceBag,sourceSlot,origin)
 	if id == nil or slot == nil then return "failed", "invalid_request" end
 	origin = origin or (isAutoQueue and "autoqueue" or "manual_popup")
-	local isManual = origin == "manual_popup" or origin == "manual_queue"
+	local isManual = origin == "manual_popup" or origin == "manual_queue" or origin == "manual_swap" or origin == "manual_hold"
 
 	if isAutoQueue then
 		if ItemRack.ClearManualQueueChoice then
 			ItemRack.ClearManualQueueChoice(slot)
 		end
-	elseif isManual and ItemRack.SetManualQueueChoice then
-		ItemRack.SetManualQueueChoice(slot, id)
+	elseif origin == "manual_hold" then
+		if ItemRack.SetManualQueueChoice then
+			ItemRack.SetManualQueueChoice(slot, id)
+		end
+		ItemRack.ManualQueueHold = ItemRack.ManualQueueHold or {}
+		ItemRack.ManualQueueHold[slot] = true
+		if ItemRack.ManualToggledSet then
+			ItemRack.ManualToggledSet = nil
+		end
+	elseif isManual then
+		if ItemRack.SetManualQueueChoice then
+			ItemRack.SetManualQueueChoice(slot, id)
+		end
+		if ItemRack.ManualQueueHold then
+			ItemRack.ManualQueueHold[slot] = nil
+		end
+		if ItemRack.ManualToggledSet then
+			ItemRack.ManualToggledSet = nil
+		end
 	end
 
 	-- A satisfied request is still meaningful: it supersedes an older queued
@@ -4926,6 +6172,10 @@ end
 --[[ Hooks to capture item use outside the mod ]]
 
 function ItemRack.ScheduleReflectItemUseRetry(slot, exactID, baseID)
+	-- Secure hooks may supply a numeric slot as text; runtime tables use numbers.
+	if issecretvalue and issecretvalue(slot) then return  end
+	slot = (type(slot)=="number" or type(slot)=="string") and tonumber(slot) or nil
+	if not slot or slot<0 or slot>19 or slot~=math.floor(slot) then return  end
 	baseID = tonumber(baseID)
 	if not baseID and exactID then
 		baseID = tonumber(ItemRack.GetIRString(exactID, true))
@@ -5068,6 +6318,11 @@ function ItemRack.ScheduleReflectItemUseRetry(slot, exactID, baseID)
 end
 
 function ItemRack.ReflectItemUse(id, isRetry)
+	-- Secure hooks may supply a numeric slot as text; runtime tables use numbers.
+	if issecretvalue and issecretvalue(id) then return  end
+	id = (type(id)=="number" or type(id)=="string") and tonumber(id) or nil
+	if not id or id<0 or id>19 or id~=math.floor(id) then return  end
+	if not isRetry and ItemRack.SpecialItems then ItemRack.SpecialItems.BeginUse(id) end
 	local retryToken = type(isRetry) == "table" and isRetry or nil
 	local slotState, exactID = ItemRack.GetEquippedSlotState(id)
 	if slotState ~= "resolved" then
@@ -5160,6 +6415,16 @@ function ItemRack.ReflectItemUse(id, isRetry)
 			ItemRack.QueueDiagnostic("use_ignored_equip_penalty", { duration = duration, mode = "active", slot = id })
 			return -- Rejected click during active equip penalty -> ignore!
 		end
+	end
+
+	-- A deferred-use item can expose another guardian's short category lockout.
+	-- That blocks readiness but cannot prove this item's own activation.
+	local specialRule = ItemRack.SpecialItems and ItemRack.SpecialItems.GetRule
+		and ItemRack.SpecialItems.GetRule(exactID,id)
+	if specialRule and specialRule.cooldown and specialRule.cooldown.start=="deferred"
+	and duration<(specialRule.cooldown.minimumOwnSeconds or 120) then
+		ItemRack.QueueDiagnostic("use_ignored_special_shared_cooldown", {slot=id,baseID=exactBaseID,duration=duration})
+		return
 	end
 
 	-- A single game action can reach more than one secure hook. Do not process
@@ -5321,6 +6586,14 @@ function ItemRack.ReflectItemUse(id, isRetry)
 		if ItemRack.MarkEquippedItemUsed then
 			ItemRack.MarkEquippedItemUsed(id)
 		end
+		-- Successful use ends temporary manual protection. Swap In describes
+		-- cooldown eligibility, not whether this manual choice is still unused.
+		-- Keep explicit persistent holds and choices belonging to another item/context.
+		if ItemRack.IsManualQueueChoice and ItemRack.ClearManualQueueChoice
+		and not (ItemRack.ManualQueueHold and ItemRack.ManualQueueHold[id])
+		and ItemRack.IsManualQueueChoice(id,exactID,baseID) then
+			ItemRack.ClearManualQueueChoice(id)
+		end
 		-- Burn on use for genuine active use cooldowns (> 1.5s duration)
 		if duration > 1.5 and ItemRack.MarkEquippedQueueItemBurnt and ItemRack.GetQueuesEnabled()[id] then
 			ItemRack.MarkEquippedQueueItemBurnt(id, exactID, baseID, ItemRack.GetQueues()[id])
@@ -5369,6 +6642,7 @@ function ItemRack.newPaperDollFrame_OnShow()
 end
 
 function ItemRack.newUseInventoryItem(slot)
+	if ItemRack.SpecialItems then ItemRack.SpecialItems.TraceHook("UseInventoryItem",slot) end
 	ItemRack.ReflectItemUse(slot)
 end
 
@@ -5378,6 +6652,7 @@ function ItemRack.newUseAction(slot,cursor,self)
 		if actionType=="item" then
 			for i=0,19 do
 				if tonumber(ItemRack.GetIRString(GetInventoryItemLink("player",i),true,true))==actionId then --compare baseID of given item (converted to number) to actionId
+					if ItemRack.SpecialItems then ItemRack.SpecialItems.TraceHook("UseAction",i) end
 					ItemRack.ReflectItemUse(i)
 					break
 				end
@@ -5389,6 +6664,7 @@ end
 function ItemRack.newUseItemByName(name)
 	for i=0,19 do
 		if name==GetItemInfo(GetInventoryItemLink("player",i) or 0) then
+			if ItemRack.SpecialItems then ItemRack.SpecialItems.TraceHook("UseItemByName",i) end
 			ItemRack.ReflectItemUse(i)
 			break
 		end
@@ -5405,7 +6681,17 @@ function ItemRack.IsPlayerReallyDead()
 	return dead
 end
 
+function ItemRack.CancelDeferredSetRequests()
+	ItemRack.ManualSetGeneration = (ItemRack.ManualSetGeneration or 0)+1
+	for slot in pairs(ItemRack.CombatQueueSetOwner or {}) do
+		if ItemRack.CombatQueue then ItemRack.CombatQueue[slot]=nil end
+		ItemRack.ClearCombatQueueMetadata(slot)
+	end
+	ItemRack.CombatSet = nil
+end
+
 function ItemRack.ClearCombatQueueMetadata(slot)
+	if ItemRack.CombatQueueSetOwner then ItemRack.CombatQueueSetOwner[slot]=nil end
 	if ItemRack.AutoQueueFlag then
 		ItemRack.AutoQueueFlag[slot] = nil
 	end
@@ -5417,7 +6703,7 @@ function ItemRack.ClearCombatQueueMetadata(slot)
 	end
 end
 
-function ItemRack.AddToCombatQueue(slot,id,isAutoQueue)
+function ItemRack.AddToCombatQueue(slot,id,isAutoQueue,setOwner)
 	-- Skip if the saved item is already equipped. Legacy entries can use the
 	-- historical base-ID fallback; full entries require their saved item fields.
 	if id and id ~= 0 then
@@ -5442,9 +6728,12 @@ function ItemRack.AddToCombatQueue(slot,id,isAutoQueue)
 	ItemRack.AutoQueueFlag = ItemRack.AutoQueueFlag or {}
 	ItemRack.AutoQueueOwner = ItemRack.AutoQueueOwner or {}
 	ItemRack.AutoQueueList = ItemRack.AutoQueueList or {}
+	ItemRack.CombatQueueSetOwner = ItemRack.CombatQueueSetOwner or {}
 	if ItemRack.CombatQueue[slot] ~= id or ItemRack.AutoQueueFlag[slot] ~= isAutoQueue
-	or ItemRack.AutoQueueOwner[slot] ~= queueOwner or ItemRack.AutoQueueList[slot] ~= queueList then
+	or ItemRack.AutoQueueOwner[slot] ~= queueOwner or ItemRack.AutoQueueList[slot] ~= queueList
+	or ItemRack.CombatQueueSetOwner[slot] ~= setOwner then
 		ItemRack.CombatQueue[slot] = id
+		ItemRack.CombatQueueSetOwner[slot] = setOwner
 		ItemRack.AutoQueueFlag[slot] = isAutoQueue
 		ItemRack.AutoQueueOwner[slot] = queueOwner
 		ItemRack.AutoQueueList[slot] = queueList
@@ -5548,7 +6837,50 @@ end
 
 -- request a tooltip of a menu item (called when hovering over a button in the popout menu of SET NAMES that comes up when clicking the minimap button or bar addon plugin, this is NOT the "Sets" dropdown INSIDE ItemRack's GUI)
 function ItemRack.OnModifierStateChanged(self, event, ...)
-	if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and ItemRack.TooltipOwner then
+	if ItemRackSettings.MenuOnShift == "ON" then
+		if IsShiftKeyDown() then
+			-- Shift pressed: if hovering over an ItemRack button or paperdoll slot, open breakout immediately
+			if not (ItemRackMenuFrame and ItemRackMenuFrame:IsVisible()) then
+				local focus = (GetMouseFocus and GetMouseFocus()) or (GetMouseFoci and GetMouseFoci()[1])
+				if focus and focus.GetName and focus:GetName() then
+					local fname = focus:GetName()
+					local slotID = focus.GetID and focus:GetID()
+					if slotID and string.match(fname, "^ItemRackButton%d+$") then
+						ItemRack.OnEnterButton(focus)
+					elseif string.match(fname, "^Character.*Slot$") and PaperDollItemSlotButton_OnEnter then
+						PaperDollItemSlotButton_OnEnter(focus)
+					elseif ItemRack.RecordBreakoutEvent then
+						ItemRack.RecordBreakoutEvent("modifier_gate", "hover", nil, "shift_focus_not_button", fname)
+					end
+				elseif ItemRack.RecordBreakoutEvent then
+					ItemRack.RecordBreakoutEvent("modifier_gate", "hover", nil, "shift_no_named_focus")
+				end
+			end
+		else
+			-- Shift released: if menu is open and mouse is not directly over the menu, dismiss it
+			if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() then
+				local isOverMenu = false
+				if ItemRackMenuFrame.IsMouseOver then
+					local ok, res = pcall(ItemRackMenuFrame.IsMouseOver, ItemRackMenuFrame)
+					isOverMenu = ok and res and true or false
+				elseif MouseIsOver then
+					local ok, res = pcall(MouseIsOver, ItemRackMenuFrame)
+					isOverMenu = ok and res and true or false
+				end
+				if not isOverMenu then
+					if ItemRack.RecordBreakoutEvent then
+						ItemRack.RecordBreakoutEvent("hide", "hover", ItemRack.menuOpen, "shift_released")
+					end
+					ItemRack.StopTimer("MenuMouseover")
+					ItemRackMenuFrame:Hide()
+				end
+			end
+		end
+	end
+
+	local hoverVisible = ItemRackMenuFrame and type(ItemRackMenuFrame.IsVisible)=="function" and ItemRackMenuFrame:IsVisible()
+	local pinnedVisible = ItemRackPinnedMenuFrame and type(ItemRackPinnedMenuFrame.IsVisible)=="function" and ItemRackPinnedMenuFrame:IsVisible()
+	if (hoverVisible or pinnedVisible) and ItemRack.TooltipOwner then
 		local owner = ItemRack.TooltipOwner
 		if owner.UpdateTooltip and type(owner.IsVisible) == "function" and owner:IsVisible() then
 			local isOver = false
@@ -5568,17 +6900,22 @@ function ItemRack.MenuTooltip(self)
 	if ItemRackSettings.ShowTooltips ~= "ON" then return end
 	if ItemRackSettings.DisableTooltipsInCombat == "ON" and ItemRack.inCombat then return end
 	local id = self:GetID()
-	if ItemRack.menuOpen==20 then
-		ItemRack.SetTooltip(self,ItemRack.Menu[id])
+	local ownerName = (self.GetName and type(self.GetName) == "function") and self:GetName() or ""
+	local isPinned = (self.MenuViewKey == "pinned") or (string.match(ownerName, "^ItemRackPinnedMenu%d+$") ~= nil)
+	local menuItems = isPinned and ItemRack.PinnedMenu or ItemRack.Menu
+	local menuOpen = isPinned and ItemRack.pinnedMenuOpen or ItemRack.menuOpen
+	local item = menuItems and menuItems[id]
+	if menuOpen==20 then
+		ItemRack.SetTooltip(self,item)
 	else
 		ItemRack.TooltipOwner = self
 		ItemRack.TooltipType = "BAG"
 		local invMaybe
-		invMaybe,ItemRack.TooltipBag,ItemRack.TooltipSlot = ItemRack.FindItem(ItemRack.Menu[self:GetID()])
+		invMaybe,ItemRack.TooltipBag,ItemRack.TooltipSlot = ItemRack.FindItem(item)
 		if ItemRack.TooltipBag and ItemRack.TooltipSlot then
 			ItemRack.TooltipUpdate()
 		else -- if invMaybe then
-			ItemRack.IDTooltip(self,ItemRack.Menu[id])
+			ItemRack.IDTooltip(self,item)
 		end
 	end
 
@@ -5597,11 +6934,15 @@ end
 
 -- check whether comparison tooltips should be displayed for a breakout item
 function ItemRack.ShouldCompareBreakoutItems(owner)
-	if ItemRack.menuInclude or (ItemRack.menuOpen and ItemRack.menuOpen >= 20) then return false end
 	local ownerName = (owner and type(owner.GetName) == "function") and owner:GetName() or ""
-	if not string.match(ownerName, "^ItemRackMenu%d+$") then return false end
-	if type(owner.GetID) == "function" and type(ItemRack.Menu) == "table" then
-		local menuID = ItemRack.Menu[owner:GetID()]
+	local isPinned = (owner and owner.MenuViewKey == "pinned") or (string.match(ownerName, "^ItemRackPinnedMenu%d+$") ~= nil)
+	local menuItems = isPinned and ItemRack.PinnedMenu or ItemRack.Menu
+	local menuOpen = isPinned and ItemRack.pinnedMenuOpen or ItemRack.menuOpen
+	local menuInclude = isPinned and ItemRack.pinnedMenuInclude or ItemRack.menuInclude
+	if menuInclude or (menuOpen and menuOpen >= 20) then return false end
+	if not (string.match(ownerName, "^ItemRackMenu%d+$") or string.match(ownerName, "^ItemRackPinnedMenu%d+$")) then return false end
+	if type(owner.GetID) == "function" and type(menuItems) == "table" then
+		local menuID = menuItems[owner:GetID()]
 		if not menuID or menuID == 0 or menuID == "0" or menuID == "MENU" then
 			return false
 		end
@@ -5630,8 +6971,27 @@ function ItemRack.ShouldCompareBreakoutItems(owner)
 	return false
 end
 
+-- Observe native comparison requests during our item render. A visible comparison
+-- alone may belong to the previous item, so it must not suppress a fresh request.
+function ItemRack.GetNativeComparisonRevision()
+	local manager = TooltipComparisonManager
+	if type(manager)~="table" or type(manager.CompareItem)~="function" or type(hooksecurefunc)~="function" then return end
+	local state = ItemRack.nativeComparisonObserver
+	if not state or state.manager~=manager then
+		state = {manager=manager,revision=0,reused=0}
+		local ok = pcall(hooksecurefunc,manager,"CompareItem",function(self,item,tooltip)
+			if issecretvalue and (issecretvalue(tooltip) or issecretvalue(item)) then return end
+			if self==manager and tooltip==GameTooltip and item then state.revision=state.revision+1 end
+		end)
+		if not ok then state.failed=true end
+		ItemRack.nativeComparisonObserver = state
+	end
+	if state.failed then return end
+	return state.revision
+end
+
 -- request a tooltip comparison of a straight item id against currently equipped gear
-function ItemRack.ShowBreakoutComparison(owner)
+function ItemRack.ShowBreakoutComparison(owner,nativeRevision)
 	if not ItemRack.ShouldCompareBreakoutItems(owner) then
 		if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
 		if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
@@ -5641,6 +7001,20 @@ function ItemRack.ShowBreakoutComparison(owner)
 	if ShoppingTooltip1 and ShoppingTooltip1.EnableMouse then ShoppingTooltip1:EnableMouse(false) end
 	if ShoppingTooltip2 and ShoppingTooltip2.EnableMouse then ShoppingTooltip2:EnableMouse(false) end
 	if ShoppingTooltip3 and ShoppingTooltip3.EnableMouse then ShoppingTooltip3:EnableMouse(false) end
+	local observer = ItemRack.nativeComparisonObserver
+	if nativeRevision and observer and observer.manager==TooltipComparisonManager and observer.revision>nativeRevision then
+		for _,tip in ipairs({ShoppingTooltip1,ShoppingTooltip2}) do
+			local ok,shown,tipOwner = pcall(function()
+				if tip.IsForbidden and tip:IsForbidden() then return end
+				if type(tip.IsShown)=="function" and type(tip.GetOwner)=="function" then return tip:IsShown(),tip:GetOwner() end
+			end)
+			if ok and not (issecretvalue and (issecretvalue(shown) or issecretvalue(tipOwner)))
+				and shown and tipOwner==GameTooltip then
+				observer.reused=observer.reused+1
+				return
+			end
+		end
+	end
 	if type(GameTooltip_ShowCompareItem) == "function" then
 		GameTooltip_ShowCompareItem(GameTooltip)
 	end
@@ -5659,6 +7033,7 @@ function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style
 	ItemRack.pendingTooltipAnchor = nil
 	ItemRack.pendingTooltipOwner = nil
 	ItemRack.AnchorTooltip(self)
+	local nativeRevision = ItemRack.GetNativeComparisonRevision()
 	local inv,bag,slot = ItemRack.FindItem(itemID,nil,exactOnly) -- queue rows require the saved variant; other callers retain compatible fallback
 	if inv then -- item found in player's worn equipment
 		GameTooltip:SetInventoryItem("player",inv)
@@ -5680,7 +7055,7 @@ function ItemRack.IDTooltip(self,itemID,exactOnly) --itemID is an ItemRack-style
 	local shrunk = ItemRack.ShrinkTooltip(self)
 	GameTooltip:Show()
 	if not shrunk then
-		ItemRack.ShowBreakoutComparison(self)
+		ItemRack.ShowBreakoutComparison(self,nativeRevision)
 	else
 		if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
 		if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
@@ -5703,17 +7078,19 @@ function ItemRack.ClearTooltip(self)
 	ItemRack.StopTimer("TooltipUpdate")
 	ItemRack.TooltipType = nil
 	ItemRack.TooltipOwner = nil
+	ItemRack.defaultTooltipAnchorOwner = nil
 	if type(ResetCursor) == "function" then
 		ResetCursor()
 	end
 end
 
-function ItemRack.GetMenuFrameTooltipSide()
+function ItemRack.GetMenuFrameTooltipSide(menuFrame)
+	local targetFrame = menuFrame or ItemRackMenuFrame
 	local uiScale = (UIParent and type(UIParent.GetEffectiveScale) == "function" and UIParent:GetEffectiveScale()) or 1
-	local frameScale = (ItemRackMenuFrame and type(ItemRackMenuFrame.GetEffectiveScale) == "function" and ItemRackMenuFrame:GetEffectiveScale()) or uiScale
+	local frameScale = (targetFrame and type(targetFrame.GetEffectiveScale) == "function" and targetFrame:GetEffectiveScale()) or uiScale
 	local scaleRatio = frameScale / uiScale
-	local right = ((ItemRackMenuFrame and type(ItemRackMenuFrame.GetRight) == "function" and ItemRackMenuFrame:GetRight()) or 0) * scaleRatio
-	local left = ((ItemRackMenuFrame and type(ItemRackMenuFrame.GetLeft) == "function" and ItemRackMenuFrame:GetLeft()) or 0) * scaleRatio
+	local right = ((targetFrame and type(targetFrame.GetRight) == "function" and targetFrame:GetRight()) or 0) * scaleRatio
+	local left = ((targetFrame and type(targetFrame.GetLeft) == "function" and targetFrame:GetLeft()) or 0) * scaleRatio
 	local screenWidth = (UIParent and type(UIParent.GetWidth) == "function" and UIParent:GetWidth())
 		or (type(GetScreenWidth) == "function" and GetScreenWidth())
 		or 1920
@@ -5726,7 +7103,126 @@ function ItemRack.GetMenuFrameTooltipSide()
 	end
 end
 
-function ItemRack.AnchorTooltip(owner)
+-- Read-only, opt-in evidence for comparison movement. Do not reposition a
+-- tooltip from these hooks: capture the actual writer and rendered geometry.
+function ItemRack.RecordTooltipAnchor(label, tip, event, point, relative, anchor, x, y)
+	local trace = ItemRack.TooltipAnchorTrace
+	if not trace or trace.status ~= "capturing" or trace.recording then return end
+	local now = GetTime()
+	if now >= trace.untilTime then trace.status="expired"; return end
+	if tip ~= _G[label] or not GameTooltip or not ItemRack.TooltipOwner then return end
+	if (tip.IsForbidden and tip:IsForbidden()) or (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) then return end
+	if type(GameTooltip.GetOwner) ~= "function" then return end
+	local ok, owner = pcall(GameTooltip.GetOwner, GameTooltip)
+	if not ok or (issecretvalue and issecretvalue(owner)) or owner ~= ItemRack.TooltipOwner then return end
+	trace.recording = true
+	if event ~= "SetPoint" and type(tip.GetPoint) == "function" then
+		local readOK
+		readOK, point, relative, anchor, x, y = pcall(tip.GetPoint, tip, 1)
+		if not readOK then point="<error>"; relative=nil; anchor=nil; x=nil; y=nil end
+	end
+	point,anchor,x,y = ItemRack.MenuDiagnosticValue(point),ItemRack.MenuDiagnosticValue(anchor),ItemRack.MenuDiagnosticValue(x),ItemRack.MenuDiagnosticValue(y)
+	local relativeName = ItemRack.MenuDiagnosticValue(relative)
+	if relativeName == "<table>" or relativeName == "<userdata>" then
+		local nameOK, name = pcall(function() return relative.GetName and relative:GetName() end)
+		if nameOK and name then relativeName=ItemRack.MenuDiagnosticValue(name) end
+	end
+	if type(anchor) == "number" then x,y,anchor=anchor,x,point end
+	local entry = {frame=label,event=event,time=now,point=point,relative=relativeName,anchor=anchor,x=x,y=y,
+		top=ItemRack.MenuDiagnosticCall(tip.GetTop,tip),bottom=ItemRack.MenuDiagnosticCall(tip.GetBottom,tip),
+		height=ItemRack.MenuDiagnosticCall(tip.GetHeight,tip),scale=ItemRack.MenuDiagnosticCall(tip.GetEffectiveScale,tip)}
+	trace.recording = nil
+	local signature = tostring(point)..":"..tostring(relativeName)..":"..tostring(anchor)..":"..tostring(x)..":"..tostring(y)
+		..":"..tostring(entry.top)..":"..tostring(entry.bottom)..":"..tostring(entry.height)..":"..tostring(entry.scale)
+	local key = label..":"..event
+	if ItemRack.TooltipAnchorLast[key] == signature then return end
+	ItemRack.TooltipAnchorLast[key] = signature
+	if #trace.entries >= 128 then trace.status="limit"; return end
+	if event ~= "OnUpdate" and type(debugstack) == "function" then
+		local stackOK, stack = pcall(debugstack, 3, 8, 0)
+		if stackOK and not (issecretvalue and issecretvalue(stack)) and type(stack) == "string" then
+			entry.caller = string.sub(stack,1,640)
+		end
+	end
+	trace.entries[#trace.entries+1] = entry
+	if #trace.entries == 128 then trace.status="limit" end
+end
+
+function ItemRack.StartTooltipAnchorTrace()
+	ItemRack.TooltipAnchorTrace = {status="capturing",started=GetTime(),untilTime=GetTime()+10,entries={}}
+	ItemRack.TooltipAnchorLast = {}
+	ItemRack.TooltipAnchorHooks = ItemRack.TooltipAnchorHooks or {}
+	for label,tip in pairs({GameTooltip=GameTooltip,ShoppingTooltip1=ShoppingTooltip1,ShoppingTooltip2=ShoppingTooltip2}) do
+		if not (tip.IsForbidden and tip:IsForbidden()) then
+			local frameName = label
+			local hooks = ItemRack.TooltipAnchorHooks[tip] or {}
+			ItemRack.TooltipAnchorHooks[tip] = hooks
+			if not hooks.point and type(hooksecurefunc)=="function" and type(tip.SetPoint)=="function" then
+				hooks.point=pcall(hooksecurefunc,tip,"SetPoint",function(self,...) ItemRack.RecordTooltipAnchor(frameName,self,"SetPoint",...) end)
+			end
+			if type(tip.HookScript)=="function" then
+				if not hooks.update then hooks.update=pcall(tip.HookScript,tip,"OnUpdate",function(self) ItemRack.RecordTooltipAnchor(frameName,self,"OnUpdate") end) end
+				if not hooks.size then hooks.size=pcall(tip.HookScript,tip,"OnSizeChanged",function(self) ItemRack.RecordTooltipAnchor(frameName,self,"OnSizeChanged") end) end
+			end
+		end
+	end
+end
+
+function ItemRack.GetTooltipAnchorTraceReport(fullDump)
+	local trace = ItemRack.TooltipAnchorTrace
+	if not trace then return {status="off",retained=0,entries={}} end
+	local status = trace.status
+	if status=="capturing" and GetTime()>=trace.untilTime then status="expired" end
+	local first = fullDump and 1 or math.max(1,#trace.entries-15)
+	local entries = {}
+	for i=first,#trace.entries do entries[#entries+1]=trace.entries[i] end
+	return {status=status,started=trace.started,untilTime=trace.untilTime,retained=#trace.entries,
+		omitted=first-1,capacity=128,entries=entries}
+end
+
+-- Keep a targeted capture copyable without exporting bags, sets or other logs.
+-- Repeated caller stacks are printed once and referenced by their row's ID.
+function ItemRack.FormatTooltipAnchorTraceReport()
+	local report = ItemRack.GetTooltipAnchorTraceReport(true)
+	local observer = ItemRack.nativeComparisonObserver or {}
+	local function value(v,maxLength)
+		return (tostring(ItemRack.MenuDiagnosticValue(v,maxLength)):gsub("%c"," "))
+	end
+	local lines = {"=== ITEMRACK TOOLTIP ANCHOR TRACE ===",
+		"ItemRack="..value(ItemRack.Version).." build="..value(ItemRack.BuildID),
+		"comparisonPolicy=native-per-render-v1 observed="..value(observer.revision or 0).." duplicatesSkipped="..value(observer.reused or 0),
+		"status="..value(report.status).." retained="..value(report.retained).." capacity="..value(report.capacity)
+			.." started="..value(report.started).." until="..value(report.untilTime),
+		"GT=GameTooltip; ST1=ShoppingTooltip1; ST2=ShoppingTooltip2; caller=stack ID (0 means no stack)",
+		"# | time | frame | event | point | relative | anchor | x | y | top | bottom | height | scale | caller"}
+	local aliases = {GameTooltip="GT",ShoppingTooltip1="ST1",ShoppingTooltip2="ST2"}
+	local callers, callerIDs = {}, {}
+	for i,entry in ipairs(report.entries) do
+		local caller = entry.caller
+		local id = 0
+		if caller then
+			caller = value(caller,640)
+			id = callerIDs[caller]
+			if not id then
+				callers[#callers+1] = caller
+				id = #callers
+				callerIDs[caller] = id
+			end
+		end
+		local row = {tostring(i)}
+		for _,key in ipairs({"time","frame","event","point","relative","anchor","x","y","top","bottom","height","scale"}) do
+			local v = value(entry[key])
+			row[#row+1] = (key=="frame" or key=="relative") and (aliases[v] or v) or v
+		end
+		row[#row+1] = tostring(id)
+		lines[#lines+1] = table.concat(row," | ")
+	end
+	lines[#lines+1] = "=== CALLER STACKS (each unique stack printed once) ==="
+	for i,caller in ipairs(callers) do lines[#lines+1] = tostring(i).." | "..caller end
+	return table.concat(lines,"\n")
+end
+
+function ItemRack.AnchorTooltip(owner, isRefresh)
 	-- Character sheet anchoring: only applies when the menu is docked to a character
 	-- sheet slot AND the owner is part of that menu context (a menu popup item or the
 	-- character slot itself). This prevents options-panel or quick-access tooltips from
@@ -5735,6 +7231,9 @@ function ItemRack.AnchorTooltip(owner)
 	local isCharacterMenuContext = ItemRackMenuFrame and ItemRackMenuFrame:IsVisible()
 		and string.match(ItemRack.menuDockedTo or "", "^Character")
 		and (string.match(ownerName, "^ItemRackMenu%d") or string.match(ownerName, "^Character"))
+	if isCharacterMenuContext or ItemRackSettings.TooltipFollow=="ON" then
+		ItemRack.defaultTooltipAnchorOwner = nil
+	end
 
 	if isCharacterMenuContext then
 		local name = ItemRack.menuDockedTo
@@ -5778,7 +7277,9 @@ function ItemRack.AnchorTooltip(owner)
 			end
 		end
 	elseif ItemRackSettings.TooltipFollow=="ON" then
-		if ItemRackMenuFrame and ItemRackMenuFrame:IsVisible() and string.match(ownerName, "^ItemRackMenu%d") then
+		if ItemRackPinnedMenuFrame and type(ItemRackPinnedMenuFrame.IsVisible)=="function" and ItemRackPinnedMenuFrame:IsVisible() and string.match(ownerName, "^ItemRackPinnedMenu%d") then
+			GameTooltip:SetOwner(ItemRackPinnedMenuFrame, ItemRack.GetMenuFrameTooltipSide(ItemRackPinnedMenuFrame))
+		elseif ItemRackMenuFrame and type(ItemRackMenuFrame.IsVisible)=="function" and ItemRackMenuFrame:IsVisible() and string.match(ownerName, "^ItemRackMenu%d") then
 			GameTooltip:SetOwner(ItemRackMenuFrame, ItemRack.GetMenuFrameTooltipSide())
 		elseif owner.GetLeft and owner:GetLeft() and owner:GetLeft()<400 then
 			GameTooltip:SetOwner(owner,"ANCHOR_RIGHT")
@@ -5786,7 +7287,17 @@ function ItemRack.AnchorTooltip(owner)
 			GameTooltip:SetOwner(owner,"ANCHOR_LEFT")
 		end
 	else
+		-- Content/cooldown refreshes must not repeatedly clear SetOwner or undo a
+		-- tooltip addon's default-anchor hook (e.g. TipTac's Mouse Anchor). Keep
+		-- refreshing the item, but acquire placement again after a hide, owner
+		-- change or explicit ItemRack anchor. Fresh tooltips still initialize it.
+		if isRefresh and owner and ItemRack.defaultTooltipAnchorOwner == owner
+			and type(GameTooltip.GetOwner) == "function" and GameTooltip:GetOwner() == owner
+			and type(GameTooltip.IsShown) == "function" and GameTooltip:IsShown() then
+			return
+		end
 		GameTooltip_SetDefaultAnchor(GameTooltip,owner)
+		ItemRack.defaultTooltipAnchorOwner = owner
 	end
 end
 
@@ -5794,7 +7305,8 @@ end
 function ItemRack.TooltipUpdate()
 	if ItemRack.TooltipType then
 		local cooldown
-		ItemRack.AnchorTooltip(ItemRack.TooltipOwner)
+		ItemRack.AnchorTooltip(ItemRack.TooltipOwner, true)
+		local nativeRevision = ItemRack.GetNativeComparisonRevision()
 		if ItemRack.TooltipType=="BAG" then
 			if ItemRack.TooltipBag == BANK_CONTAINER or ItemRack.TooltipBag == -1 then
 				GameTooltip:SetInventoryItem("player",BankButtonIDToInvSlotID(ItemRack.TooltipSlot))
@@ -5813,7 +7325,7 @@ function ItemRack.TooltipUpdate()
 		end
 		GameTooltip:Show()
 		if not shrunk then
-			ItemRack.ShowBreakoutComparison(ItemRack.TooltipOwner)
+			ItemRack.ShowBreakoutComparison(ItemRack.TooltipOwner,nativeRevision)
 		else
 			if ShoppingTooltip1 and ShoppingTooltip1.Hide then ShoppingTooltip1:Hide() end
 			if ShoppingTooltip2 and ShoppingTooltip2.Hide then ShoppingTooltip2:Hide() end
@@ -5932,11 +7444,27 @@ end
 
 function ItemRack.SetTooltip(self,setname)
 	if ItemRackSettings.ShowTooltips ~= "ON" then return end
+	if ItemRack.HybridSet and ItemRackUser and ItemRackUser.CurrentSet and self and self.GetID and self:GetID()==20 then
+		ItemRack.AnchorTooltip(self)
+		GameTooltip:AddLine("ItemRack: Hybrid Set", 1, 0.82, 0)
+		GameTooltip:AddLine("Active Queue: |cFFFFFFFF" .. tostring(ItemRackUser.CurrentSet) .. "|r", 0.8, 0.8, 0.8)
+		GameTooltip:AddLine("Equipped Gear: |cFF00FF00" .. tostring(ItemRack.HybridSet) .. "|r", 0.8, 0.8, 0.8)
+		GameTooltip:AddLine("Left-Click: Fully switch to " .. tostring(ItemRack.HybridSet), 1, 1, 1)
+		GameTooltip:Show()
+		return
+	end
 	local set = setname and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].equip
 	if set then
 		local itemName,itemColor
 		ItemRack.AnchorTooltip(self)
-		GameTooltip:AddLine(setname)
+		if ItemRack.CustomHybridOwner and self and self.GetID and self:GetID()==20 then
+			GameTooltip:AddLine("ItemRack: Custom Gear", 1, 0.82, 0)
+			GameTooltip:AddLine("Active Queue: |cFFFFFFFF" .. tostring(ItemRack.CustomHybridOwner) .. "|r", 0.8, 0.8, 0.8)
+			GameTooltip:AddLine("Equipped Gear: |cFFFF8C00" .. tostring(_G.CUSTOM) .. "|r", 0.8, 0.8, 0.8)
+			GameTooltip:AddLine("Left-Click: Re-equip " .. tostring(ItemRack.CustomHybridOwner), 1, 1, 1)
+		else
+			GameTooltip:AddLine(setname)
+		end
 		if ItemRackSettings.TinyTooltips~="ON" then
 			for i=0,19 do
 				if set[i] then
@@ -6083,10 +7611,40 @@ function ItemRack.IsEquipmentManagerOpen()
 	return false
 end
 
+function ItemRack.PaperDollItemSlotButton_UpdateTooltip(self)
+	if CursorUpdate then
+		CursorUpdate(self)
+	end
+end
+
 ItemRack.oldPaperDollItemSlotButton_OnEnter = PaperDollItemSlotButton_OnEnter
+-- XML slot scripts can forward to the global OnEnter name at call time.
+-- Dispatch their native call once without re-running ItemRack's menu logic.
+function ItemRack.CallCharacterSlotOnEnter(self)
+	local native = ItemRack.oldPaperDollItemSlotButton_OnEnter
+	if self._ItemRackCallingSlotOnEnter then
+		if not self._ItemRackNativeSlotOnEnterCalled then
+			self._ItemRackNativeSlotOnEnterCalled = true
+			if native and native ~= PaperDollItemSlotButton_OnEnter then return native(self) end
+		end
+		return
+	end
+	local handler = self._ItemRackOriginalOnEnter or native
+	if handler == PaperDollItemSlotButton_OnEnter then handler = native end
+	if type(handler) ~= "function" then return end
+	self._ItemRackCallingSlotOnEnter = true
+	self._ItemRackNativeSlotOnEnterCalled = handler == native
+	local ok,err = pcall(handler,self)
+	self._ItemRackCallingSlotOnEnter = nil
+	self._ItemRackNativeSlotOnEnterCalled = nil
+	if not ok then error(err,0) end
+end
+
 function PaperDollItemSlotButton_OnEnter(self)
-	if self and self.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter then
-		self.UpdateTooltip = PaperDollItemSlotButton_OnEnter
+	if not self then return end
+	if self._ItemRackCallingSlotOnEnter then return ItemRack.CallCharacterSlotOnEnter(self) end
+	if self and (self.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter or self.UpdateTooltip == PaperDollItemSlotButton_OnEnter) then
+		self.UpdateTooltip = ItemRack.PaperDollItemSlotButton_UpdateTooltip
 	end
 	if ItemRackSettings.CharacterSheetMenus ~= "ON" or ItemRack.IsEquipmentManagerOpen() then
 		ItemRack.pendingTooltipAnchor = nil
@@ -6096,9 +7654,7 @@ function PaperDollItemSlotButton_OnEnter(self)
 			ItemRackMenuFrame:Hide()
 			ItemRack.menuDockedTo = nil
 		end
-		if ItemRack.oldPaperDollItemSlotButton_OnEnter then
-			ItemRack.oldPaperDollItemSlotButton_OnEnter(self)
-		end
+		ItemRack.CallCharacterSlotOnEnter(self)
 		return
 	end
 
@@ -6120,14 +7676,20 @@ function PaperDollItemSlotButton_OnEnter(self)
 		end
 	end
 	
-	-- Call the original Blizzard function FIRST, completely untouched.
+	-- Call the captured handler (or fallback to original) FIRST, completely untouched.
 	-- We MUST NOT modify GameTooltip.SetOwner or any other secure table — doing so
 	-- taints the GameTooltip table, which propagates to Blizzard action bar OnEnter
 	-- handlers and causes ADDON_ACTION_BLOCKED errors on protected calls like SetShown().
 	-- A previous flyout row must not offset this newly hovered character slot.
 	ItemRack.pendingTooltipVerticalOwner = nil
-	ItemRack.oldPaperDollItemSlotButton_OnEnter(self)
+	ItemRack.CallCharacterSlotOnEnter(self)
 	
+	-- Bind UpdateTooltip to our safe updater that refreshes cursor state without wiping the tooltip
+	-- or resetting the anchor back to the slot button every 0.2s (preventing tooltip flicker loops).
+	if self then
+		self.UpdateTooltip = ItemRack.PaperDollItemSlotButton_UpdateTooltip
+	end
+
 	-- AFTER the secure handler and its post-hooks have finished, reposition the
 	-- tooltip outside the breakout menu when the menu opens to the right of the slot.
 	if isMenuOpen and slot then
@@ -6161,9 +7723,11 @@ function PaperDollItemSlotButton_OnEnter(self)
 end
 
 -- Some clients bind the character-slot OnEnter script or UpdateTooltip field to
--- the function object that existed when Blizzard created the frame. Replacing the
--- global name does not update those stored references, so install ItemRack's wrapper
--- explicitly on both while preserving the captured native handler.
+-- the function object that existed when Blizzard created the frame. Furthermore,
+-- addons loaded earlier in alphabetical sequence (e.g. GearQuest) may have hooked
+-- the button's OnEnter script before ItemRack loaded.
+-- Replace the slot script with ItemRack's wrapper while capturing and chaining
+-- any existing handler (native or third-party) so all hooks execute safely.
 function ItemRack.RegisterCharacterSlotOnEnterHandlers()
 	local registered = 0
 	for i=0,19 do
@@ -6172,12 +7736,16 @@ function ItemRack.RegisterCharacterSlotOnEnterHandlers()
 		if button then
 			local updated = false
 			if button.GetScript and button.SetScript
-			and button:GetScript("OnEnter") == ItemRack.oldPaperDollItemSlotButton_OnEnter then
+			and not button._ItemRackSlotOnEnterRegistered
+			and button:GetScript("OnEnter") ~= PaperDollItemSlotButton_OnEnter then
+				button._ItemRackOriginalOnEnter = button:GetScript("OnEnter")
 				button:SetScript("OnEnter", PaperDollItemSlotButton_OnEnter)
+				button._ItemRackSlotOnEnterRegistered = true
 				updated = true
 			end
-			if button.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter then
-				button.UpdateTooltip = PaperDollItemSlotButton_OnEnter
+			if button.UpdateTooltip == ItemRack.oldPaperDollItemSlotButton_OnEnter
+			or button.UpdateTooltip == PaperDollItemSlotButton_OnEnter then
+				button.UpdateTooltip = ItemRack.PaperDollItemSlotButton_UpdateTooltip
 				updated = true
 			end
 			if updated then
@@ -6357,6 +7925,13 @@ function ItemRack.MinimapOnEnter(tooltip)
 	end
 
 	tooltip:AddLine("ItemRack")
+	if ItemRack.HybridSet and ItemRackUser and ItemRackUser.CurrentSet then
+		tooltip:AddLine("Hybrid: |cFFFFFFFF" .. tostring(ItemRackUser.CurrentSet) .. "|r / |cFF00FF00" .. tostring(ItemRack.HybridSet) .. "|r", 1, 0.82, 0)
+		tooltip:AddLine("Active Queue: " .. tostring(ItemRackUser.CurrentSet), 0.8, 0.8, 0.8)
+		tooltip:AddLine("Equipped Gear: " .. tostring(ItemRack.HybridSet), 0.8, 0.8, 0.8)
+	elseif ItemRack.CustomHybridOwner then
+		tooltip:AddLine("Custom Gear (Active Queue: |cFFFFFFFF" .. tostring(ItemRack.CustomHybridOwner) .. "|r)", 1, 0.82, 0)
+	end
 	tooltip:AddLine("Left click: Select a set",.8,.8,.8,1)
 	tooltip:AddLine("Right click: Open options",.8,.8,.8,1)
 	tooltip:AddLine("Alt left click: Show hidden sets",.8,.8,.8,1)
@@ -6382,27 +7957,41 @@ function ItemRack.ToggleOptions(self,tab)
 end
 
 function ItemRack.ReflectLock(override)
-	if BackdropTemplateMixin then
-		Mixin(ItemRackMenuFrame, BackdropTemplateMixin)
+	local function updateFrameLock(frame, forceHideBorder)
+		if not frame then return end
+		if ItemRack.ApplyMenuFrameBackdrop then
+			ItemRack.ApplyMenuFrameBackdrop(frame, forceHideBorder)
+		else
+			if BackdropTemplateMixin then
+				Mixin(frame, BackdropTemplateMixin)
+			end
+			frame:SetBackdrop(
+				{
+					bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+					edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+					tile = true, tileSize = 16, edgeSize = 16,
+					insets = { left = 4, right = 4, top = 4, bottom = 4 }
+				}
+			);
+			if forceHideBorder then
+				frame:SetBackdropBorderColor(0,0,0,0)
+				frame:SetBackdropColor(0,0,0,0)
+			else
+				frame:SetBackdropBorderColor(.3,.3,.3,1)
+				frame:SetBackdropColor(1,1,1,1)
+			end
+		end
+		if forceHideBorder then
+			frame:EnableMouse(0)
+		else
+			frame:EnableMouse(1)
+		end
 	end
-	ItemRackMenuFrame:SetBackdrop(
-		{
-			bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-			tile = true, tileSize = 16, edgeSize = 16,
-			insets = { left = 4, right = 4, top = 4, bottom = 4 }
-		}
-	);
+	local hideHoverBorder = ItemRackUser.Locked=="ON" or override
+	local hidePinnedBorder = ItemRackUser.Locked=="ON" or not ItemRack.pinnedMenuMovable
+	updateFrameLock(ItemRackMenuFrame, hideHoverBorder)
+	updateFrameLock(ItemRackPinnedMenuFrame, hidePinnedBorder)
 	local shouldLockMinimap = ItemRackUser.Locked=="ON" or (ItemRackSettings and ItemRackSettings.LockMinimap=="ON") or override
-	if ItemRackUser.Locked=="ON" or override then
-		ItemRackMenuFrame:EnableMouse(0)
-		ItemRackMenuFrame:SetBackdropBorderColor(0,0,0,0)
-		ItemRackMenuFrame:SetBackdropColor(0,0,0,0)
-	else
-		ItemRackMenuFrame:EnableMouse(1)
-		ItemRackMenuFrame:SetBackdropBorderColor(.3,.3,.3,1)
-		ItemRackMenuFrame:SetBackdropColor(1,1,1,1)
-	end
 	if LDBIcon and LDBIcon.Lock and LDBIcon.Unlock then
 		if shouldLockMinimap then
 			LDBIcon:Lock("ItemRack")
@@ -6410,7 +7999,7 @@ function ItemRack.ReflectLock(override)
 			LDBIcon:Unlock("ItemRack")
 		end
 	end
-	if ItemRackOptFrame then
+	if ItemRackOptFrame and ItemRackOpt and ItemRackOpt.ListScrollFrameUpdate then
 		ItemRackOpt.ListScrollFrameUpdate()
 	end
 end
@@ -6422,11 +8011,17 @@ function ItemRack.ReflectAlpha()
 		end
 	end
 	ItemRackMenuFrame:SetAlpha(ItemRackUser.Alpha)
+	if ItemRackPinnedMenuFrame then
+		ItemRackPinnedMenuFrame:SetAlpha(ItemRackUser.Alpha)
+	end
 end
 
 function ItemRack.ReflectMenuScale(scale)
 	scale = scale or ItemRackUser.MenuScale
 	ItemRackMenuFrame:SetScale(scale)
+	if ItemRackPinnedMenuFrame then
+		ItemRackPinnedMenuFrame:SetScale(scale)
+	end
 end
 
 function ItemRack.SetFont(button)
@@ -6668,13 +8263,15 @@ function ItemRack.GetWeaponBindingMacro(setname)
 			if not text:match("^%d[%d:%-]*$") or not base or base <= 0 then return "" end
 		end
 	end
+	local targets = {}
 	for slot=16,18 do
 		local id = set.equip[slot]
 		if id then
+			targets[slot] = id
 			table.insert(lines,"/equipslot "..slot.." "..ItemRack.IRStringToItemString(tostring(id)))
 		end
 	end
-	return #lines > 1 and table.concat(lines,"\n") or ""
+	return #lines > 1 and table.concat(lines,"\n") or "", targets
 end
 
 function ItemRack.ConfigureSetBindingButton(button,setname)
@@ -6682,7 +8279,7 @@ function ItemRack.ConfigureSetBindingButton(button,setname)
 	local buttonName = button.GetName and button:GetName() or ItemRack.GetSetBindingButtonName(setname)
 	ItemRack.SetBindingButtons[buttonName] = button
 	button:SetAttribute("type","macro")
-	local weaponMacro = ItemRack.GetWeaponBindingMacro(setname)
+	local weaponMacro, weaponTargets = ItemRack.GetWeaponBindingMacro(setname)
 	button:SetAttribute("macrotext",weaponMacro)
 	button:SetAttribute("useOnKeyDown",false)
 	local pendingRequest
@@ -6692,6 +8289,16 @@ function ItemRack.ConfigureSetBindingButton(button,setname)
 			-- Combat weapon actions always equip; an insecure toggle cannot
 			-- change the protected macro selected before combat.
 			pendingRequest.intent = "equip"
+			if ItemRackSettings.DisableSwapSound == "ON" then
+				for slot, target in pairs(weaponTargets) do
+					pcall(function()
+						local current = ItemRack.GetID(slot)
+						if not ItemRack.SameExactID(target, current) then
+							ItemRack.MuteSwapSounds(target, current)
+						end
+					end)
+				end
+			end
 		end
 	end)
 	button:SetScript("PostClick",function()
@@ -6822,7 +8429,55 @@ end
 
 --[[ Slash Handler ]]
 
+-- Full exports are snapshots split for the copy window, not one enormous
+-- EditBox. Concatenating pages restores the original text byte for byte.
+function ItemRack.SplitDiagnosticPages(text)
+	local pages = {}
+	local first = 1
+	while first<=#text do
+		local last = math.min(first+23999,#text)
+		-- Do not split a UTF-8 codepoint when a single line exceeds the budget.
+		for continuation=1,3 do
+			if last<=first or last==#text then break end
+			local nextByte = string.byte(text,last+1)
+			if nextByte<128 or nextByte>191 then break end
+			last=last-1
+		end
+		local position,lastNewline = first,nil
+		for line=1,400 do
+			local newline=string.find(text,"\n",position,true)
+			if not newline or newline>last then break end
+			lastNewline=newline
+			position=newline+1
+			if line==400 then last=newline end
+		end
+		if last<#text and lastNewline then last=lastNewline end
+		pages[#pages+1]=string.sub(text,first,last)
+		first=last+1
+	end
+	if #pages==0 then pages[1]="" end
+	return pages
+end
+
+function ItemRack.ShowDiagnosticPage(page)
+	local frame=ItemRackLogFrame
+	if not frame or not frame.DumpPages then return end
+	page=math.max(1,math.min(tonumber(page) or 1,#frame.DumpPages))
+	frame.DumpPage=page
+	ItemRackLogEditBox:SetText(frame.DumpPages[page])
+	ItemRackLogEditBox:HighlightText()
+	ItemRackLogScrollFrame:SetVerticalScroll(0)
+	if page>1 then frame.PreviousPage:Enable() else frame.PreviousPage:Disable() end
+	if page<#frame.DumpPages then frame.NextPage:Enable() else frame.NextPage:Disable() end
+	frame.PageLabel:SetText("Full dump - page "..page.." / "..#frame.DumpPages..". Copy each page in order.")
+	if not InCombatLockdown() then ItemRackLogEditBox:SetFocus() end
+end
+
 function ItemRack.SlashHandler(arg1)
+	if arg1 and (arg1=="special" or arg1:match("^special%s")) and ItemRack.SpecialItems then
+		ItemRack.SpecialItems.Command(arg1)
+		return
+	end
 
 	if arg1 and string.match(arg1,"equip") then
 		local set = string.match(arg1,"equip (.+)")
@@ -6882,6 +8537,11 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.DebugTags.API = true
 				ItemRack.DebugTags.UI = true
 				ItemRack.DebugTags.Combat = true
+				ItemRack.DebugTags.Breakouts = true
+			end
+			if ItemRack.DebugChat and ItemRack.SpecialItems and not ItemRack.SpecialItems.IsTraceActive() then
+				ItemRack.DebugTags.SpecialItems=true
+				ItemRack.SpecialItems.StartTrace(true)
 			end
 			ItemRack.QueueDiagnostic("tracking_enabled", { source = "debug_chat" })
 			ItemRack.Print("Diagnostic debug printing to chat is now "..(ItemRack.DebugChat and "ON" or "OFF"))
@@ -6889,19 +8549,43 @@ function ItemRack.SlashHandler(arg1)
 			ItemRack.LogBuffer = {}
 			ItemRack.ClearQueueDiagnostics()
 			ItemRack.MenuDiagnostics = nil
+			ItemRack.ButtonInputDiagnostics = nil
+			ItemRack.TooltipAnchorTrace = nil
+			ItemRack.TooltipAnchorLast = nil
+			if ItemRack.SpecialItems then ItemRack.SpecialItems.ClearDiagnostics() end
 			ItemRack.Print("Diagnostic log, AutoQueue and breakout recorders cleared.")
 		elseif subcmd == "status" then
 			ItemRack.PrintDebugStatus()
+		elseif subcmd == "breakouts" or subcmd == "breakout" then
+			ItemRack.DebugTags.Breakouts = not ItemRack.DebugTags.Breakouts
+			if ItemRack.ProbeQuickAccessBreakouts then
+				ItemRack.ProbeQuickAccessBreakouts(true)
+			end
+			ItemRack.Print("Diagnostic tag [|cff00ff00Breakouts|r] is now " .. (ItemRack.DebugTags.Breakouts and "|cff00ff00ENABLED|r" or "|cffff0000DISABLED|r") .. ". Hover or Shift-Click the affected button, then run /itemrack dump before reloading.")
+		elseif subcmd == "mouse" then
+			ItemRack.RecordButtonInput("mouse_probe")
+			ItemRack.Print("Mouse focus captured. Keep the pointer over the affected button, try Alt-click, then run /itemrack dump before reloading.")
+		elseif subcmd == "tooltips" then
+			ItemRack.StartTooltipAnchorTrace()
+			ItemRack.Print("Capturing tooltip anchor writes and geometry for 10 seconds (up to 128 changes). Hover the affected item, then /itemrack dump tooltips.")
+		elseif subcmd == "tooltips stop" then
+			if ItemRack.TooltipAnchorTrace then ItemRack.TooltipAnchorTrace.status="stopped" end
+			ItemRack.Print("Tooltip anchor capture stopped. Use /itemrack dump tooltips to copy the evidence.")
 		elseif subcmd == "audit" then
 			ItemRack.AuditSavedVariables(true)
 		elseif subcmd == "help" then
 			ItemRack.Print("ItemRack Debug Subcommands:")
-			ItemRack.Print("  /itemrack debug : Toggles all debugging (Silent Mode)")
+			ItemRack.Print("  /itemrack debug : Toggles all debugging (Silent Mode), including 120-second special-item capture")
 			ItemRack.Print("  /itemrack debug chat : Toggles printing logs directly to chat")
 			ItemRack.Print("  /itemrack debug clear : Clears the diagnostic log and AutoQueue trace buffers")
 			ItemRack.Print("  /itemrack debug status : Shows current status of all debug tags")
+			ItemRack.Print("  /itemrack debug breakouts : Probes quick-access breakout gates, visibility, scale, focus & snapshots")
+			ItemRack.Print("  /itemrack debug mouse : Captures mouse focus without changing any frame's mouse handling")
+			ItemRack.Print("  /itemrack debug tooltips : Captures 10 seconds of read-only tooltip anchor/size evidence; tooltips stop ends it early")
+			ItemRack.Print("  /itemrack debug specialitems : Captures special-item events for 120 seconds (silent by default)")
+			ItemRack.Print("  /itemrack special status : Shows saved special-item use/recovery; special reset <itemID> clears one receipt")
 			ItemRack.Print("  /itemrack debug audit : Scans and repairs SavedVariables issues")
-			ItemRack.Print("  /itemrack debug <tag> : Toggles specific tag (Available: events, equip, queue, combatqueue, api, ui, combat)")
+			ItemRack.Print("  /itemrack debug <tag> : Toggles specific tag (Available: events, equip, queue, combatqueue, api, ui, combat, breakouts, specialitems)")
 			ItemRack.Print("  /itemrack dump : Opens a support dump; the AutoQueue recorder is populated only while Queue debug is enabled")
 			ItemRack.Print("  Breakout discovery records are collected automatically, even with debug disabled.")
 		elseif subcmd then
@@ -6919,6 +8603,10 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.PrintDebugStatus()
 			else
 				ItemRack.DebugTags[foundTag] = not ItemRack.DebugTags[foundTag]
+				if foundTag == "SpecialItems" and ItemRack.SpecialItems then
+					ItemRack.DebugTags[foundTag]=not ItemRack.SpecialItems.IsTraceActive()
+					ItemRack.SpecialItems.StartTrace(ItemRack.DebugTags[foundTag])
+				end
 				if foundTag == "Queue" and ItemRack.DebugTags[foundTag] then
 					ItemRack.QueueDiagnostic("tracking_enabled", { source = "debug_queue" })
 				elseif foundTag == "Queue" then
@@ -6936,6 +8624,9 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.DebugTags.API = true
 				ItemRack.DebugTags.UI = true
 				ItemRack.DebugTags.Combat = true
+				ItemRack.DebugTags.Breakouts = true
+				ItemRack.DebugTags.SpecialItems = true
+				if ItemRack.SpecialItems then ItemRack.SpecialItems.StartTrace(true) end
 				ItemRack.QueueDiagnostic("tracking_enabled", { source = "debug_all" })
 				ItemRack.Print("Diagnostic debugging ENABLED for all layers (Silent Mode). Use '/itemrack debug chat' to see traces in chat.")
 			else
@@ -6946,11 +8637,16 @@ function ItemRack.SlashHandler(arg1)
 				ItemRack.DebugTags.API = false
 				ItemRack.DebugTags.UI = false
 				ItemRack.DebugTags.Combat = false
+				ItemRack.DebugTags.Breakouts = false
+				ItemRack.DebugTags.SpecialItems = false
+				if ItemRack.SpecialItems then ItemRack.SpecialItems.StartTrace(false) end
 				ItemRack.ClearQueueDiagnostics()
 				ItemRack.Print("Diagnostic debugging DISABLED.")
 			end
 		end
-	elseif arg1=="dump" then
+	elseif arg1=="dump" or arg1=="dump full" or arg1=="dump tooltips" then
+		local fullDump = arg1=="dump full"
+		local tooltipDump = arg1=="dump tooltips"
 		if not ItemRack.LogBuffer then ItemRack.LogBuffer = {} end
 		if not ItemRackLogFrame then
 			local f = CreateFrame("Frame", "ItemRackLogFrame", UIParent, "BackdropTemplate")
@@ -7001,6 +8697,26 @@ function ItemRack.SlashHandler(arg1)
 				scrollFrame:UpdateScrollChildRect()
 			end)
 			sf:SetScrollChild(eb)
+
+			local previous=CreateFrame("Button",nil,f,"UIPanelButtonTemplate")
+			previous:SetSize(80,22)
+			previous:SetPoint("BOTTOMLEFT",15,12)
+			previous:SetText("Previous")
+			previous:SetScript("OnClick",function() ItemRack.ShowDiagnosticPage(f.DumpPage-1) end)
+			local nextPage=CreateFrame("Button",nil,f,"UIPanelButtonTemplate")
+			nextPage:SetSize(80,22)
+			nextPage:SetPoint("BOTTOMRIGHT",-35,12)
+			nextPage:SetText("Next")
+			nextPage:SetScript("OnClick",function() ItemRack.ShowDiagnosticPage(f.DumpPage+1) end)
+			local pageLabel=f:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+			pageLabel:SetPoint("BOTTOM",0,16)
+			f.PreviousPage,f.NextPage,f.PageLabel=previous,nextPage,pageLabel
+			previous:Hide(); nextPage:Hide(); pageLabel:Hide()
+			f:SetScript("OnHide",function()
+				f.DumpPages=nil
+				f.DumpPage=nil
+				ItemRackLogEditBox:SetText("")
+			end)
 			
 			-- Helper function to serialize WoW tables to string
 			function f.Serialize(val, indent)
@@ -7010,7 +8726,7 @@ function ItemRack.SlashHandler(arg1)
 				elseif type(val) == "number" or type(val) == "boolean" then
 					return tostring(val)
 				elseif type(val) == "table" then
-					local res = "{\n"
+					local parts = {"{\n"}
 					local nextIndent = indent .. "  "
 					for k, v in pairs(val) do
 						local keyStr
@@ -7021,10 +8737,10 @@ function ItemRack.SlashHandler(arg1)
 						else
 							keyStr = "[" .. tostring(k) .. "]"
 						end
-						res = res .. nextIndent .. keyStr .. " = " .. f.Serialize(v, nextIndent) .. ",\n"
+						parts[#parts+1] = nextIndent .. keyStr .. " = " .. f.Serialize(v, nextIndent) .. ",\n"
 					end
-					res = res .. indent .. "}"
-					return res
+					parts[#parts+1] = indent .. "}"
+					return table.concat(parts)
 				else
 					return '"' .. tostring(val) .. '"'
 				end
@@ -7032,22 +8748,25 @@ function ItemRack.SlashHandler(arg1)
 		end
 		
 		local success, result = pcall(function()
+			if tooltipDump then return ItemRack.FormatTooltipAnchorTraceReport() end
 			local logCount = #ItemRack.LogBuffer
 			local tempLog = {}
-			local startIdx = math.max(1, logCount - 500)
+			local startIdx = fullDump and 1 or math.max(1, logCount - 499)
 			for i = startIdx, logCount do
 				table.insert(tempLog, ItemRack.LogBuffer[i])
 			end
-			local dumpText = "=== ITEMRACK LOG BUFFER (Last 500 lines) ===\n" .. table.concat(tempLog, "\n")
+			local logHeading=fullDump and ("All "..logCount.." retained lines") or "Last 500 lines"
+			local dumpText = "=== ITEMRACK LOG BUFFER ("..logHeading..") ===\n" .. table.concat(tempLog, "\n")
 			local queueTrace = ItemRack.QueueDiagnosticBuffer or {}
-			local traceStart = math.max(1, #queueTrace - 249)
+			local traceStart = fullDump and 1 or math.max(1, #queueTrace - 249)
 			local tempQueueTrace = {}
 			for i = traceStart, #queueTrace do
 				table.insert(tempQueueTrace, queueTrace[i])
 			end
-			dumpText = dumpText .. "\n\n=== AUTOQUEUE FLIGHT RECORDER (Last 250 entries) ===\n" .. table.concat(tempQueueTrace, "\n")
+			local queueHeading=fullDump and ("All "..#queueTrace.." retained entries") or "Last 250 entries"
+			dumpText = dumpText .. "\n\n=== AUTOQUEUE FLIGHT RECORDER ("..queueHeading..") ===\n" .. table.concat(tempQueueTrace, "\n")
 			-- Failure in optional evidence collection must not suppress the support dump.
-			local menuOK,menuReport = pcall(ItemRack.GetMenuDiagnosticReport)
+			local menuOK,menuReport = pcall(ItemRack.GetMenuDiagnosticReport,fullDump)
 			dumpText = dumpText .. "\n\n=== BREAKOUT DISCOVERY DIAGNOSTICS ===\n"
 			if menuOK then
 				dumpText = dumpText .. ItemRackLogFrame.Serialize(menuReport)
@@ -7055,6 +8774,7 @@ function ItemRack.SlashHandler(arg1)
 				dumpText = dumpText .. "Breakout report unavailable; other diagnostic sections are retained."
 			end
 			
+			dumpText = dumpText .. "\n\n=== BUTTON INPUT DIAGNOSTICS ===\n" .. ItemRackLogFrame.Serialize(ItemRack.ButtonInputDiagnostics or {})
 			dumpText = dumpText .. "\n\n=== ENABLED ADDONS ===\n"
 			local getNumAddOns = (C_AddOns and C_AddOns.GetNumAddOns) or _G.GetNumAddOns
 			local getAddOnInfo = (C_AddOns and C_AddOns.GetAddOnInfo) or _G.GetAddOnInfo
@@ -7097,10 +8817,14 @@ function ItemRack.SlashHandler(arg1)
 			dumpText = dumpText .. "ItemRackUser.Locked = " .. tostring(ItemRackUser.Locked) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.Buttons = " .. ItemRackLogFrame.Serialize(ItemRackUser.Buttons) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.CurrentSet = " .. tostring(ItemRackUser.CurrentSet) .. "\n"
+			dumpText = dumpText .. "ItemRack.HybridSet = " .. tostring(ItemRack.HybridSet) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.EventStack = " .. ItemRackLogFrame.Serialize(ItemRackUser.EventStack) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.Queues = " .. ItemRackLogFrame.Serialize(ItemRackUser.Queues) .. "\n"
 			dumpText = dumpText .. "ItemRackUser.QueuesEnabled = " .. ItemRackLogFrame.Serialize(ItemRackUser.QueuesEnabled) .. "\n"
 			dumpText = dumpText .. "\n=== AUTOQUEUE RUNTIME STATE ===\n"
+			if ItemRack.SpecialItems then
+				dumpText = dumpText .. "ItemRack.SpecialItems = " .. ItemRackLogFrame.Serialize(ItemRack.SpecialItems.GetDiagnostics(fullDump)) .. "\n"
+			end
 			dumpText = dumpText .. "ItemRack.QueueStateReady = " .. tostring(ItemRack.QueueStateReady) .. "\n"
 			dumpText = dumpText .. "ItemRack.QueueLifecycleKnown = " .. tostring(ItemRack.QueueLifecycleKnown) .. "\n"
 			dumpText = dumpText .. "ItemRack.QueueStateGeneration = " .. tostring(ItemRack.QueueStateGeneration) .. "\n"
@@ -7116,6 +8840,9 @@ function ItemRack.SlashHandler(arg1)
 			dumpText = dumpText .. "ItemRack.PreReadyEquippedObservations = " .. ItemRackLogFrame.Serialize(ItemRack.PreReadyEquippedObservations) .. "\n"
 			dumpText = dumpText .. "ItemRack.PendingQueueEquipSet = " .. ItemRackLogFrame.Serialize(ItemRack.PendingQueueEquipSet) .. "\n"
 			dumpText = dumpText .. "ItemRack.EquipTimers = " .. ItemRackLogFrame.Serialize(ItemRack.EquipTimers) .. "\n"
+			dumpText = dumpText .. "ItemRack.ManualQueueChoice = " .. ItemRackLogFrame.Serialize(ItemRack.ManualQueueChoice) .. "\n"
+			dumpText = dumpText .. "ItemRack.ManualQueueChoiceOwner = " .. ItemRackLogFrame.Serialize(ItemRack.ManualQueueChoiceOwner) .. "\n"
+			dumpText = dumpText .. "ItemRack.ManualQueueHold = " .. ItemRackLogFrame.Serialize(ItemRack.ManualQueueHold) .. "\n"
 			dumpText = dumpText .. "ItemRack.BurntQueueItems = " .. ItemRackLogFrame.Serialize(ItemRack.BurntQueueItems) .. "\n"
 			dumpText = dumpText .. "ItemRack.LastActivation = " .. ItemRackLogFrame.Serialize(ItemRack.LastActivation) .. "\n"
 			dumpText = dumpText .. "ItemRack.LastProcessedItemUse = " .. ItemRackLogFrame.Serialize(ItemRack.LastProcessedItemUse) .. "\n"
@@ -7138,6 +8865,7 @@ function ItemRack.SlashHandler(arg1)
 				{ name = "ItemRackUser.EnableEvents", val = ItemRackUser.EnableEvents },
 				{ name = "ItemRackUser.EnableQueues", val = ItemRackUser.EnableQueues },
 				{ name = "ItemRackUser.EnablePerSetQueues", val = ItemRackUser.EnablePerSetQueues },
+				{ name = "ItemRack.HybridSet", val = ItemRack.HybridSet },
 				{ name = "ItemRackUser.EnableQueueContextCheck", val = ItemRackUser.EnableQueueContextCheck },
 				{ name = "ItemRackUser.ButtonSpacing", val = ItemRackUser.ButtonSpacing },
 				{ name = "ItemRackUser.Alpha", val = ItemRackUser.Alpha },
@@ -7244,18 +8972,39 @@ function ItemRack.SlashHandler(arg1)
 		dumpText = string.gsub(dumpText, "%c", " ")
 		dumpText = string.gsub(dumpText, "_TAB_PLACEHOLDER_", "\t")
 		dumpText = string.gsub(dumpText, "_NL_PLACEHOLDER_", "\n")
-		ItemRackLogFrame:Show()
-		ItemRackLogEditBox:SetText(dumpText)
-		ItemRackLogEditBox:HighlightText()
-		if not InCombatLockdown() then
-			ItemRackLogEditBox:SetFocus()
+		ItemRackLogFrame.DumpPages=(fullDump or tooltipDump) and ItemRack.SplitDiagnosticPages(dumpText) or {dumpText}
+		if fullDump or (tooltipDump and #ItemRackLogFrame.DumpPages>1) then
+			ItemRackLogFrame.PreviousPage:Show(); ItemRackLogFrame.NextPage:Show(); ItemRackLogFrame.PageLabel:Show()
+			ItemRackLogScrollFrame:SetPoint("BOTTOMRIGHT",-35,48)
+		else
+			ItemRackLogFrame.PreviousPage:Hide(); ItemRackLogFrame.NextPage:Hide(); ItemRackLogFrame.PageLabel:Hide()
+			ItemRackLogScrollFrame:SetPoint("BOTTOMRIGHT",-35,15)
 		end
+		ItemRackLogFrame:Show()
+		ItemRack.ShowDiagnosticPage(1)
 	elseif arg1=="opt" or arg1=="options" or arg1=="config" then
 		ItemRack.ToggleOptions()
+	elseif arg1 and string.match(arg1, "^hold%s*") then
+		local slotStr, itemStr = string.match(arg1, "^hold%s+(%d+)%s*(.*)$")
+		if slotStr and ItemRack.HoldSlot then
+			ItemRack.HoldSlot(tonumber(slotStr), itemStr ~= "" and itemStr or nil)
+		else
+			ItemRack.Print("Usage: /itemrack hold <slot 0-19> [itemID]")
+		end
+	elseif arg1 and string.match(arg1, "^unhold%s*") then
+		local slotStr = string.match(arg1, "^unhold%s+(%d+)$")
+		if slotStr and ItemRack.ClearHoldSlot then
+			ItemRack.ClearHoldSlot(tonumber(slotStr))
+		else
+			ItemRack.Print("Usage: /itemrack unhold <slot 0-19>")
+		end
 	else
+		ItemRack.Print("/itemrack dump [full|tooltips] : copy recent/all diagnostics, or only the tooltip capture.")
 		ItemRack.Print("/itemrack opt : summons options window.")
 		ItemRack.Print("/itemrack equip set name : equip set 'set name'.")
 		ItemRack.Print("/itemrack toggle set name[, second set] : toggles set 'set name'.")
+		ItemRack.Print("/itemrack hold <slot 0-19> [itemID] : sets manual queue hold for a slot.")
+		ItemRack.Print("/itemrack unhold <slot 0-19> : clears manual queue hold for a slot.")
 		ItemRack.Print("/itemrack reset : resets buttons and their settings.")
 		ItemRack.Print("/itemrack reset everything : wipes ItemRack to default.")
 		ItemRack.Print("/itemrack lock/unlock : locks/unlocks the buttons.")

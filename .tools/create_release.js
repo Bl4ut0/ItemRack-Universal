@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
+const { distributionFromToc, tocWithDistribution } = require('./release_distribution');
 
 const repoRoot = path.resolve(__dirname, '..');
 process.chdir(repoRoot);
@@ -390,22 +391,23 @@ function requestedDate(args) {
   return value;
 }
 
-function renderReleasePosts(mode, version, body) {
+function renderReleasePosts(mode, version, body, distribution = 'curseforge') {
   const isBeta = mode === 'beta';
   const channelText = isBeta
     ? '> Beta test build: please report Lua errors, incorrect swaps, or regressions with `/itemrack dump` output.'
     : 'This stable release consolidates the tested beta changes for this version.';
   const normalizedBody = body.trim();
   const title = `# ItemRack Universal v${version}`;
-  const github = `${title}\n\n${channelText}\n\n## Changes\n\n${normalizedBody}\n`;
+  const distributionText = distribution === 'github-only' ? '\n\n**GitHub-only test candidate. This build is not distributed through CurseForge.**' : '';
+  const github = `${title}\n\n${channelText}${distributionText}\n\n## Changes\n\n${normalizedBody}\n`;
   const curseForge = `${title}\n\n${isBeta ? '**Beta test release**' : '**Stable release**'}\n\n${normalizedBody}\n\nPlease include the output of \`/itemrack dump\` with any bug report.\n`;
   return { github, curseForge };
 }
 
-function generatePostData(mode, version, body, outputRoot = '.versions') {
+function generatePostData(mode, version, body, outputRoot = '.versions', distribution = 'curseforge') {
   const releaseDir = path.join(outputRoot, 'Release', `v${version}`);
   fs.mkdirSync(releaseDir, { recursive: true });
-  const { github, curseForge } = renderReleasePosts(mode, version, body);
+  const { github, curseForge } = renderReleasePosts(mode, version, body, distribution);
   write(path.join(releaseDir, 'GITHUB_RELEASE.md'), github);
   write(path.join(releaseDir, 'CURSEFORGE_RELEASE.md'), curseForge);
 }
@@ -536,7 +538,8 @@ function buildRelease(mode, version, args) {
     mode,
     version,
     releasePostBody(mode, version, markdown, releaseSection.body),
-    outputRoot
+    outputRoot,
+    distributionFromToc(mainToc)
   );
 
   const zipPath = path.join(outputRoot, 'Compressed', `ItemRack-universal-${version}.zip`);
@@ -573,6 +576,8 @@ function prepare(mode, version, args) {
   }
 
   const date = requestedDate(args);
+  const githubOnly = args.includes('--github-only');
+  if (githubOnly && mode !== 'beta') fail('GitHub-only publication is supported only for beta candidates.');
   const markdown = read(paths.markdownChangelog);
   const addon = read(paths.addonChangelog);
   const markdownResult = mode === 'beta'
@@ -581,7 +586,7 @@ function prepare(mode, version, args) {
   const updatedAddon = mode === 'beta'
     ? promoteBetaAddon(addon, version)
     : consolidateStableAddon(addon, version);
-  const updatedMainToc = tocWithVersion(read(paths.mainToc), version, paths.mainToc);
+  const updatedMainToc = tocWithDistribution(tocWithVersion(read(paths.mainToc), version, paths.mainToc), githubOnly);
   const updatedOptionsToc = tocWithVersion(read(paths.optionsToc), version, paths.optionsToc);
 
   validateMetadataContent(
@@ -613,7 +618,7 @@ function resetDevelopmentMetadata() {
   if (branch !== 'dev') {
     fail(`Development metadata can only be reset on dev; current branch is ${branch || '(detached)'}.`);
   }
-  const mainToc = tocWithVersion(read(paths.mainToc), 'Dev', paths.mainToc);
+  const mainToc = tocWithDistribution(tocWithVersion(read(paths.mainToc), 'Dev', paths.mainToc), false);
   const optionsToc = tocWithVersion(read(paths.optionsToc), 'Dev', paths.optionsToc);
   if (readTocVersionFromText(mainToc, paths.mainToc) !== 'Dev' ||
       readTocVersionFromText(optionsToc, paths.optionsToc) !== 'Dev') {
@@ -649,7 +654,7 @@ if (require.main === module) {
     resetDevelopmentMetadata();
   } else {
     console.error('Usage:');
-    console.error('  node .tools/create_release.js prepare beta <version-betaN> [--date YYYY-MM-DD]');
+    console.error('  node .tools/create_release.js prepare beta <version-betaN> [--date YYYY-MM-DD] [--github-only]');
     console.error('  node .tools/create_release.js prepare stable <version> [--date YYYY-MM-DD]');
     console.error('  node .tools/create_release.js build <beta|stable> <version> --ref <commit-or-tag> [--output-root <path>]');
     console.error('  node .tools/create_release.js reset');

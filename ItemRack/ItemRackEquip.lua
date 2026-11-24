@@ -535,6 +535,12 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 		ItemRack.Debug("Events", "Newer manual set superseded associated spec-set intent:",
 			pendingSpecSet.setname, "->", setname)
 	end
+	if not ItemRack.IsEventEquipment and not ItemRack.IsDeferredEquipment and string.sub(setname,1,1) ~= "~" then
+		if ItemRack.CancelDeferredSetRequests then ItemRack.CancelDeferredSetRequests() end
+		if ItemRack.ManualToggledSet and ItemRack.ManualToggledSet ~= setname then
+			ItemRack.ManualToggledSet = nil
+		end
+	end
 	local unresolvedSetSlot
 	if ItemRackUser.EnableQueues == "ON" and ItemRack.QueueStateReady == true then
 		for slot in pairs(ItemRackUser.Sets[setname].equip) do
@@ -655,35 +661,18 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 		end
 	end
 
-	if ItemRack.ManualQueueChoice then
-		for i in pairs(set.equip) do
-			if type(i) == "number" then ItemRack.ClearManualQueueChoice(i) end
-		end
-		if type(set.Queues) == "table" then
-			for i in pairs(set.Queues) do
-				if type(i) == "number" then ItemRack.ClearManualQueueChoice(i) end
-			end
-		end
-		if type(set.QueuesEnabled) == "table" then
-			for i in pairs(set.QueuesEnabled) do
-				if type(i) == "number" then ItemRack.ClearManualQueueChoice(i) end
-			end
-		end
-	end
-	if not isInternalSet then
-		for i in pairs(set.equip) do
-			if type(i) == "number" and ItemRack.ClearBurntQueueItems then
-				ItemRack.ClearBurntQueueItems(i)
-			end
-		end
-		if type(set.Queues) == "table" and ItemRack.ClearBurntQueueItems then
-			for i in pairs(set.Queues) do
-				if type(i) == "number" then ItemRack.ClearBurntQueueItems(i) end
-			end
-		end
-		if type(set.QueuesEnabled) == "table" and ItemRack.ClearBurntQueueItems then
-			for i in pairs(set.QueuesEnabled) do
-				if type(i) == "number" then ItemRack.ClearBurntQueueItems(i) end
+	for _, field in ipairs({ "equip", "Queues", "QueuesEnabled", "QueueSync" }) do
+		local source = set[field]
+		if type(source) == "table" then
+			for i in pairs(source) do
+				if type(i) == "number" then
+					if ItemRack.ManualQueueChoice then
+						ItemRack.ClearManualQueueChoice(i)
+					end
+					if not isInternalSet and ItemRack.ClearBurntQueueItems then
+						ItemRack.ClearBurntQueueItems(i)
+					end
+				end
 			end
 		end
 	end
@@ -763,7 +752,7 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 			do
 				local detail = secureMacroMismatch and "secure macro left an item-identity mismatch" or reason
 				ItemRack.Debug("Equip", "  slot " .. tostring(i) .. " -> " .. tostring(swap[i]) .. " DEFERRED to CombatQueue (" .. detail .. ")")
-				ItemRack.AddToCombatQueue(i,swap[i])
+				ItemRack.AddToCombatQueue(i,swap[i],nil,isInternalSet and set.oldset or setname)
 				swap[i] = nil
 				if set.old then
 					set.old[i] = ItemRack.GetID(i)
@@ -814,7 +803,7 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 	-- stuck. The CombatQueue will process them cleanly when combat ends.
 	if InCombatLockdown() then
 		for i in pairs(swap) do
-			ItemRack.AddToCombatQueue(i,swap[i])
+			ItemRack.AddToCombatQueue(i,swap[i],nil,isInternalSet and set.oldset or setname)
 			if set.old then
 				set.old[i] = ItemRack.GetID(i)
 				ItemRack.CombatSet = setname
@@ -1103,15 +1092,15 @@ end
 
 function ItemRack.GetSwapOrder()
 	local order = {}
+	table.insert(order, 0)
 	for i = 1, 19 do
 		table.insert(order, i)
 	end
-	table.insert(order, 0)
 	local offset = ItemRack.eqBackOfTheBusOffset or 100
+	table.insert(order, 0 + offset)
 	for i = 1, 19 do
 		table.insert(order, i + offset)
 	end
-	table.insert(order, 0 + offset)
 	return order
 end
 
@@ -1121,14 +1110,6 @@ function ItemRack.IterateSwapList(setname, disableSound)
 	local swap = ItemRack.SwapList
 	if ItemRack.ActiveEquipmentTransaction then
 		return "pending"
-	end
-
-	if disableSound or ItemRackSettings.DisableSwapSound == "ON" then
-		-- Never modify Sound_EnableSFX as a fallback. A global CVar write cannot be
-		-- scoped safely across early returns, Lua errors, overlapping swaps, or a
-		-- user's own sound-setting changes. LibSoundIndex is deliberately optional;
-		-- without it, the swap proceeds with normal sound.
-		pcall(ItemRack.MuteSwapSounds, 1.5)
 	end
 
 	ItemRack.AbortSwap = nil
@@ -1145,8 +1126,8 @@ function ItemRack.IterateSwapList(setname, disableSound)
 		end
 	end
 	local swapOrder = (ItemRack.GetSwapOrder and ItemRack.GetSwapOrder()) or {
-		1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,0,
-		101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,100
+		0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,
+		100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119
 	}
 	local exactSources = {}
 	for _, k in ipairs(swapOrder) do
@@ -1344,6 +1325,7 @@ function ItemRack.EndSetSwap(setname)
 		ItemRack.SetSwapTimeout:Cancel()
 		ItemRack.SetSwapTimeout = nil
 	end
+	local isEventPlan = setname and ItemRack.EventFramePlans and ItemRack.EventFramePlans[setname] and ItemRack.EventFramePlanFinished
 	if setname then
 		local completedSet = ItemRackUser.Sets[setname]
 		if completedSet and not string.match(setname,"^~")
@@ -1361,6 +1343,11 @@ function ItemRack.EndSetSwap(setname)
 		end
 		if not string.match(setname,"^~") then --do not list internal sets, prefixed with ~
 			ItemRackUser.CurrentSet = setname
+			ItemRack.HybridSet = nil
+			ItemRack.CustomHybridOwner = nil
+			if ItemRack.CombatSet and ItemRack.CombatSet ~= setname and not next(ItemRack.CombatQueue or {}) then
+				ItemRack.CombatSet = nil
+			end
 			C_Timer.After(0.5, ItemRack.UpdateCurrentSet)
 
 			-- Dual Spec Support: Auto-Swap Spec if Set is bound
@@ -1402,14 +1389,16 @@ function ItemRack.EndSetSwap(setname)
 			-- Internal set (e.g. ~Unequip, ~CombatQueue) finished restoring gear.
 			-- Set CurrentSet back to the set name stored in oldset.
 			local restoredSet = ItemRackUser.Sets[setname].oldset
-			ItemRackUser.CurrentSet = restoredSet
+			if setname~="~CombatQueue" or ItemRack.CombatQueueRestoreGeneration==(ItemRack.ManualSetGeneration or 0) then
+				ItemRackUser.CurrentSet = restoredSet
+			end
 			if ItemRack.PendingSetHistory then
 				ItemRack.PendingSetHistory[restoredSet] = nil
 			end
 			ItemRackUser.Sets[setname].oldset = nil
 			C_Timer.After(0.5, ItemRack.UpdateCurrentSet)
 		end
-		if ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
+		if not isEventPlan and ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
 			-- Only jump to the equipped set if the user isn't currently editing one
 			if not (ItemRackOptSubFrame2 and ItemRackOptSubFrame2:IsVisible() and ItemRackOpt.HasUnsavedSetChanges and ItemRackOpt.HasUnsavedSetChanges())
 			and not (ItemRackOptSubFrame5 and ItemRackOptSubFrame5:IsVisible()) then
@@ -1418,16 +1407,14 @@ function ItemRack.EndSetSwap(setname)
 		end
 
 		ItemRack.UpdateCombatQueue() -- update button gear icon if per set queues is active
-		if not string.match(setname, "^~") and ItemRack.PeriodicQueueCheck then
-			ItemRack.PeriodicQueueCheck()
-			if C_Timer and C_Timer.After then
-				C_Timer.After(0, ItemRack.PeriodicQueueCheck)
-			end
-		end
 	end
-	if setname and ItemRack.EventFramePlans and ItemRack.EventFramePlans[setname]
-	and ItemRack.EventFramePlanFinished then
+	if isEventPlan then
 		ItemRack.EventFramePlanFinished(setname,true)
+	elseif ItemRackUser and ItemRackUser.EnableQueues == "ON" and ItemRack.PeriodicQueueCheck then
+		ItemRack.PeriodicQueueCheck()
+		if C_Timer and C_Timer.After then
+			C_Timer.After(0, ItemRack.PeriodicQueueCheck)
+		end
 	end
 --	ItemRack.Print("End of set swap. CurrentSet: "..tostring(ItemRackUser.CurrentSet))
 end
@@ -1455,7 +1442,7 @@ function ItemRack.MoveItem(fromBag,fromSlot,toBag,toSlot)
 	return result, request, reason
 end
 
-function ItemRack.IsSetEquipped(setname,exact)
+function ItemRack.IsSetEquipped(setname,exact,physicalOnly)
 	if setname and ItemRackUser.Sets[setname] then
 		local set = ItemRackUser.Sets[setname].equip
 		local id
@@ -1471,7 +1458,7 @@ function ItemRack.IsSetEquipped(setname,exact)
 				checkSlots[i] = true
 			end
 		end
-		if ItemRackUser.EnableQueues == "ON" and ItemRackUser.EnablePerSetQueues == "ON" then
+		if not physicalOnly and ItemRackUser.EnableQueues == "ON" and ItemRackUser.EnablePerSetQueues == "ON" then
 			local setQueues = ItemRackUser.Sets[setname].Queues
 			if type(setQueues) == "table" then
 				for i in pairs(setQueues) do
@@ -1489,7 +1476,9 @@ function ItemRack.IsSetEquipped(setname,exact)
 		for i in pairs(checkSlots) do
 			local queueContext = ItemRack.GetQueueContext(i,setname)
 			local slotQueue = queueContext.list
-			local hasActiveQueue = ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled
+			-- Queue substitution belongs to active-set policy checks. Inferring a
+			-- different worn set must be based on its explicit saved equipment.
+			local hasActiveQueue = not physicalOnly and ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled
 			if hasActiveQueue
 			and (ItemRack.QueueStateReady ~= true or not ItemRack.IsEquippedSlotStateReady(i)) then
 				return false
@@ -1572,6 +1561,10 @@ function ItemRack.UnequipSet(setname, disableSound)
 	-- Unequips a set. If 'parentSet' is found, it patches the stack.
 	-- Otherwise, it restores the set's 'old' to 'ItemRackUser.CurrentSet' via '~Unequip'.
 	if setname and ItemRackUser.Sets[setname] then
+		if not ItemRack.IsEventEquipment and not ItemRack.IsDeferredEquipment
+		and string.sub(setname,1,1)~="~" and ItemRack.CancelDeferredSetRequests then
+			ItemRack.CancelDeferredSetRequests()
+		end
 		ItemRack.Debug("Equip", "UnequipSet called for:", setname, "- CurrentSet is:", ItemRackUser.CurrentSet)
 		-- Manual toggle-off is just as authoritative as choosing a different set
 		-- while an associated specialization cast is pending. Record it before a
@@ -1586,6 +1579,9 @@ function ItemRack.UnequipSet(setname, disableSound)
 				ItemRack.ReleaseEventSlotsForManualChange(ItemRackUser.Sets[setname].equip)
 			end
 			ItemRack.Debug("Events", "Manual unequip superseded associated spec-set intent:", setname)
+		end
+		if ItemRack.ManualToggledSet == setname then
+			ItemRack.ManualToggledSet = nil
 		end
 		if ItemRack.SetSwapping or ItemRack.AnythingLocked() then
 			local blockReason = ItemRack.SetSwapping and ("SetSwapping("..tostring(ItemRack.SetSwapping)..")") or ItemRack.GetLockedReason()
@@ -1703,6 +1699,29 @@ function ItemRack.UnequipSet(setname, disableSound)
 end
 
 function ItemRack.ToggleSet(setname,exact,disableSound,isSecureKeybind)
+	if not setname then return end
+
+	-- In-combat manual toggle handler:
+	-- If this set has pending items in CombatQueue, the second toggle click
+	-- cleanly cancels the queued combat swap (replicating legacy combat-queue toggling).
+	if (InCombatLockdown and InCombatLockdown()) or (ItemRack.IsPlayerReallyDead and ItemRack.IsPlayerReallyDead()) then
+		if ItemRack.IsSetPendingInCombatQueue and ItemRack.IsSetPendingInCombatQueue(setname) then
+			ItemRack.CancelCombatQueueSet(setname)
+			return
+		elseif ItemRack.CombatSet and ItemRack.CombatSet ~= setname and ItemRack.CombatSet ~= "~Unequip" then
+			-- Overriding an existing queued combat set with a new manual set choice
+			ItemRack.CancelCombatQueueSet(ItemRack.CombatSet)
+		end
+	end
+
+	-- When manually toggling, purge any pending automatic sets waiting behind locks
+	if ItemRack.PurgeAutomaticSetsWaiting then
+		ItemRack.PurgeAutomaticSetsWaiting()
+	end
+	if ItemRack.CancelPendingQueueEquipSet and ItemRack.PendingQueueEquipSet and ItemRack.PendingQueueEquipSet.isAutomatic then
+		ItemRack.CancelPendingQueueEquipSet(ItemRack.PendingQueueEquipSet, "manual_toggle_precedence")
+	end
+
 	local currentSet = ItemRackUser and ItemRackUser.CurrentSet
 	local otherSetActive = currentSet and currentSet ~= setname
 		and ItemRackUser.Sets and ItemRackUser.Sets[currentSet]
@@ -1717,11 +1736,92 @@ function ItemRack.ToggleSet(setname,exact,disableSound,isSecureKeybind)
 	end
 	local set = ItemRackUser and ItemRackUser.Sets and ItemRackUser.Sets[setname]
 	local isEquipped = ItemRack.IsSetEquipped(setname,exact)
-	if not otherSetActive and (isEquipped or (currentSet == setname and set and set.old)) then
---		print("remove "..setname)
+	if not otherSetActive and currentSet == setname and (isEquipped or (set and set.old)) then
+		ItemRack.ManualToggledSet = nil
 		ItemRack.UnequipSet(setname,disableSound)
 	else
---		print("equip "..setname)
+		ItemRack.ManualToggledSet = setname
+		if ItemRack.ReleaseEventSlotsForManualChange and set and set.equip then
+			ItemRack.ReleaseEventSlotsForManualChange(set.equip)
+		end
 		ItemRack.EquipSet(setname,disableSound,isSecureKeybind)
+	end
+end
+
+function ItemRack.IsSetPendingInCombatQueue(setname)
+	if not setname or not ItemRackUser or not ItemRackUser.Sets or not ItemRackUser.Sets[setname] then
+		return false
+	end
+	if ItemRack.CombatQueueSetOwner then
+		for slot,owner in pairs(ItemRack.CombatQueueSetOwner) do
+			if owner==setname and ItemRack.CombatQueue and ItemRack.CombatQueue[slot]~=nil then return true end
+		end
+		return false
+	end
+	if ItemRack.CombatSet == setname then
+		return true
+	end
+	local set = ItemRackUser.Sets[setname]
+	if not set.equip then return false end
+	local foundPending = false
+	for slot, targetID in pairs(set.equip) do
+		if type(slot) == "number" and targetID and targetID ~= 0 then
+			local queued = ItemRack.CombatQueue and ItemRack.CombatQueue[slot]
+			if queued then
+				if ItemRack.MatchesStoredItemID(targetID, queued) then
+					foundPending = true
+				else
+					return false
+				end
+			end
+		end
+	end
+	return foundPending
+end
+
+function ItemRack.CancelCombatQueueSet(setname)
+	if not setname or not ItemRackUser or not ItemRackUser.Sets or not ItemRackUser.Sets[setname] then
+		return
+	end
+	local set = ItemRackUser.Sets[setname]
+	if ItemRack.CombatQueueSetOwner then
+		for slot,owner in pairs(ItemRack.CombatQueueSetOwner) do
+			if owner==setname then ItemRack.RemoveFromCombatQueue(slot) end
+		end
+	elseif set.equip then
+		for slot, targetID in pairs(set.equip) do
+		if type(slot) == "number" and targetID and targetID ~= 0 then
+			local queued = ItemRack.CombatQueue and ItemRack.CombatQueue[slot]
+			if queued and ItemRack.MatchesStoredItemID(targetID, queued) then
+				ItemRack.RemoveFromCombatQueue(slot)
+			end
+		end
+		end
+	end
+	if ItemRack.CombatSet == setname then
+		ItemRack.CombatSet = nil
+	end
+	if set.old and not ItemRack.IsSetEquipped(setname) then
+		for i in pairs(set.old) do
+			set.old[i] = nil
+		end
+	end
+	if ItemRack.UpdateCombatQueue then
+		ItemRack.UpdateCombatQueue()
+	end
+	if ItemRack.Print then ItemRack.Print("Cancelled queued combat swap for \""..tostring(setname).."\".") end
+end
+
+function ItemRack.PurgeAutomaticSetsWaiting()
+	if not ItemRack.SetsWaiting then return end
+	local i = 1
+	while i <= #ItemRack.SetsWaiting do
+		local queued = ItemRack.SetsWaiting[i]
+		local isAutomatic = queued and (queued[5] or queued[6])
+		if isAutomatic then
+			table.remove(ItemRack.SetsWaiting, i)
+		else
+			i = i + 1
+		end
 	end
 end
