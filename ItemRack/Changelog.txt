@@ -1,4 +1,5 @@
 __ Development __
+- #38 beta18: inferred Hybrid sets must match their saved worn items; another set's AutoQueue membership alone cannot label gear as that set. Active-set queue matching/authority remains unchanged. Reporter-derived regression added; live acceptance pending.
 - Targeted swap audio: LibSoundIndex can briefly mute the files associated with the incoming and displaced items for each move. Unknown items keep their normal sounds.
 
 __ New in 4.59-beta18 - By Bl4ut0 __

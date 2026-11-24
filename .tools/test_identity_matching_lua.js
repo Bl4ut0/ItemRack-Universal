@@ -6,6 +6,35 @@ const queue = 'ItemRack/ItemRackQueue.lua';
 const options = 'ItemRackOptions/ItemRackOptions.lua';
 runLua(String.raw`
 CUSTOM='Custom'
+local worn={[4]='14617::::::::60::::::::::',[15]='23045:849:::::::60::::::::::'}
+local cloakQueue={{id='15138:2619:::::::60:::::::::'},{id=worn[15]}}
+ItemRack={QueueStateReady=true,DebugTags={},
+ GetID=function(slot) return worn[slot] or 0 end,
+ GetQueueContext=function(slot,name) return {enabled=name=='Drakes' and slot==15,list=cloakQueue} end,
+ MatchesStoredItemID=function(a,b) return a==b end,
+ IsEquippedSlotStateReady=function() return true end,
+ FindQueueEntryIndex=function(list,id) for i,v in ipairs(list) do if v.id==id then return i end end end,
+ GetIRString=function(id) return id end,
+ ShouldHoldEquippedItem=function() return true end,
+ AutoQueueItemToEquip=function() return nil,worn[15] end,
+ Debug=function() end,GetTextureBySlot=function() return 1 end}
+function GetInventoryItemCooldown() return 0,0,1 end
+ItemRackUser={EnableQueues='ON',EnablePerSetQueues='ON',CurrentSet='Tank',
+ Sets={Tank={equip={[4]='2579::::::::60::::::::::'}},
+ Drakes={equip={[15]='15138:2619:::::::60:::::::::'},Queues={[15]=cloakQueue},QueuesEnabled={[15]=true}}}}
+${extractFunction('ItemRack/ItemRackEquip.lua','ItemRack.IsSetEquipped')}
+${extractFunction(core,'ItemRack.UpdateCurrentSet')}
+assert(ItemRack.IsSetEquipped('Drakes'),'active-set checks must retain queue-aware compatibility')
+ItemRack.UpdateCurrentSet()
+assert(ItemRackUser.CurrentSet=='Tank' and ItemRack.HybridSet==nil and ItemRack.CustomHybridOwner=='Tank',
+ 'issue-38-beta18-queue-only-hybrid: queue membership alone must not infer an unrelated saved cloak set')
+worn[15]=ItemRackUser.Sets.Drakes.equip[15];ItemRack.UpdateCurrentSet()
+assert(ItemRack.HybridSet=='Drakes' and ItemRackUser.CurrentSet=='Tank',
+ 'a physically matching partial cloak set must still be recognized without taking queue authority')
+print('[ISSUE 38 BETA18 HYBRID LUA] Reporter shirt/cloak mismatch, active queue compatibility and physical candidate recognition passed.')
+`, 'issue-38-beta18-queue-only-hybrid');
+runLua(String.raw`
+CUSTOM='Custom'
 local reads=0
 ItemRack={HybridSet='Stable',IsSetEquipped=function() reads=reads+1;return true end,GetTextureBySlot=function() return 1 end}
 ItemRackUser={CurrentSet='Active',EnableQueues='OFF',Sets={Active={equip={}},Stable={equip={}}}}

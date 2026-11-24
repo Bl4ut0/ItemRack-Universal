@@ -489,7 +489,7 @@ check(
 
 check(
   core.includes('if setname == _G.CUSTOM and not ItemRack.SetSwapping and ItemRackUser and ItemRackUser.Sets then') &&
-    core.includes('local matches = count > bestCount and ItemRack.IsSetEquipped(name)') &&
+    core.includes('local matches = count > bestCount and ItemRack.IsSetEquipped(name,nil,true)') &&
     core.includes('if matches then'),
   'UpdateCurrentSet must scan saved sets to auto-detect worn sets when CurrentSet is unequipped.'
 );
@@ -525,7 +525,7 @@ check(
 check(
   equip.includes('local check11_12 = (set[11] or set[12])') &&
     equip.includes('local check13_14 = (set[13] or set[14])') &&
-    equip.includes('local hasActiveQueue = ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled') &&
+    equip.includes('local hasActiveQueue = not physicalOnly and ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled') &&
     equip.includes('if hasActiveQueue'),
   'IsSetEquipped must allow single-slot ring/trinket cross checks and only gate queue readiness on slots with active queues.'
 );

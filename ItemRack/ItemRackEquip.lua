@@ -1442,7 +1442,7 @@ function ItemRack.MoveItem(fromBag,fromSlot,toBag,toSlot)
 	return result, request, reason
 end
 
-function ItemRack.IsSetEquipped(setname,exact)
+function ItemRack.IsSetEquipped(setname,exact,physicalOnly)
 	if setname and ItemRackUser.Sets[setname] then
 		local set = ItemRackUser.Sets[setname].equip
 		local id
@@ -1458,7 +1458,7 @@ function ItemRack.IsSetEquipped(setname,exact)
 				checkSlots[i] = true
 			end
 		end
-		if ItemRackUser.EnableQueues == "ON" and ItemRackUser.EnablePerSetQueues == "ON" then
+		if not physicalOnly and ItemRackUser.EnableQueues == "ON" and ItemRackUser.EnablePerSetQueues == "ON" then
 			local setQueues = ItemRackUser.Sets[setname].Queues
 			if type(setQueues) == "table" then
 				for i in pairs(setQueues) do
@@ -1476,7 +1476,9 @@ function ItemRack.IsSetEquipped(setname,exact)
 		for i in pairs(checkSlots) do
 			local queueContext = ItemRack.GetQueueContext(i,setname)
 			local slotQueue = queueContext.list
-			local hasActiveQueue = ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled
+			-- Queue substitution belongs to active-set policy checks. Inferring a
+			-- different worn set must be based on its explicit saved equipment.
+			local hasActiveQueue = not physicalOnly and ItemRackUser.EnableQueues == "ON" and slotQueue and #slotQueue > 0 and queueContext.enabled
 			if hasActiveQueue
 			and (ItemRack.QueueStateReady ~= true or not ItemRack.IsEquippedSlotStateReady(i)) then
 				return false

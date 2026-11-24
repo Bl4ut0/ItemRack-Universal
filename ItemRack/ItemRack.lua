@@ -3335,7 +3335,7 @@ function ItemRack.UpdateCurrentSet()
 						count = count + 1
 					end
 				end
-				local matches = count > bestCount and ItemRack.IsSetEquipped(name)
+				local matches = count > bestCount and ItemRack.IsSetEquipped(name,nil,true)
 				if next(ItemRack.UnresolvedEquippedSlots or {}) then
 					return deferDetection("inventory_unresolved")
 				end

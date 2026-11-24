@@ -3,6 +3,7 @@
 All notable changes to the TBC Anniversary port of ItemRack will be documented in this file.
 
 ## [Development]
+- **Physical Hybrid candidate recognition (#38, beta18 follow-up)**: Inferring another saved set now checks its explicit worn items, rather than accepting membership in that other set's AutoQueue. Active-set queue-aware matching and queue authority remain unchanged. Added a reporter-derived permanent regression for the shirt mismatch and unrelated Drakes cloak queue; live acceptance remains pending.
 - **Targeted swap audio**: With item-aware LibSoundIndex, each submitted equipment move briefly mutes the candidate sound files for the items it touches. Audio remains at its normal settings when the library is missing or has no matching item data.
 
 

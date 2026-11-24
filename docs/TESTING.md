@@ -46,6 +46,26 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 24, 2026 #38 beta18 follow-up (comment 7070611147): reporter completed
+Naxxramas with no unwanted post-combat swap, but attached a persistent Drakes
+Hybrid capture. At 23:57:40 Tank [0/9 T3] Other fails slot 4 (saved 2579, worn
+14617); inferred Drakes passes solely because worn cloak 23045 is entry 2 of its
+queue, although its explicit saved cloak is 15138. This is not proof that either
+the banked cloak equipped or that a transaction was rejected. Why the shirt was
+not equipped is not established by the capture; an unavailable saved item must
+not be silently treated as a confirmed engine bug.
+`issue-38-beta18-queue-only-hybrid` uses those reporter IDs with production
+IsSetEquipped/UpdateCurrentSet and fails before the change. An optional
+physicalOnly match is used only for inferred candidates; normal active-set
+queue substitution still passes. The test also verifies that actually wearing
+the saved Drakes cloak can still recognize that partial set, preserving Tank
+queue authority. It models the supplied configuration, not native inventory
+timing; live recognition acceptance is pending. #39 has no new diagnostic dump;
+do not claim its remaining click/AutoQueue reports verified. #37 reporter has
+explicitly confirmed the ammo correction works (7016640193).
+Validation: clean-dependency full `npm.cmd test` passed for this correction;
+`git diff --check` passed. Native reporter acceptance is still separate.
+
 Swap audio: `item-scoped swap audio and accepted/rejected destination observation`
 in `.tools/test_transaction_engine_lua.js` checks that a locked move leaves
 audio alone until submission, then passes the two exact item identities before
