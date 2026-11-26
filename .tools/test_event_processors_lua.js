@@ -900,3 +900,249 @@ assert(GetActiveTalentGroup and GetActiveTalentGroup() == 1, "Forever GetActiveT
 assert(GetNumTalentGroups and GetNumTalentGroups() == 2, "forever-dual-spec: GetNumTalentGroups must fall back to global GetNumSpecGroups")
 print('[FOREVER SPEC SHIM LUA] Global GetNumSpecGroups fallback passed.')
 `, 'forever-num-spec-groups-shim');
+
+// Performance audit regression:
+// 1. SpecChangeTimer is one-shot (stops & hides ItemRackFrame after firing once)
+// 2. ItemRack.OnUpdate reverse iteration does not skip adjacent expiring timers or kill self-rearming timers
+// 3. RegisterEvents / ProcessingFrameOnEvent scopes UNIT_AURA to player unless a UNIT_AURA Script event is enabled,
+//    gates MountedEventsTicker on Anymount/Swimming events, and caches ProcessScriptTriggers loadstring chunks
+// 4. PeriodicQueueCheck skips AnythingLocked when queues are idle, AnythingLocked reuses ItemLocation without
+//    GetContainerItemInfo allocations, and QueueFieldProxy reuses per-set proxy tables
+const equipFile = 'ItemRack/ItemRackEquip.lua';
+const queueFile = 'ItemRack/ItemRackQueue.lua';
+runLua(String.raw`
+local checks = 0
+local function check(cond, msg)
+  assert(cond, msg)
+  checks = checks + 1
+end
+
+ItemRack = { TimerPool = {}, Timers = {}, DebugTags = {} }
+ItemRackFrame = {
+  shown = false,
+  Show = function(self) self.shown = true end,
+  Hide = function(self) self.shown = false end,
+  IsVisible = function(self) return self.shown end,
+}
+${['CreateTimer','IsTimerActive','StartTimer','StopTimer','OnUpdate','RegisterPlayerUnitEvent',
+  'GetQueueContext','QueueFieldProxy','GetQueues','GetQueuesEnabled']
+  .map(n => extractFunction('ItemRack/ItemRack.lua', n === 'QueueFieldProxy' ? n : `ItemRack.${n}`)).join('\n')}
+${fs.readFileSync('ItemRack/ItemRackQueuePolicy.lua', 'utf8')}
+
+-- 1 & 2) Timer pool: simultaneous one-shot expiry + self-rearming timer + one-shot SpecChangeTimer
+local firedA, firedB, firedRearm = 0, 0, 0
+ItemRack.CreateTimer('OneShotA', function() firedA = firedA + 1 end, 0.5)
+ItemRack.CreateTimer('OneShotB', function() firedB = firedB + 1 end, 0.5)
+ItemRack.CreateTimer('SelfRearm', function()
+  firedRearm = firedRearm + 1
+  if firedRearm == 1 then ItemRack.StartTimer('SelfRearm', 0.2) end
+end, 0.5)
+ItemRack.StartTimer('OneShotA')
+ItemRack.StartTimer('OneShotB')
+ItemRack.StartTimer('SelfRearm')
+check(ItemRackFrame.shown == true, 'starting timers must show ItemRackFrame')
+ItemRack.OnUpdate(ItemRackFrame, 0.6)
+check(firedA == 1 and firedB == 1,
+  'perf-audit: reverse OnUpdate iteration must fire both simultaneous one-shot timers without skipping')
+check(ItemRack.IsTimerActive('OneShotA') == nil and ItemRack.IsTimerActive('OneShotB') == nil,
+  'perf-audit: completed one-shot timers must be removed')
+check(firedRearm == 1 and ItemRack.IsTimerActive('SelfRearm') ~= nil and ItemRackFrame.shown == true,
+  'perf-audit: self-rearming one-shot timer must stay active after re-arming inside its callback')
+ItemRack.OnUpdate(ItemRackFrame, 0.3)
+check(firedRearm == 2 and #ItemRack.Timers == 0 and ItemRackFrame.shown == false,
+  'perf-audit: ItemRackFrame must Hide once the final one-shot timer finishes')
+
+local eventsSource = ${JSON.stringify(fs.readFileSync('ItemRack/ItemRackEvents.lua', 'utf8'))}
+check(eventsSource:find('ItemRack%.CreateTimer%("SpecChangeTimer",ItemRack%.ProcessSpecializationEvent,0%.5%)') ~= nil,
+  'perf-audit: SpecChangeTimer must be registered as a one-shot timer (no repeating rep=1 flag)')
+
+-- 3) RegisterEvents / ProcessingFrameOnEvent UNIT_AURA scoping, MountedEventsTicker gating, and loadstring cache
+local loadstringCalls = 0
+local realLoadstring = loadstring or load
+loadstring = function(chunk, ...)
+  loadstringCalls = loadstringCalls + 1
+  return realLoadstring(chunk, ...)
+end
+
+local unitRegistrations = {}
+local globalRegistrations = {}
+local tickersCreated = 0
+C_Timer = {
+  NewTicker = function(interval, cb)
+    tickersCreated = tickersCreated + 1
+    return { interval = interval, cb = cb, cancelled = false, Cancel = function(self) self.cancelled = true end }
+  end,
+  After = function(_, cb) end,
+}
+
+local bagSlotReads = 0
+function GetContainerNumSlots(b)
+  bagSlotReads = bagSlotReads + 1
+  return 16
+end
+function IsInInstance() return false, 'none' end
+function GetInstanceInfo() return nil end
+function GetRealZoneText() return '' end
+function GetSubZoneText() return '' end
+function UnitClass() return 'WARRIOR', 'WARRIOR' end
+function InCombatLockdown() return false end
+function GetShapeshiftForm() return 0 end
+function GetNumShapeshiftForms() return 0 end
+function GetUnitSpeed() return 0 end
+function CanDualWield() return false end
+function UnitIsDeadOrGhost() return false end
+function IsMounted() return false end
+function UnitOnTaxi() return false end
+function IsSwimming() return false end
+function IsSubmerged() return false end
+function GetTime() return 50 end
+StaticPopupDialogs = {}
+
+ItemRackUser = {
+  EnableEvents = 'ON',
+  EnableQueues = 'OFF',
+  EnablePerSetQueues = 'ON',
+  CurrentSet = 'MainSet',
+  Buttons = {},
+  Sets = {
+    MainSet = { equip = { [13] = '100' }, Queues = { [13] = { { id='100' } } }, QueuesEnabled = { [13] = true } },
+    AltSet = { equip = { [13] = '200' }, Queues = { [13] = { { id='200' } } }, QueuesEnabled = { [13] = false } },
+  },
+  Events = { Enabled = {}, Set = {} },
+}
+ItemRackSettings = {}
+ItemRackEvents = {}
+ItemRackEventProcessingFrame = {
+  _events = {},
+  RegisterEvent = function(self, ev) self._events[ev] = true; globalRegistrations[ev] = (globalRegistrations[ev] or 0) + 1 end,
+  RegisterUnitEvent = function(self, ev, unit) self._events[ev] = true; unitRegistrations[ev] = unit end,
+  UnregisterEvent = function(self, ev) self._events[ev] = nil end,
+  UnregisterAllEvents = function(self) self._events = {}; unitRegistrations = {}; globalRegistrations = {} end,
+  IsEventRegistered = function(self, ev) return self._events[ev] == true end,
+}
+ItemRack.Debug = function() end
+ItemRack.Print = function() end
+ItemRack.ReflectEventsRunning = function() end
+ItemRack.IsForever = function() return false end
+ItemRack.FindPlayerAura = function() return nil end
+ItemRack.GetID = function() return 0 end
+ItemRack.PreflightSetSwap = function() return true end
+ItemRack.UpdateCurrentSet = function() end
+ItemRack.Broker = {}
+${fs.readFileSync('ItemRack/ItemRackEventState.lua', 'utf8')}
+${fs.readFileSync('ItemRack/ItemRackEvents.lua', 'utf8')}
+
+ItemRack.InitEvents()
+ItemRackEvents.MyBuff = { Type = 'Buff', Buff = 'Power Infusion', Unequip = 1 }
+ItemRackUser.Events.Enabled.MyBuff = true
+ItemRackUser.Events.Set.MyBuff = 'AltSet'
+tickersCreated = 0
+ItemRack.RegisterEvents()
+check(unitRegistrations.UNIT_AURA == 'player' and globalRegistrations.UNIT_AURA == nil,
+  'perf-audit: Buff events without UNIT_AURA Script triggers must use RegisterUnitEvent("UNIT_AURA", "player")')
+check(tickersCreated == 0 and ItemRack.MountedEventsTicker == nil,
+  'perf-audit: MountedEventsTicker must stay stopped when no Anymount or Swimming event is enabled')
+
+bagSlotReads = 0
+ItemRack.StopTimer('EventsBuffTimer')
+ItemRack.ProcessingFrameOnEvent(ItemRackEventProcessingFrame, 'UNIT_AURA', 'raid12')
+check(bagSlotReads == 0 and ItemRack.IsTimerActive('EventsBuffTimer') == nil,
+  'perf-audit: non-player UNIT_AURA must exit immediately without querying bags or starting EventsBuffTimer')
+
+ItemRack.ProcessingFrameOnEvent(ItemRackEventProcessingFrame, 'UNIT_AURA', 'player')
+check(ItemRack.IsTimerActive('EventsBuffTimer') ~= nil,
+  'perf-audit: player UNIT_AURA must still arm EventsBuffTimer')
+ItemRack.StopTimer('EventsBuffTimer')
+
+-- Enable Anymount + approved UNIT_AURA Script trigger and verify global registration + loadstring caching
+ItemRackEvents.MountBuff = { Type = 'Buff', Anymount = 1, Unequip = 1 }
+ItemRackUser.Events.Enabled.MountBuff = true
+ItemRackUser.Events.Set.MountBuff = 'AltSet'
+_G.ScriptAuraHits = 0
+ItemRackEvents.TargetAuraWatch = {
+  Type = 'Script',
+  Trigger = 'UNIT_AURA',
+  Script = 'if arg1 == "target" then ScriptAuraHits = ScriptAuraHits + 1 end',
+}
+ItemRackUser.Events.Enabled.TargetAuraWatch = true
+assert(ItemRack.ApproveScriptEventFromInterface('TargetAuraWatch'))
+ItemRack.RegisterEvents()
+check(globalRegistrations.UNIT_AURA == 1 and ItemRack.MountedEventsTicker ~= nil,
+  'perf-audit: UNIT_AURA Script trigger must enable global UNIT_AURA and Anymount must start MountedEventsTicker')
+
+loadstringCalls = 0
+for _ = 1, 5 do
+  ItemRack.ProcessingFrameOnEvent(ItemRackEventProcessingFrame, 'UNIT_AURA', 'target')
+end
+check(_G.ScriptAuraHits == 5 and loadstringCalls == 1,
+  'perf-audit: ProcessScriptTriggers must compile unchanged Script once across repeated firings (got '..tostring(loadstringCalls)..')')
+
+-- Edit & re-approve script -> cache must invalidate and compile the updated script once at runtime
+ItemRackEvents.TargetAuraWatch.Script = 'if arg1 == "target" then ScriptAuraHits = ScriptAuraHits + 10 end'
+assert(ItemRack.ApproveScriptEventFromInterface('TargetAuraWatch'))
+loadstringCalls = 0
+ItemRack.ProcessingFrameOnEvent(ItemRackEventProcessingFrame, 'UNIT_AURA', 'target')
+ItemRack.ProcessingFrameOnEvent(ItemRackEventProcessingFrame, 'UNIT_AURA', 'target')
+check(_G.ScriptAuraHits == 25 and loadstringCalls == 1,
+  'perf-audit: editing Script text must invalidate compiled cache and recompile once across repeated firings')
+loadstring = realLoadstring
+
+-- 4) PeriodicQueueCheck idle fast-return, AnythingLocked ItemLocation reuse, and QueueFieldProxy cache
+local lockChecks = 0
+local containerInfoCalls = 0
+function CursorHasItem() return false end
+function IsInventoryItemLocked() return false end
+function SpellIsTargeting() return false end
+function GetContainerItemInfo()
+  containerInfoCalls = containerInfoCalls + 1
+  return nil
+end
+local lockedBagSlot = nil
+local createdLocations = 0
+ItemLocation = {
+  CreateEmpty = function()
+    createdLocations = createdLocations + 1
+    return {
+      SetBagAndSlot = function(self, b, s) self.b, self.s = b, s end,
+    }
+  end,
+}
+C_Item = {
+  DoesItemExist = function(loc) return loc.b == 2 and (loc.s == 3 or loc.s == 4) end,
+  IsLocked = function(loc) return lockedBagSlot and loc.b == lockedBagSlot[1] and loc.s == lockedBagSlot[2] or false end,
+}
+${extractFunction(equipFile, 'ItemRack.AnythingLocked')}
+local rawAnythingLocked = ItemRack.AnythingLocked
+ItemRack.AnythingLocked = function()
+  lockChecks = lockChecks + 1
+  return rawAnythingLocked()
+end
+${extractFunction(queueFile, 'ItemRack.PeriodicQueueCheck')}
+
+ItemRack.QueueStateReady = true
+ItemRackUser.EnableQueues = 'OFF'
+ItemRack.PeriodicQueueCheck()
+check(lockChecks == 0, 'perf-audit: PeriodicQueueCheck must not scan bag locks when EnableQueues is OFF')
+
+ItemRackUser.EnableQueues = 'ON'
+ItemRackUser.CurrentSet = 'AltSet' -- AltSet has QueuesEnabled[13] = false
+ItemRack.PeriodicQueueCheck()
+check(lockChecks == 0, 'perf-audit: PeriodicQueueCheck must not scan bag locks when zero slots are enabled')
+
+check(rawAnythingLocked() == nil and createdLocations == 1 and containerInfoCalls == 0,
+  'perf-audit: AnythingLocked must reuse one ItemLocation and allocate zero GetContainerItemInfo tables')
+lockedBagSlot = { 2, 4 }
+check(rawAnythingLocked() == 1 and createdLocations == 1 and containerInfoCalls == 0,
+  'perf-audit: AnythingLocked ItemLocation probe must detect locked bag items without GetContainerItemInfo')
+
+ItemRackUser.CurrentSet = 'MainSet'
+local q1, q2 = ItemRack.GetQueues(), ItemRack.GetQueues()
+local e1, e2 = ItemRack.GetQueuesEnabled(), ItemRack.GetQueuesEnabled()
+check(rawequal(q1, q2) and rawequal(e1, e2) and e1[13] == true,
+  'perf-audit: QueueFieldProxy must reuse per-set proxy tables and resolve active context')
+ItemRackUser.CurrentSet = 'AltSet'
+check(ItemRack.GetQueuesEnabled()[13] == false,
+  'perf-audit: cached QueueFieldProxy must reflect CurrentSet switches accurately')
+
+print(string.format('[PERF AUDIT TIMERS EVENTS & PROXIES LUA] %d timer, UNIT_AURA, script-cache, lock and proxy checks passed.', checks))
+`, 'performance-audit-timers-events-and-proxies');

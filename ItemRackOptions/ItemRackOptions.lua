@@ -146,8 +146,24 @@ function ItemRackOpt.OnEvent(self, event, ...)
 		-- choices when the cache completes; never disturb the set being edited.
 		ItemRackOpt.PopulateInvIcons()
 		ItemRackOpt.RefreshQueueIconPage()
-	elseif (event == "BAG_UPDATE" or event == "BANKFRAME_OPENED" or event == "BANKFRAME_CLOSED" or event == "SPELLS_CHANGED") and ItemRackOptFrame:IsVisible() then
-		ItemRackOpt.RefreshQueueIconPage()
+	elseif event == "BAG_UPDATE" and ItemRackOptFrame:IsVisible() then
+		if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() then
+			if C_Timer and C_Timer.After then
+				if not ItemRackOpt.PendingBagQueueRefresh then
+					ItemRackOpt.PendingBagQueueRefresh = true
+					C_Timer.After(0, function()
+						ItemRackOpt.PendingBagQueueRefresh = nil
+						if ItemRackOptFrame and ItemRackOptFrame:IsVisible() then
+							ItemRackOpt.RefreshQueueIconPage(true)
+						end
+					end)
+				end
+			else
+				ItemRackOpt.RefreshQueueIconPage(true)
+			end
+		end
+	elseif (event == "BANKFRAME_OPENED" or event == "BANKFRAME_CLOSED" or event == "SPELLS_CHANGED") and ItemRackOptFrame:IsVisible() then
+		ItemRackOpt.RefreshQueueIconPage(event ~= "SPELLS_CHANGED")
 	end
 end
 
@@ -2603,13 +2619,13 @@ function ItemRackOpt.IsQueueItemCarried(id)
 	return ItemRackOpt.GetQueueItemLocation(id) == "carried"
 end
 
-function ItemRackOpt.RefreshQueueIconPage()
+function ItemRackOpt.RefreshQueueIconPage(skipCatalog)
 	if ItemRackOptSubFrame7 and ItemRackOptSubFrame7:IsVisible() then
 		ItemRackOpt.SortListScrollFrameUpdate()
 		local list = ItemRack.GetQueues(ItemRackOpt.QueueEditingSet)[ItemRackOpt.SelectedSlot]
 		ItemRackOpt.UpdateQueueIconButton(list and list[ItemRackOpt.SortSelected or 0])
 		local picker = ItemRackOpt.QueueIconPicker
-		if picker and picker.context then
+		if picker and picker.context and not skipCatalog then
 			picker.catalog = ItemRackOpt.BuildQueueIconCatalog()
 			ItemRackOpt.FilterQueueIcons()
 		end

@@ -72,7 +72,12 @@ function Special.ClearDiagnostics()
 end
 
 function Special.TraceHook(source,slot)
+	if not Special.TraceUntil then return end
 	Trace("use_hook",{source=source,slot=Number(slot),slotType=type(slot)})
+end
+
+function Special.HasActiveTracking()
+	return not Special.Restored or next(Special.Used)~=nil or next(Special.Intents)~=nil
 end
 
 function Special.GetRule(id,slot,includeDisabled)

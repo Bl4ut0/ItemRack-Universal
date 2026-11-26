@@ -326,12 +326,25 @@ function ItemRack.ExtractSwimmingScriptSetName(script)
 	return setName
 end
 
+local swimmingScriptCache = setmetatable({}, { __mode = "k" })
+
 local function MatchCanonicalSwimmingScript(eventData)
 	if type(eventData) ~= "table" or eventData.Type ~= "Script" or eventData.Trigger ~= "MIRROR_TIMER_START" then
 		return false, nil
 	end
-	local setName = ItemRack.ExtractSwimmingScriptSetName(eventData.Script)
-	if not setName then
+	local script = eventData.Script
+	local cached = swimmingScriptCache[eventData]
+	if cached and cached.script == script then
+		return cached.isCanonical, cached.setName
+	end
+	local setName = ItemRack.ExtractSwimmingScriptSetName(script)
+	local isCanonical = setName ~= nil
+	swimmingScriptCache[eventData] = {
+		script = script,
+		isCanonical = isCanonical,
+		setName = isCanonical and setName or nil,
+	}
+	if not isCanonical then
 		return false, nil
 	end
 	return true, setName
@@ -607,7 +620,7 @@ function ItemRack.InitEvents()
 	ItemRack.CreateTimer("EventsBuffTimer",ItemRack.ProcessBuffEvent,.15)
 	ItemRack.CreateTimer("EventsZoneTimer",ItemRack.ProcessZoneEvent,.16)
 	ItemRack.CreateTimer("CheckForMountedEvents",ItemRack.CheckForMountedEvents,.5,1)
-	ItemRack.CreateTimer("SpecChangeTimer",ItemRack.ProcessSpecializationEvent,0.5,1)
+	ItemRack.CreateTimer("SpecChangeTimer",ItemRack.ProcessSpecializationEvent,0.5)
 	ItemRack.CreateTimer("MovementPollingTimer",ItemRack.PollMovement,.2,1)
 	
 	-- EventState is persistent logical ownership. EventStack remains a derived
@@ -688,7 +701,12 @@ function ItemRack.RegisterEvents()
 	local frame = ItemRackEventProcessingFrame
 	if not frame then return end
 	frame:UnregisterAllEvents()
+	if ItemRack.MountedEventsTicker then
+		ItemRack.MountedEventsTicker:Cancel()
+		ItemRack.MountedEventsTicker = nil
+	end
 	ItemRack.StopTimer("CheckForMountedEvents")
+	ItemRack.HasUnitAuraScriptTrigger = false
 	QuarantineUnapprovedScriptEvents(false)
 	ItemRack.ReflectEventsRunning()
 	if ItemRackUser.EnableEvents=="OFF" then
@@ -696,17 +714,34 @@ function ItemRack.RegisterEvents()
 	end
 	local enabled = ItemRackUser.Events.Enabled
 	local events = ItemRackEvents
-	
-	local enabledCount = 0
-	for _ in pairs(enabled) do enabledCount = enabledCount + 1 end
+
+	local hasUnitAuraScript = false
+	for eventName in pairs(enabled) do
+		local eventData = events[eventName]
+		if eventData and eventData.Type == "Script" and eventData.Trigger == "UNIT_AURA"
+		and IsScriptEventApproved(eventName, eventData) then
+			hasUnitAuraScript = true
+			break
+		end
+	end
+	ItemRack.HasUnitAuraScriptTrigger = hasUnitAuraScript
+
+	local needsMountedPoller = false
 	local eventType
 	for eventName in pairs(enabled) do
 		local eventData = events[eventName]
 		if eventData then
 			eventType = eventData.Type
 			if eventType=="Buff" then
+				if eventData.Anymount then
+					needsMountedPoller = true
+				end
 				if not frame:IsEventRegistered("UNIT_AURA") then
-					frame:RegisterEvent("UNIT_AURA")
+					if not hasUnitAuraScript and ItemRack.RegisterPlayerUnitEvent then
+						ItemRack.RegisterPlayerUnitEvent(frame, "UNIT_AURA")
+					else
+						frame:RegisterEvent("UNIT_AURA")
+					end
 				end
 				if eventData.OnMovement then
 					if not frame:IsEventRegistered("PLAYER_STARTED_MOVING") then
@@ -737,6 +772,9 @@ function ItemRack.RegisterEvents()
 				end
 			elseif eventType=="Script" then
 				local approved = IsScriptEventApproved(eventName,eventData)
+				if approved and MatchCanonicalSwimmingScript(eventData) then
+					needsMountedPoller = true
+				end
 				if approved and not frame:IsEventRegistered(eventData.Trigger) then
 					local ok,registerErr = pcall(frame.RegisterEvent,frame,eventData.Trigger)
 					if not ok then
@@ -749,7 +787,13 @@ function ItemRack.RegisterEvents()
 			ItemRack.Debug("Events", "Enabled event missing from ItemRackEvents:", eventName)
 		end
 	end
-	ItemRack.StartTimer("CheckForMountedEvents")
+	if needsMountedPoller then
+		if C_Timer and C_Timer.NewTicker then
+			ItemRack.MountedEventsTicker = C_Timer.NewTicker(0.5, ItemRack.CheckForMountedEvents)
+		else
+			ItemRack.StartTimer("CheckForMountedEvents")
+		end
+	end
 
 	ItemRack.ProcessStanceEvent()
 	ItemRack.ProcessZoneEvent()
@@ -1692,6 +1736,8 @@ local function CaptureScriptEventArguments(event,...)
 	}
 end
 
+local compiledScriptCache = {}
+
 local function ProcessScriptTriggers(event,args)
 	local enabled = ItemRackUser.Events.Enabled
 	local events = ItemRackEvents
@@ -1703,6 +1749,7 @@ local function ProcessScriptTriggers(event,args)
 		if eventData and eventData.Type=="Script" and eventData.Trigger==event then
 			local approved,reason = IsScriptEventApproved(eventName,eventData)
 			if not approved then
+				compiledScriptCache[eventName] = nil
 				BlockScriptEvent(eventName,reason,false)
 			elseif MatchCanonicalSwimmingScript(eventData) then
 				-- Canonical Swimming events share the managed water-state processor so
@@ -1713,7 +1760,18 @@ local function ProcessScriptTriggers(event,args)
 					ItemRack.ProcessSwimmingEvent()
 				end
 			else
-				local method, compileErr = loadstring(scriptEventPrelude .. eventData.Script)
+				local cached = compiledScriptCache[eventName]
+				local method, compileErr
+				if cached and cached.script == eventData.Script then
+					method = cached.fn
+				else
+					method, compileErr = loadstring(scriptEventPrelude .. eventData.Script)
+					if method then
+						compiledScriptCache[eventName] = { script = eventData.Script, fn = method }
+					else
+						compiledScriptCache[eventName] = nil
+					end
+				end
 				if not method then
 					BlockScriptEvent(eventName,"script has a syntax error",false)
 					ItemRack.Debug("Events", "Error compiling script for event '" .. tostring(eventName) .. "': " .. tostring(compileErr))
@@ -1770,6 +1828,9 @@ function ItemRack.ReplayDeferredScriptEvents()
 end
 
 function ItemRack.ProcessingFrameOnEvent(self,event,...)
+	if event == "UNIT_AURA" and select(1,...) ~= "player" and not ItemRack.HasUnitAuraScriptTrigger then
+		return
+	end
 	if ItemRack.IsAutomaticSwapBlocked and ItemRack.IsAutomaticSwapBlocked() then
 		QueueDeferredScriptEvent(event,...)
 		ItemRack.Debug("Events", "Event processing deferred while automatic swaps are suspended:", event)
@@ -2686,15 +2747,8 @@ function ItemRack.ProcessSwimmingEvent()
 	end
 	local enabled = ItemRackUser and ItemRackUser.Events and ItemRackUser.Events.Enabled
 	local events = ItemRackEvents
-	if not enabled or not events then
+	if not enabled or not events or not next(enabled) then
 		return
-	end
-	local state = ItemRack.EnsureEventFrameState()
-	local inWater = ((IsSwimming and IsSwimming()) or (IsSubmerged and IsSubmerged())) and true or false
-	local instanceType
-	if IsInInstance then
-		local _, instType = IsInInstance()
-		instanceType = instType
 	end
 	local names = {}
 	for eventName in pairs(enabled) do
@@ -2705,6 +2759,13 @@ function ItemRack.ProcessSwimmingEvent()
 	end
 	if #names == 0 then
 		return
+	end
+	local state = ItemRack.EnsureEventFrameState()
+	local inWater = ((IsSwimming and IsSwimming()) or (IsSubmerged and IsSubmerged())) and true or false
+	local instanceType
+	if IsInInstance then
+		local _, instType = IsInInstance()
+		instanceType = instType
 	end
 	table.sort(names)
 

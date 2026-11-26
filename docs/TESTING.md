@@ -46,6 +46,42 @@ hard to reproduce manually on a character with only a few saved sets.
 
 ## User-report regression workflow
 
+November 26, 2026 #42 Forever combat-boundary frame spikes (`Zwyk`, Forever
+`1.60.1.71037` / `4.59` report with `ItemRack-snapshot-skip.txt`, plus Forever
+`1.60.1.71139` user diagnostic dump): `OnEnteringCombat`, `OnLeavingCombatOrDeath`,
+and `FlushInventoryRefresh` invoked `RefreshQuickAccessMenuSnapshots`, walking all
+5 bags `2 * |slots|` times (14-28 passes of 82 slots per combat cycle) and calling
+`ItemRackTooltip:SetBagItem` repeatedly per matching item, triggering third-party
+`TooltipDataProcessor` addons (`DisenchantBuddy`, `Auctionator`, `Baganator`, etc.)
+and ItemRack's own `OnTooltipItemData` / `ListSetsHavingItem` hooks even when no
+inventory inputs changed. Fixed via single-pass `RefreshMenuSnapshotsBatch`,
+`MenuSnapshotInputs` / `SameMenuSnapshotInputs` skip guards across
+`combat_entry_refresh`, `combat_exit_refresh`, and `inventory_refresh` (including
+600s max-age refresh, `onlySlot` invalidation, and clearing cached inputs when
+`StoreMenuSnapshot` preserves a combat snapshot), `ItemRackTooltip` exclusion in
+set-tooltip hooks, and `IsSoulbound` `GetContainerItemInfo().isBound` fast path.
+Accompanied by a codebase-wide performance audit fixing idle `ItemRackFrame`
+`OnUpdate` (`C_Timer.NewTicker` for `CooldownUpdate` and gated
+`CheckForMountedEvents`), runaway `SpecChangeTimer` (`rep=1` -> one-shot),
+`ItemRack.OnUpdate` reverse removal, `"player"` `RegisterUnitEvent` scoping for
+`UNIT_AURA` / `UNIT_SPELLCAST_*` / `UNIT_INVENTORY_CHANGED`, `ProcessScriptTriggers`
+`loadstring` caching, `PeriodicQueueCheck` idle skip, `AnythingLocked`
+`ItemLocation` reuse, `SameItemFields` base-ID fast rejection, `QueueFieldProxy`
+per-set caching, `BuildMenu` set sort placement, and gated off-by-default debug
+allocations. Named permanent regressions
+`issue-42-forever-snapshot-refresh-and-tooltip-isolation`
+(`.tools/test_forever_combat_menu_lua.js`, 89 checks) and
+`performance-audit-timers-events-and-proxies`
+(`.tools/test_event_processors_lua.js`, 19 checks) run in `npm.cmd test`.
+Offline Fengari tests model bag/tooltip/event call counts and state equivalence;
+they cannot measure native WoW client frame times or third-party addon hook
+latency. Live Forever `1.60.1` acceptance is still required: verify entering and
+leaving combat with tooltip-heavy addons (`DisenchantBuddy` / `Baganator` /
+`TipTac`) shows no frame hitch, combat quick-access and character-sheet breakouts
+still populate worn + bagged gear after looting or swapping items, and
+`/itemrack dump` reports `snapshotRefresh.skipped` incrementing on unchanged
+combat transitions.
+
 November 24, 2026 #38 beta18 follow-up (comment 7070611147): reporter completed
 Naxxramas with no unwanted post-combat swap, but attached a persistent Drakes
 Hybrid capture. At 23:57:40 Tank [0/9 T3] Other fails slot 4 (saved 2579, worn

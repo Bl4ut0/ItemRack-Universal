@@ -1050,3 +1050,444 @@ check(sawDock and sawShift and sawRight,
 
 print(string.format('[PINNED BREAKOUT & DEBUG LUA] %d anchored-breakout and blocker-diagnostic checks passed.', checks))
 `, 'issue-39-pinned-breakout-and-debug');
+
+// GitHub #42 (Zwyk, Forever 1.60.1.71037 / 71139):
+// RefreshQuickAccessMenuSnapshots single-pass batching, input-change skipping across
+// combat_entry_refresh / combat_exit_refresh / inventory_refresh, ItemRackTooltip self-hook
+// isolation, and IsSoulbound C_Container.GetContainerItemInfo fast path.
+runLua(String.raw`
+local checks = 0
+local function check(cond, msg)
+  assert(cond, msg)
+  checks = checks + 1
+end
+
+local now = 1000
+local combat, unitCombat = false, false
+local altDown = false
+local playerLevel = 60
+local skillLines = 12
+local getNumSlotsCalls = 0
+local getItemIdCalls = 0
+local setBagItemCalls = 0
+local getIdCalls = 0
+local listSetsCalls = 0
+
+function GetTime() return now end
+function debugprofilestop() return now * 1000 end
+function InCombatLockdown() return combat end
+function UnitAffectingCombat(u) return u == 'player' and unitCombat or false end
+function IsAltKeyDown() return altDown end
+function IsShiftKeyDown() return false end
+function IsControlKeyDown() return false end
+function UnitLevel(u) return playerLevel end
+function GetNumSkillLines() return skillLines end
+function GetLocale() return 'enUS' end
+function GetNumAddOns() return 0 end
+WOW_PROJECT_ID = 18
+wowver, wowbuild, wowtoc = '1.60.1', '71139', 16001
+ITEM_SOULBOUND = 'Soulbound'
+ITEM_BIND_QUEST = 'Quest Item'
+ITEM_CONJURED = 'Conjured Item'
+
+-- 5 bags matching real Forever dump shape: 20 + 14 + 14 + 16 + 18 = 82 slots
+local bagSizes = { [0]=20, [1]=14, [2]=14, [3]=16, [4]=18 }
+local bagItems = { [0]={}, [1]={}, [2]={}, [3]={}, [4]={} }
+local itemMeta = {
+  ['1001:0:0:0:0:0:0:0'] = { name='Worn Helm', tex='tex1001', equip='INVTYPE_HEAD', bound=true },
+  ['1008:0:0:0:0:0:0:0'] = { name='Worn Boots', tex='tex1008', equip='INVTYPE_FEET', bound=true },
+  ['1301:0:0:0:0:0:0:0'] = { name='Worn Trinket A', tex='tex1301', equip='INVTYPE_TRINKET', bound=true },
+  ['1302:0:0:0:0:0:0:0'] = { name='Worn Trinket B', tex='tex1302', equip='INVTYPE_TRINKET', bound=true },
+  ['1601:0:0:0:0:0:0:0'] = { name='Worn Mainhand', tex='tex1601', equip='INVTYPE_WEAPONMAINHAND', bound=true },
+  ['1701:0:0:0:0:0:0:0'] = { name='Worn Shield', tex='tex1701', equip='INVTYPE_SHIELD', bound=true },
+  ['1801:0:0:0:0:0:0:0'] = { name='Worn Bow', tex='tex1801', equip='INVTYPE_RANGED', bound=true },
+  ['2301:0:0:0:0:0:0:0'] = { name='Bag Trinket 1', tex='tex2301', equip='INVTYPE_TRINKET', bound=true },
+  ['2302:0:0:0:0:0:0:0'] = { name='Bag Trinket 2', tex='tex2302', equip='INVTYPE_TRINKET', bound=true },
+  ['2601:0:0:0:0:0:0:0'] = { name='Bag OneHand 1', tex='tex2601', equip='INVTYPE_WEAPON', bound=true },
+  ['2602:0:0:0:0:0:0:0'] = { name='Bag HighLevel Sword', tex='tex2602', equip='INVTYPE_WEAPON', bound=true, minLevel=65 },
+  ['2101:0:0:0:0:0:0:0'] = { name='Bag Ring 1', tex='tex2101', equip='INVTYPE_FINGER', bound=true },
+  ['2303:0:0:0:0:0:0:0'] = { name='Bag Trinket 3', tex='tex2303', equip='INVTYPE_TRINKET', bound=true },
+  ['2304:0:0:0:0:0:0:0'] = { name='Tradable Trinket', tex='tex2304', equip='INVTYPE_TRINKET', bound=false },
+  ['2305:0:0:0:0:0:0:0'] = { name='Conjured Trinket', tex='tex2305', equip='INVTYPE_TRINKET', bound=false, tipLine=ITEM_CONJURED },
+  ['9000:0:0:0:0:0:0:0'] = { name='Major Mana Potion', tex='tex9000', equip='', bound=false },
+  ['9001:0:0:0:0:0:0:0'] = { name='Plate Chest', tex='tex9001', equip='INVTYPE_CHEST', bound=true },
+}
+
+-- Fill 55 occupied slots (51 consumables/non-matching + 4 matching) and leave 27 empty slots
+local filled = 0
+for b = 0, 4 do
+  for j = 1, bagSizes[b] do
+    if b == 4 and j == 15 then
+      bagItems[b][j] = '2301:0:0:0:0:0:0:0'; filled = filled + 1
+    elseif b == 4 and j == 16 then
+      bagItems[b][j] = '2302:0:0:0:0:0:0:0'; filled = filled + 1
+    elseif b == 4 and j == 17 then
+      bagItems[b][j] = '2601:0:0:0:0:0:0:0'; filled = filled + 1
+    elseif b == 4 and j == 18 then
+      bagItems[b][j] = '2602:0:0:0:0:0:0:0'; filled = filled + 1
+    elseif filled < 51 then
+      bagItems[b][j] = (filled % 2 == 0) and '9000:0:0:0:0:0:0:0' or '9001:0:0:0:0:0:0:0'
+      filled = filled + 1
+    end
+  end
+end
+
+local worn = {
+  [1] = '1001:0:0:0:0:0:0:0',
+  [8] = '1008:0:0:0:0:0:0:0',
+  [13] = '1301:0:0:0:0:0:0:0',
+  [14] = '1302:0:0:0:0:0:0:0',
+  [16] = '1601:0:0:0:0:0:0:0',
+  [17] = '1701:0:0:0:0:0:0:0',
+  [18] = '1801:0:0:0:0:0:0:0',
+}
+
+function GetContainerNumSlots(bag)
+  getNumSlotsCalls = getNumSlotsCalls + 1
+  return bagSizes[bag] or 0
+end
+function GetContainerItemID(bag, slot)
+  getItemIdCalls = getItemIdCalls + 1
+  local id = bagItems[bag] and bagItems[bag][slot]
+  return id and tonumber(id:match('^(%d+)')) or nil
+end
+C_Container = {
+  GetContainerNumSlots = GetContainerNumSlots,
+  GetContainerItemID = GetContainerItemID,
+  GetContainerItemInfo = function(bag, slot)
+    local id = bagItems[bag] and bagItems[bag][slot]
+    if not id then return nil end
+    local meta = itemMeta[id]
+    return { isBound = meta and meta.bound or false, itemID = tonumber(id:match('^(%d+)')) }
+  end,
+}
+
+local function makeLine()
+  local text, r, g, b = '', 1, 1, 1
+  return {
+    SetText = function(_, t, cr, cg, cb) text = t or ''; r = cr or 1; g = cg or 1; b = cb or 1 end,
+    GetText = function() return text end,
+    SetTextColor = function(_, cr, cg, cb) r, g, b = cr, cg, cb end,
+    GetTextColor = function() return r, g, b end,
+  }
+end
+for i = 1, 8 do
+  _G['ItemRackTooltipTextLeft'..i] = makeLine()
+  _G['ItemRackTooltipTextRight'..i] = makeLine()
+  _G['GameTooltipTextLeft'..i] = makeLine()
+end
+
+local tipLineCount = 0
+ItemRackTooltip = {
+  GetName = function() return 'ItemRackTooltip' end,
+  NumLines = function() return tipLineCount end,
+  AddDoubleLine = function() error('ItemRackTooltip must never receive ItemRack Set tooltip lines') end,
+  SetBagItem = function(self, bag, slot)
+    setBagItemCalls = setBagItemCalls + 1
+    for i = 1, 8 do
+      _G['ItemRackTooltipTextLeft'..i]:SetText('', 1, 1, 1)
+      _G['ItemRackTooltipTextRight'..i]:SetText('', 1, 1, 1)
+    end
+    local id = bagItems[bag] and bagItems[bag][slot]
+    local meta = id and itemMeta[id]
+    tipLineCount = 2
+    _G['ItemRackTooltipTextLeft1']:SetText(meta and meta.name or 'Item', 1, 1, 1)
+    _G['ItemRackTooltipTextLeft2']:SetText(meta and meta.tipLine or (meta and meta.bound and ITEM_SOULBOUND or 'Binds when equipped'), 1, 1, 1)
+    if meta and meta.minLevel and playerLevel < meta.minLevel then
+      tipLineCount = 5
+      _G['ItemRackTooltipTextLeft5']:SetText('Requires Level '..meta.minLevel, 1, 0.1, 0.1)
+    end
+    -- Simulate modern TooltipDataProcessor + SetBagItem post-hooks firing on EVERY tooltip!
+    if ItemRack and ItemRack.OnTooltipItemData then
+      ItemRack.OnTooltipItemData(self, { getterName='GetBagItem', getterArgs={ bag, slot } })
+    end
+    if ItemRack and ItemRack.OnSetBagItem then
+      ItemRack.OnSetBagItem(self, bag, slot)
+    end
+  end,
+}
+
+local gameTipAdded = {}
+GameTooltip = {
+  GetName = function() return 'GameTooltip' end,
+  NumLines = function() return 1 end,
+  AddDoubleLine = function(_, l, r) gameTipAdded[#gameTipAdded + 1] = l..r end,
+}
+
+ItemRackUser = {
+  Buttons = { [1]={}, [8]={}, [13]={}, [14]={} },
+  Hidden = {},
+  Sets = {},
+}
+for s = 1, 15 do
+  ItemRackUser.Sets['Set'..s] = { equip = { [13] = (s == 3) and '2301:0:0:0:0:0:0:0' or ('99'..s..':0:0:0:0:0:0:0') } }
+end
+ItemRackSettings = {
+  AllowEmpty = 'ON',
+  AllowHidden = 'OFF',
+  HideTradables = 'OFF',
+  ShowTooltips = 'ON',
+  ShowSetInTooltip = 'ON',
+}
+ItemRackMenuFrame = { IsShown = function() return false end, IsVisible = function() return false end }
+
+ItemRack = {
+  Menu = {},
+  SetsWaiting = {},
+  BankOpen = nil,
+  BankSlots = { -1, 5, 6, 7, 8, 9, 10, 11 },
+  CanWearOneHandOffHand = nil,
+  DURABILITY_PATTERN = 'Durability',
+  MIN_LEVEL_PATTERN = '^Requires Level %d+',
+  CLASSES_PATTERN = '^Classes: .+',
+  RACES_PATTERN = '^Races: .+',
+  MIN_SKILL_PATTERN = '^Requires .+ %(%d+%)',
+  REQUIRES_PATTERN = '^Requires .+',
+  REQ_REP_PATTERN = '^Requires .+ %- .+',
+  iSPatternItemFieldsFromIR = '^(%-?%d+:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*)',
+  SlotInfo = {
+    [0] = {},
+    [1] = { INVTYPE_HEAD=1 },
+    [8] = { INVTYPE_FEET=1 },
+    [11] = { INVTYPE_FINGER=1, other=12 },
+    [12] = { INVTYPE_FINGER=1, other=11 },
+    [13] = { INVTYPE_TRINKET=1, other=14 },
+    [14] = { INVTYPE_TRINKET=1, other=13 },
+    [16] = { INVTYPE_WEAPON=1, INVTYPE_WEAPONMAINHAND=1, INVTYPE_2HWEAPON=1, other=17 },
+    [17] = { INVTYPE_WEAPON=1, INVTYPE_WEAPONOFFHAND=1, INVTYPE_SHIELD=1, INVTYPE_HOLDABLE=1, other=16 },
+    [18] = { INVTYPE_RANGED=1, INVTYPE_RANGEDRIGHT=1, INVTYPE_THROWN=1, INVTYPE_RELIC=1 },
+  },
+  IsForever = function() return true end,
+  Debug = function() end,
+  StartTimer = function() end,
+  RunAllEvents = function() end,
+  ProcessCombatQueue = function() end,
+  ReflectHideOOC = function() end,
+  IsHidden = function(id) return ItemRackUser.Hidden and ItemRackUser.Hidden[id] and true or false end,
+  GetID = function(a, b)
+    getIdCalls = getIdCalls + 1
+    if b ~= nil then
+      return (bagItems[a] and bagItems[a][b]) or 0
+    end
+    return worn[a] or 0
+  end,
+  GetInfoByID = function(id)
+    if not id or id == 0 then return nil, nil, nil end
+    local meta = itemMeta[id]
+    if meta then return meta.name, meta.tex, meta.equip end
+    return 'Unknown', 'tex', ''
+  end,
+  GetIRString = function(link) return link end,
+  HasRuneID = function() return false end,
+  GetRuneID = function() return nil end,
+}
+
+${diagnosticFunctions}
+${alreadyInMenu}
+${addToMenu}
+${getSnapshotKey}
+${storeSnapshot}
+${restoreSnapshot}
+${discoverItems}
+${isCombatEquipRestriction}
+local data = {}
+${[
+  'IsRed','PlayerCanWear','IsSoulbound','NormalizeItemFields','SameItemFields',
+  'MatchesStoredItemFields','ListSetsHavingItem','OnSetBagItem','OnSetInventoryItem',
+  'OnSetHyperlink','OnTooltipItemData','MenuSnapshotInputs','SameMenuSnapshotInputs',
+  'RefreshMenuSnapshotsBatch','RefreshQuickAccessMenuSnapshots',
+  'OnEnteringCombat','OnLeavingCombatOrDeath',
+].map(name => extractFunction(coreFile, `ItemRack.${name}`)).join('\n')}
+
+local origListSets = ItemRack.ListSetsHavingItem
+ItemRack.ListSetsHavingItem = function(tip, id)
+  if tip ~= ItemRackTooltip then listSetsCalls = listSetsCalls + 1 end
+  return origListSets(tip, id)
+end
+
+-- 1) Compute baseline snapshots via legacy per-slot DiscoverEquipmentMenuItems for exact equivalence check
+local expectedSnapshots = {}
+local expectedCounts = {}
+for _, slot in ipairs({1, 8, 13, 14, 16, 17, 18}) do
+  for _, inc in ipairs({false, true}) do
+    local d = ItemRack.BeginMenuDiagnostic(slot, inc, 'legacy_ref')
+    ItemRack.Menu = {}
+    ItemRack.DiscoverEquipmentMenuItems(slot, inc, d)
+    ItemRack.StoreMenuSnapshot(slot, inc, d)
+    ItemRack.FinishMenuDiagnostic(d)
+    local key = ItemRack.GetMenuSnapshotKey(slot, inc)
+    expectedSnapshots[key] = ItemRack.MenuSnapshots[key]
+    expectedCounts[key] = {
+      visited = d.visited, empty = d.emptyBagSlots, mismatch = d.slotMismatch,
+      accepted = d.accepted, wear = d.wearRejected,
+    }
+  end
+end
+ItemRack.MenuSnapshots = {}
+ItemRack.MenuDiagnostics = nil
+ItemRack.SnapshotInputsState = nil
+ItemRack.SnapshotRefreshStats = nil
+
+-- 2) Run optimized RefreshQuickAccessMenuSnapshots ('inventory_refresh')
+getNumSlotsCalls, getItemIdCalls, setBagItemCalls, listSetsCalls = 0, 0, 0, 0
+check(ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'inventory_refresh') == true,
+  'issue-42: initial OOC RefreshQuickAccessMenuSnapshots must succeed')
+check(setBagItemCalls == 4,
+  'issue-42: single-pass batch refresh must call ItemRackTooltip:SetBagItem once per matching bag item (expected 4, got '..tostring(setBagItemCalls)..')')
+check(getNumSlotsCalls == 5,
+  'issue-42: single-pass batch refresh with precomputed inputs must query GetContainerNumSlots 5 times total (got '..tostring(getNumSlotsCalls)..')')
+check(getItemIdCalls == 27,
+  'issue-42: empty-slot GetContainerItemID diagnostic must run once per empty slot (expected 27, got '..tostring(getItemIdCalls)..')')
+check(listSetsCalls == 0,
+  'issue-42: ItemRackTooltip:SetBagItem must never trigger OnTooltipItemData / ListSetsHavingItem')
+
+for key, exp in pairs(expectedSnapshots) do
+  local got = ItemRack.MenuSnapshots[key]
+  check(type(got) == 'table' and #got == #exp,
+    'issue-42: batch snapshot length must match DiscoverEquipmentMenuItems for '..key)
+  for i = 1, #exp do
+    check(got[i] == exp[i], 'issue-42: batch snapshot item '..i..' must match for '..key)
+  end
+end
+for _, slot in ipairs({1, 8, 13, 14, 16, 17, 18}) do
+  for _, inc in ipairs({false, true}) do
+    local key = ItemRack.GetMenuSnapshotKey(slot, inc)
+    local d = ItemRack.MenuDiagnostics.latest[key..':ooc']
+    local exp = expectedCounts[key]
+    check(d and d.visited == exp.visited and d.emptyBagSlots == exp.empty
+      and d.slotMismatch == exp.mismatch and d.accepted == exp.accepted and d.wearRejected == exp.wear,
+      'issue-42: batch diagnostic counters must match legacy scan for '..key)
+  end
+end
+
+-- 3) GameTooltip ShowSetInTooltip OFF vs ON
+ItemRackSettings.ShowSetInTooltip = 'OFF'
+local beforeGetId = getIdCalls
+ItemRack.OnSetBagItem(GameTooltip, 4, 15)
+ItemRack.OnSetInventoryItem(GameTooltip, 'player', 13)
+check(getIdCalls == beforeGetId and #gameTipAdded == 0,
+  'issue-42: OnSetBagItem / OnSetInventoryItem must return before calling GetID when ShowSetInTooltip is OFF')
+ItemRackSettings.ShowSetInTooltip = 'ON'
+ItemRack.OnSetBagItem(GameTooltip, 4, 15)
+check(#gameTipAdded == 1 and gameTipAdded[1] == 'ItemRack Set: Set3',
+  'issue-42: GameTooltip must still receive ItemRack Set line when ShowSetInTooltip is ON')
+
+-- 4) Unchanged combat_entry_refresh, combat_exit_refresh, and inventory_refresh must skip re-scanning
+setBagItemCalls = 0
+unitCombat = true
+ItemRack.OnEnteringCombat()
+check(setBagItemCalls == 0 and ItemRack.SnapshotRefreshStats.skipped == 1
+  and ItemRack.SnapshotRefreshStats.lastSkippedReason == 'combat_entry_refresh',
+  'issue-42: unchanged combat_entry_refresh must skip tooltip/bag rescanning')
+
+combat = false; unitCombat = false; ItemRack.inCombat = nil
+ItemRack.OnLeavingCombatOrDeath()
+check(setBagItemCalls == 0 and ItemRack.SnapshotRefreshStats.skipped == 2
+  and ItemRack.SnapshotRefreshStats.lastSkippedReason == 'combat_exit_refresh',
+  'issue-42: unchanged combat_exit_refresh must skip tooltip/bag rescanning')
+
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'inventory_refresh')
+check(setBagItemCalls == 0 and ItemRack.SnapshotRefreshStats.skipped == 3,
+  'issue-42: unchanged inventory_refresh must skip tooltip/bag rescanning')
+
+local report = ItemRack.GetMenuDiagnosticReport(false)
+check(report.snapshotRefresh and report.snapshotRefresh.refreshed == 1 and report.snapshotRefresh.skipped == 3,
+  'issue-42: GetMenuDiagnosticReport must expose snapshotRefresh stats')
+
+-- 5) Cache invalidation on real input changes
+-- 5a) Bag item looted
+bagItems[0][19] = '2303:0:0:0:0:0:0:0'
+setBagItemCalls = 0
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'inventory_refresh')
+check(setBagItemCalls == 5 and #ItemRack.MenuSnapshots['13:bags'] == 4,
+  'issue-42: looting a new trinket must invalidate snapshot inputs and include the new item')
+
+-- 5b) Worn item swapped
+worn[13] = '2301:0:0:0:0:0:0:0'
+setBagItemCalls = 0
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'combat_entry_refresh')
+check(setBagItemCalls == 5 and ItemRack.MenuSnapshots['13:included'][1] == '2301:0:0:0:0:0:0:0',
+  'issue-42: changing worn equipment must invalidate snapshot inputs on combat_entry_refresh')
+
+-- 5c) Hidden item toggled (AllowHidden='ON' enables hiding; Alt temporarily reveals)
+ItemRackSettings.AllowHidden = 'ON'
+ItemRackUser.Hidden['2303:0:0:0:0:0:0:0'] = 1
+setBagItemCalls = 0
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'inventory_refresh')
+check(setBagItemCalls == 5 and #ItemRack.MenuSnapshots['13:bags'] == 3,
+  'issue-42: hiding an item with AllowHidden=ON must invalidate snapshot inputs and exclude it')
+altDown = true
+setBagItemCalls = 0
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'inventory_refresh')
+check(setBagItemCalls == 5 and #ItemRack.MenuSnapshots['13:bags'] == 4,
+  'issue-42: holding Alt with AllowHidden=ON must re-scan and include hidden item')
+altDown = false; ItemRackSettings.AllowHidden = 'OFF'; ItemRackUser.Hidden = {}
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'inventory_refresh')
+
+-- 5d) Dual-wield capability change (CanWearOneHandOffHand) & level-up wearability
+check(#ItemRack.MenuSnapshots['17:bags'] == 1, 'slot 17 starts with only empty-slot row 0 when CanWearOneHandOffHand is false')
+ItemRack.CanWearOneHandOffHand = 1
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'inventory_refresh')
+check(#ItemRack.MenuSnapshots['17:bags'] == 2 and ItemRack.MenuSnapshots['17:bags'][1] == '2601:0:0:0:0:0:0:0',
+  'issue-42: learning Dual Wield must invalidate inputs and admit one-hand weapon into slot 17')
+playerLevel = 70
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'inventory_refresh')
+check(#ItemRack.MenuSnapshots['17:bags'] == 3,
+  'issue-42: leveling up must invalidate inputs and admit previously red-level weapon')
+
+-- 5e) Newly added button without existing snapshot must force refresh
+ItemRackUser.Buttons[11] = {}
+bagItems[0][20] = '2101:0:0:0:0:0:0:0'
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'inventory_refresh')
+ItemRack.MenuSnapshots['11:bags'] = nil
+setBagItemCalls = 0
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'combat_exit_refresh')
+check(setBagItemCalls > 0 and type(ItemRack.MenuSnapshots['11:bags']) == 'table',
+  'issue-42: missing slot snapshot must prevent skipping even when inputs match')
+
+-- 5f) Partial onlySlot refresh invalidates full-bar input cache; MaxAge (600s) forces periodic refresh
+ItemRack.RefreshQuickAccessMenuSnapshots(1, 'single_slot')
+setBagItemCalls = 0
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'inventory_refresh')
+check(setBagItemCalls > 0, 'issue-42: partial onlySlot refresh must invalidate full-bar input cache')
+setBagItemCalls = 0
+now = now + 601
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'combat_entry_refresh')
+check(setBagItemCalls > 0, 'issue-42: SnapshotMaxAge expiry must force refresh after 600s')
+
+-- 5g) Combat-preserved empty scan must NOT cache stale SnapshotInputsState
+local savedBags = bagItems
+bagItems = { [0]={}, [1]={}, [2]={}, [3]={}, [4]={} }
+worn[13], worn[14] = 0, 0
+unitCombat = true
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'combat_entry_refresh')
+check(ItemRack.SnapshotInputsState == nil and #ItemRack.MenuSnapshots['13:bags'] > 0,
+  'issue-42: StoreMenuSnapshot combat preservation must clear SnapshotInputsState so OOC refreshes re-scan')
+unitCombat = false
+bagItems = savedBags
+worn[13] = '1301:0:0:0:0:0:0:0'; worn[14] = '1302:0:0:0:0:0:0:0'
+
+-- 6) IsSoulbound fast path via C_Container.GetContainerItemInfo().isBound + conjured tooltip fallback
+bagItems[1][13] = '2304:0:0:0:0:0:0:0' -- tradable BoE
+bagItems[1][14] = '2305:0:0:0:0:0:0:0' -- conjured (isBound=false, tooltip line=ITEM_CONJURED)
+setBagItemCalls = 0
+check(ItemRack.IsSoulbound(4, 15) == 1 and setBagItemCalls == 0,
+  'issue-42: IsSoulbound must return 1 via GetContainerItemInfo().isBound without calling SetBagItem')
+check(ItemRack.IsSoulbound(1, 13) == nil and setBagItemCalls == 1,
+  'issue-42: IsSoulbound must fall back to tooltip and reject tradable BoE item')
+check(ItemRack.IsSoulbound(1, 14) == 1 and setBagItemCalls == 2,
+  'issue-42: IsSoulbound must still accept ITEM_CONJURED items via tooltip fallback')
+
+ItemRackSettings.HideTradables = 'ON'
+ItemRack.RefreshQuickAccessMenuSnapshots(nil, 'inventory_refresh')
+local bags13 = ItemRack.MenuSnapshots['13:bags']
+local sawTradable, sawConjured = false, false
+for _, id in ipairs(bags13) do
+  if id == '2304:0:0:0:0:0:0:0' then sawTradable = true end
+  if id == '2305:0:0:0:0:0:0:0' then sawConjured = true end
+end
+check(not sawTradable and sawConjured,
+  'issue-42: HideTradables=ON batch scan must reject tradable BoE while retaining soulbound and conjured items')
+
+print(string.format('[ISSUE 42 FOREVER SNAPSHOT PERF LUA] %d batching, skip-cache, tooltip-isolation and soulbound checks passed.', checks))
+`, 'issue-42-forever-snapshot-refresh-and-tooltip-isolation');

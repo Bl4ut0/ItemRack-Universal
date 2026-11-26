@@ -726,9 +726,11 @@ function ItemRack.EquipSet(setname, disableSound, isSecureKeybind)
 		return
 	end
 
-	local swapStr = ""
-	for k,v in pairs(swap) do swapStr = swapStr .. k..":"..v.." " end
-	ItemRack.Debug("Equip", "EquipSet swap list generated:", swapStr)
+	if ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Equip) then
+		local swapStr = ""
+		for k,v in pairs(swap) do swapStr = swapStr .. k..":"..v.." " end
+		ItemRack.Debug("Equip", "EquipSet swap list generated:", swapStr)
+	end
 
 	-- Ordinary Lua transactions cannot perform protected pickups during combat,
 	-- even for weapons. Secure hotkeys equip permitted weapons through their macro
@@ -887,6 +889,27 @@ function ItemRack.AnythingLocked()
 	for i=1,19 do
 		if IsInventoryItemLocked(i) then
 			return 1
+		end
+	end
+	local canProbeLoc = C_Item and type(C_Item.IsLocked) == "function"
+		and type(C_Item.DoesItemExist) == "function"
+		and ItemLocation and type(ItemLocation.CreateEmpty) == "function"
+	if canProbeLoc then
+		local loc = ItemRack.BagLockProbeLocation
+		if not loc then
+			loc = ItemLocation:CreateEmpty()
+			ItemRack.BagLockProbeLocation = loc
+		end
+		if type(loc.SetBagAndSlot) == "function" then
+			for i=0,4 do
+				for j=1,GetContainerNumSlots(i) do
+					loc:SetBagAndSlot(i,j)
+					if C_Item.DoesItemExist(loc) and C_Item.IsLocked(loc) then
+						return 1
+					end
+				end
+			end
+			return
 		end
 	end
 	for i=0,4 do
@@ -1472,9 +1495,15 @@ function ItemRack.IsSetEquipped(setname,exact,physicalOnly)
 			end
 		end
 
+		local emptyQueueContext = ItemRack.EmptyQueueContext
+		if not emptyQueueContext then
+			emptyQueueContext = { owner=false, list=nil, enabled=false }
+			ItemRack.EmptyQueueContext = emptyQueueContext
+		end
 		local anyChecked = false
 		for i in pairs(checkSlots) do
-			local queueContext = ItemRack.GetQueueContext(i,setname)
+			local queueContext = (not physicalOnly and ItemRackUser.EnableQueues == "ON")
+				and ItemRack.GetQueueContext(i,setname) or emptyQueueContext
 			local slotQueue = queueContext.list
 			-- Queue substitution belongs to active-set policy checks. Inferring a
 			-- different worn set must be based on its explicit saved equipment.
@@ -1548,7 +1577,9 @@ function ItemRack.IsSetEquipped(setname,exact,physicalOnly)
 			end
 
 			if not match then
-				ItemRack.Debug("Equip", "IsSetEquipped mismatch: set="..tostring(setname).." slot="..tostring(i).." expected="..tostring(set[i]).." equipped="..tostring(id).." queues="..tostring(ItemRackUser.EnableQueues))
+				if ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Equip) then
+					ItemRack.Debug("Equip", "IsSetEquipped mismatch: set="..tostring(setname).." slot="..tostring(i).." expected="..tostring(set[i]).." equipped="..tostring(id).." queues="..tostring(ItemRackUser.EnableQueues))
+				end
 				return false
 			end
 		end
@@ -1677,12 +1708,14 @@ function ItemRack.UnequipSet(setname, disableSound)
 		end
 
 		if shouldRestore then
-			local dbgStr = ""
-			for k,v in pairs(ItemRackUser.Sets["~Unequip"].equip) do
-				dbgStr = dbgStr .. tostring(k)..":"..tostring(v).." "
+			if ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Equip) then
+				local dbgStr = ""
+				for k,v in pairs(ItemRackUser.Sets["~Unequip"].equip) do
+					dbgStr = dbgStr .. tostring(k)..":"..tostring(v).." "
+				end
+				ItemRack.Debug("Equip", "DIAGNOSTIC - ~Unequip contains:", (dbgStr == "" and "EMPTY" or dbgStr))
+				ItemRack.Debug("Equip", "Equipping ~Unequip to restore items.")
 			end
-			ItemRack.Debug("Equip", "DIAGNOSTIC - ~Unequip contains:", (dbgStr == "" and "EMPTY" or dbgStr))
-			ItemRack.Debug("Equip", "Equipping ~Unequip to restore items.")
 			ItemRack.EquipSet("~Unequip", disableSound)
 		else
 			ItemRack.Debug("Equip", "shouldRestore is FALSE (CurrentSet doesn't match and not buried). Wiping .old data for setname:", setname)

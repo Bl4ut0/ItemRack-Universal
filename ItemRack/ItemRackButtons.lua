@@ -144,7 +144,11 @@ function ItemRack.InitButtons()
 
 	ItemRack.CreateTimer("ReflectClickedUpdate",ItemRack.ReflectClickedUpdate,.2,1)		
 
-	ItemRackFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+	if ItemRack.RegisterPlayerUnitEvent then
+		ItemRack.RegisterPlayerUnitEvent(ItemRackFrame, "UNIT_INVENTORY_CHANGED")
+	else
+		ItemRackFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+	end
 	pcall(ItemRackFrame.RegisterEvent, ItemRackFrame, "PLAYER_EQUIPMENT_CHANGED")
 	ItemRackFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
 	ItemRackFrame:RegisterEvent("ITEM_LOCK_CHANGED")
@@ -557,9 +561,9 @@ function ItemRack.RefreshCustomItemIcons(targetButton)
 		end
 		local info = ItemRack.SlotInfo[slot]
 		local button = info and _G["Character"..info.name]
-		local custom = ItemRackUser.CustomCharacterIcons == "ON"
-			and ItemRack.GetCustomItemIcon(slot,ItemRack.GetID(slot))
 		if button then
+			local custom = ItemRackUser.CustomCharacterIcons == "ON"
+				and ItemRack.GetCustomItemIcon(slot,ItemRack.GetID(slot))
 			local overlay = button.ItemRackCustomIcon
 			if custom and not overlay then
 				-- Own texture only; never replace Blizzard's icon or secure methods.
@@ -968,17 +972,28 @@ function ItemRack.UpdateButtonCooldowns()
 				cdFrame:SetHideCountdownNumbers(true)
 			end
 
+			local debugCooldown = ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Cooldown)
 			if observed.active then
-				ItemRack.CooldownCache[i] = {
-					start=observed.start, duration=observed.duration,
-					itemID=currentItemID, exactID=exactID,
-				}
+				local cached = ItemRack.CooldownCache[i]
+				if cached then
+					cached.start = observed.start
+					cached.duration = observed.duration
+					cached.itemID = currentItemID
+					cached.exactID = exactID
+				else
+					ItemRack.CooldownCache[i] = {
+						start=observed.start, duration=observed.duration,
+						itemID=currentItemID, exactID=exactID,
+					}
+				end
 				CooldownFrame_Set(cdFrame,observed.start,observed.duration,1)
-				IRDebugCooldownState(i,
-					string.format("%s:%s:%.1f:%.1f",observed.status,tostring(currentItemID),
-						IRRoundTenths(observed.start),IRRoundTenths(observed.duration)),
-					string.format("slot %d %s start=%.1f dur=%.1f",i,observed.status,
-						observed.start,observed.duration))
+				if debugCooldown then
+					IRDebugCooldownState(i,
+						string.format("%s:%s:%.1f:%.1f",observed.status,tostring(currentItemID),
+							IRRoundTenths(observed.start),IRRoundTenths(observed.duration)),
+						string.format("slot %d %s start=%.1f dur=%.1f",i,observed.status,
+							observed.start,observed.duration))
+				end
 			else
 				ItemRack.CooldownCache[i] = nil
 				if observed.status ~= "arena_stale_sample"
@@ -989,9 +1004,11 @@ function ItemRack.UpdateButtonCooldowns()
 				else
 					CooldownFrame_Clear(cdFrame)
 				end
-				IRDebugCooldownState(i,observed.status..":"..tostring(currentItemID),
-					string.format("slot %d %s (api start=%.1f dur=%.1f enable=%s)",
-						i,observed.status,start or 0,duration or 0,tostring(enable)))
+				if debugCooldown then
+					IRDebugCooldownState(i,observed.status..":"..tostring(currentItemID),
+						string.format("slot %d %s (api start=%.1f dur=%.1f enable=%s)",
+							i,observed.status,start or 0,duration or 0,tostring(enable)))
+				end
 			end
 		end
 	end
@@ -1002,14 +1019,16 @@ end
 function ItemRack.WriteButtonCooldowns()
 	if ItemRackSettings.CooldownCount=="ON" then
 		for i in pairs(ItemRackUser.Buttons) do
-			local exactID = ItemRack.GetID(i)
-			local baseID = GetInventoryItemID("player",i)
-			local observed = ItemRack.GetObservedItemCooldown(exactID,baseID)
-			if observed then
-				ItemRack.WriteCooldown(_G["ItemRackButton"..i.."Time"],
-					observed.start,observed.duration)
-			else
-				_G["ItemRackButton"..i.."Time"]:SetText("")
+			if i<20 then
+				local exactID = ItemRack.GetID(i)
+				local baseID = GetInventoryItemID("player",i)
+				local observed = ItemRack.GetObservedItemCooldown(exactID,baseID)
+				if observed then
+					ItemRack.WriteCooldown(_G["ItemRackButton"..i.."Time"],
+						observed.start,observed.duration)
+				else
+					_G["ItemRackButton"..i.."Time"]:SetText("")
+				end
 			end
 		end
 	end

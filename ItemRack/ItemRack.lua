@@ -167,7 +167,20 @@ function ItemRack.FindPlayerAura(buff, spellID)
 	spellID = public(spellID) and type(spellID)=="number" and spellID or nil
 	-- Item-linked self effects may be helpful or harmful. Existing event callers
 	-- that supply only a buff name keep their helpful-only lookup semantics.
-	local filters = spellID and {"HELPFUL","HARMFUL"} or {"HELPFUL"}
+	local filters
+	if spellID then
+		filters = ItemRack.AuraFiltersBoth
+		if not filters then
+			filters = {"HELPFUL","HARMFUL"}
+			ItemRack.AuraFiltersBoth = filters
+		end
+	else
+		filters = ItemRack.AuraFiltersHelpful
+		if not filters then
+			filters = {"HELPFUL"}
+			ItemRack.AuraFiltersHelpful = filters
+		end
+	end
 	if C_UnitAuras then
 		if spellID and C_UnitAuras.GetUnitAuraBySpellID then
 			local ok,aura=pcall(C_UnitAuras.GetUnitAuraBySpellID,"player",spellID)
@@ -216,20 +229,14 @@ function ItemRack.FindPlayerAura(buff, spellID)
 		end
 	end
 	if UnitBuff then
-		local ok, result = pcall(function()
-			for i = 1, 40 do
-				local name = UnitBuff("player", i)
-				if not name then break end
-				if issecretvalue and issecretvalue(name) then
-					-- Cannot compare secret values directly
-				elseif name == buff then
-					return name
-				end
+		for i = 1, 40 do
+			local ok, name = pcall(UnitBuff, "player", i)
+			if not ok or not name then break end
+			if issecretvalue and issecretvalue(name) then
+				-- Cannot compare secret values directly
+			elseif name == buff then
+				return name
 			end
-			return nil
-		end)
-		if ok and result then
-			return result
 		end
 	end
 	if spellID and UnitDebuff then
@@ -251,37 +258,25 @@ function ItemRack.FindAuraByName(name, unit, filter)
 		return ItemRack.FindPlayerAura(name)
 	end
 	if UnitBuff then
-		local ok, result = pcall(function()
-			for i = 1, 40 do
-				local buffName = UnitBuff(unit, i, filter)
-				if not buffName then break end
-				if issecretvalue and issecretvalue(buffName) then
-					-- Cannot compare secret values directly
-				elseif buffName == name then
-					return buffName
-				end
+		for i = 1, 40 do
+			local ok, buffName = pcall(UnitBuff, unit, i, filter)
+			if not ok or not buffName then break end
+			if issecretvalue and issecretvalue(buffName) then
+				-- Cannot compare secret values directly
+			elseif buffName == name then
+				return buffName
 			end
-			return nil
-		end)
-		if ok and result then
-			return result
 		end
 	end
 	if UnitDebuff then
-		local ok, result = pcall(function()
-			for i = 1, 40 do
-				local debuffName = UnitDebuff(unit, i, filter)
-				if not debuffName then break end
-				if issecretvalue and issecretvalue(debuffName) then
-					-- Cannot compare secret values directly
-				elseif debuffName == name then
-					return debuffName
-				end
+		for i = 1, 40 do
+			local ok, debuffName = pcall(UnitDebuff, unit, i, filter)
+			if not ok or not debuffName then break end
+			if issecretvalue and issecretvalue(debuffName) then
+				-- Cannot compare secret values directly
+			elseif debuffName == name then
+				return debuffName
 			end
-			return nil
-		end)
-		if ok and result then
-			return result
 		end
 	end
 	return nil
@@ -2309,9 +2304,21 @@ end
 
 
 
+function ItemRack.RegisterPlayerUnitEvent(frame,event)
+	if not frame or not event then return end
+	if type(frame.RegisterUnitEvent) == "function" then
+		local ok = pcall(frame.RegisterUnitEvent, frame, event, "player")
+		if ok then return end
+	end
+	frame:RegisterEvent(event)
+end
+
 function ItemRack.OnUnitAura(self,event,unit)
 	if unit=="player" and ItemRack.PeriodicQueueCheck then
-		ItemRack.PeriodicQueueCheck()
+		if (not ItemRackUser or ItemRackUser.EnableQueues=="ON")
+		or (ItemRack.SpecialItems and ItemRack.SpecialItems.HasActiveTracking and ItemRack.SpecialItems.HasActiveTracking()) then
+			ItemRack.PeriodicQueueCheck()
+		end
 	end
 end
 
@@ -2644,24 +2651,29 @@ function ItemRack.OnActiveTalentGroupChanged()
 end
 
 function ItemRack.OnSetBagItem(tooltip, bag, slot)
-	if not bag or not slot then return end
+	if not tooltip or tooltip == ItemRackTooltip or not bag or not slot then return end
+	if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then return end
 	ItemRack.ListSetsHavingItem(tooltip, ItemRack.GetID(bag, slot))
 end
 
 function ItemRack.OnSetInventoryItem(tooltip, unit, inv_slot)
+	if not tooltip or tooltip == ItemRackTooltip then return end
 	if unit and unit ~= "player" then return end
 	if not inv_slot then return end
+	if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then return end
 	ItemRack.ListSetsHavingItem(tooltip, ItemRack.GetID(inv_slot))
 end
 
 function ItemRack.OnSetHyperlink(tooltip, link)
+	if not tooltip or tooltip == ItemRackTooltip then return end
+	if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then return end
 	if type(link) == "string" and not (issecretvalue and issecretvalue(link)) then
 		ItemRack.ListSetsHavingItem(tooltip,ItemRack.GetIRString(link))
 	end
 end
 
 function ItemRack.OnTooltipItemData(tooltip, data)
-	if not tooltip or (tooltip.IsForbidden and tooltip:IsForbidden()) then return end
+	if not tooltip or tooltip == ItemRackTooltip or (tooltip.IsForbidden and tooltip:IsForbidden()) then return end
 	if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then return end
 
 	local tooltipName = tooltip.GetName and tooltip:GetName()
@@ -2803,7 +2815,7 @@ function ItemRack.RegisterSetTooltipHooks()
 		if not tip or not tip.HookScript then return end
 		if tip.HasScript and not tip:HasScript("OnTooltipSetItem") then return end
 		pcall(tip.HookScript, tip, "OnTooltipSetItem", function(self)
-			if not self or (self.IsForbidden and self:IsForbidden()) then return end
+			if not self or self == ItemRackTooltip or (self.IsForbidden and self:IsForbidden()) then return end
 			if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then return end
 			if type(self.GetItem) == "function" then
 				local ok, _, link = pcall(self.GetItem, self)
@@ -2839,7 +2851,7 @@ do
 		if ItemRackSettings.ShowTooltips ~= "ON" or ItemRackSettings.ShowSetInTooltip ~= "ON" then
 			return
 		end
-		if not tooltip or not id or id == 0 or id == "0" then return end
+		if not tooltip or tooltip == ItemRackTooltip or not id or id == 0 or id == "0" then return end
 		if tooltip.IsForbidden and tooltip:IsForbidden() then return end
 
 		local tooltipName = tooltip.GetName and tooltip:GetName()
@@ -2970,14 +2982,14 @@ function ItemRack.InitCore()
 	--if not disable_delayed_swaps then
 		-- in the event delayed swaps while casting don't work well,
 		-- make disable_delayed_swaps=1 at top of this file to disable it
-	ItemRackFrame:RegisterEvent("UNIT_SPELLCAST_START")
-	ItemRackFrame:RegisterEvent("UNIT_SPELLCAST_STOP")
-	ItemRackFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-	ItemRackFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
-	ItemRackFrame:RegisterEvent("UNIT_SPELLCAST_FAILED")
-	ItemRackFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
-	ItemRackFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_STOP")
-	ItemRackFrame:RegisterEvent("UNIT_AURA")
+	ItemRack.RegisterPlayerUnitEvent(ItemRackFrame, "UNIT_SPELLCAST_START")
+	ItemRack.RegisterPlayerUnitEvent(ItemRackFrame, "UNIT_SPELLCAST_STOP")
+	ItemRack.RegisterPlayerUnitEvent(ItemRackFrame, "UNIT_SPELLCAST_SUCCEEDED")
+	ItemRack.RegisterPlayerUnitEvent(ItemRackFrame, "UNIT_SPELLCAST_INTERRUPTED")
+	ItemRack.RegisterPlayerUnitEvent(ItemRackFrame, "UNIT_SPELLCAST_FAILED")
+	ItemRack.RegisterPlayerUnitEvent(ItemRackFrame, "UNIT_SPELLCAST_CHANNEL_START")
+	ItemRack.RegisterPlayerUnitEvent(ItemRackFrame, "UNIT_SPELLCAST_CHANNEL_STOP")
+	ItemRack.RegisterPlayerUnitEvent(ItemRackFrame, "UNIT_AURA")
 	ItemRackFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 	ItemRackFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
 	ItemRackFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -2993,7 +3005,12 @@ function ItemRack.InitCore()
 	end
 	ItemRackFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
 	--end
-	ItemRack.StartTimer("CooldownUpdate")
+	if C_Timer and C_Timer.NewTicker then
+		if ItemRack.CooldownTicker then ItemRack.CooldownTicker:Cancel() end
+		ItemRack.CooldownTicker = C_Timer.NewTicker(1, ItemRack.CooldownUpdate)
+	else
+		ItemRack.StartTimer("CooldownUpdate")
+	end
 	ItemRack.ReflectAlpha()
 
 	SlashCmdList["ItemRack"] = ItemRack.SlashHandler
@@ -3739,8 +3756,15 @@ end
 -- this is more precise than SameID (which only compares base itemID) but tolerant of item string format changes (Classic 10 fields vs TBC 14 fields)
 function ItemRack.SameItemFields(id1,id2)
 	if not id1 or not id2 or id1==0 or id2==0 then return false end
-	local f1 = tostring(id1):match(ItemRack.iSPatternItemFieldsFromIR) or tostring(id1)
-	local f2 = tostring(id2):match(ItemRack.iSPatternItemFieldsFromIR) or tostring(id2)
+	if id1 == id2 then return true end
+	local s1 = type(id1) == "string" and id1 or tostring(id1)
+	local s2 = type(id2) == "string" and id2 or tostring(id2)
+	if s1 == s2 then return true end
+	local b1 = s1:match("^(%-?%d+)")
+	local b2 = s2:match("^(%-?%d+)")
+	if b1 and b2 and b1 ~= b2 then return false end
+	local f1 = s1:match(ItemRack.iSPatternItemFieldsFromIR) or s1
+	local f2 = s2:match(ItemRack.iSPatternItemFieldsFromIR) or s2
 	if f1 == f2 then return true end
 	return ItemRack.NormalizeItemFields(f1) == ItemRack.NormalizeItemFields(f2)
 end
@@ -4293,9 +4317,24 @@ function ItemRack.PlayerCanWear(invslot,bag,slot,diagnostic)
 end
 
 function ItemRack.IsSoulbound(bag,slot)
+	if C_Container and type(C_Container.GetContainerItemInfo) == "function" then
+		local ok, info = pcall(C_Container.GetContainerItemInfo, bag, slot)
+		if ok and type(info) == "table" and info.isBound == true then
+			return 1
+		end
+	else
+		local getInfo = GetContainerItemInfo or _G.GetContainerItemInfo
+		if type(getInfo) == "function" then
+			local ok, _, _, _, _, _, _, _, _, _, _, isBound = pcall(getInfo, bag, slot)
+			if ok and isBound == true then
+				return 1
+			end
+		end
+	end
 	ItemRackTooltip:SetBagItem(bag,slot)
 	for i=2,5 do
-		local text = _G["ItemRackTooltipTextLeft"..i]:GetText()
+		local line = _G["ItemRackTooltipTextLeft"..i]
+		local text = line and line:GetText()
 		if text==ITEM_SOULBOUND or text==ITEM_BIND_QUEST or text==ITEM_CONJURED then
 			return 1
 		end
@@ -4465,16 +4504,19 @@ function ItemRack.StopTimer(name)
 end
 
 function ItemRack.OnUpdate(self,elapsed)
-	local timerPool
-	for _,name in ipairs(ItemRack.Timers) do
-		timerPool = ItemRack.TimerPool[name]
-		timerPool.elapsed = timerPool.elapsed - elapsed
-		if timerPool.elapsed < 0 then
-			timerPool.func(elapsed)
-			if timerPool.rep then
-				timerPool.elapsed = timerPool.delay
-			else
-				ItemRack.StopTimer(name)
+	local timerPool, name
+	for i = #(ItemRack.Timers), 1, -1 do
+		name = ItemRack.Timers[i]
+		timerPool = name and ItemRack.TimerPool[name]
+		if timerPool then
+			timerPool.elapsed = timerPool.elapsed - elapsed
+			if timerPool.elapsed < 0 then
+				if timerPool.rep then
+					timerPool.elapsed = timerPool.delay
+				else
+					ItemRack.StopTimer(name)
+				end
+				timerPool.func(elapsed)
 			end
 		end
 	end
@@ -4852,7 +4894,8 @@ function ItemRack.RecordBreakoutEvent(stage,viewKey,slot,reason,details)
 			menuCount=items and #(items) or 0,
 			frameShown=frame and ItemRack.MenuDiagnosticCall(frame.IsShown, frame) or false,
 			frameVisible=frame and ItemRack.MenuDiagnosticCall(frame.IsVisible, frame) or false,
-			mouseFocus=ItemRack.GetTopMouseFocusNames and ItemRack.GetTopMouseFocusNames(3) or {},
+			mouseFocus=((ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Breakouts))
+				and ItemRack.GetTopMouseFocusNames and ItemRack.GetTopMouseFocusNames(3)) or {},
 		}
 		state.gateEvents[#state.gateEvents+1] = record
 		if #state.gateEvents>32 then table.remove(state.gateEvents,1) end
@@ -5121,7 +5164,8 @@ function ItemRack.GetMenuDiagnosticReport(fullDump)
 			containerNamespaced=C_Container and GetContainerNumSlots==C_Container.GetContainerNumSlots or false,
 			nativeCandidates=type(GetInventoryItemsForSlot)=="function",
 		},
-		snapshots=snapshots,latest=state.latest,recent=state.recent,
+		snapshots=snapshots,snapshotRefresh=ItemRack.SnapshotRefreshStats,
+		latest=state.latest,recent=state.recent,
 		gateEvents=gateEvents,lastBreakoutProbe=state.lastBreakoutProbe,
 		loadedAddons=addons,
 		tooltipAnchorTrace=ItemRack.GetTooltipAnchorTraceReport and ItemRack.GetTooltipAnchorTraceReport(fullDump),
@@ -5282,12 +5326,395 @@ function ItemRack.DiscoverEquipmentMenuItems(id,menuInclude,diagnostic)
 	end
 end
 
+ItemRack.SnapshotSkipReasons = {
+	combat_entry_refresh = true,
+	combat_exit_refresh = true,
+	inventory_refresh = true,
+}
+ItemRack.SnapshotMaxAge = 600
+ItemRack.SnapshotRefreshStats = {
+	refreshed = 0,
+	skipped = 0,
+	lastReason = nil,
+	lastSkippedReason = nil,
+	lastDurationMs = 0,
+}
+
+function ItemRack.MenuSnapshotInputs()
+	local getNumSlots = GetContainerNumSlots or (C_Container and C_Container.GetContainerNumSlots) or _G.GetContainerNumSlots
+	local hideTradables = ItemRackSettings and ItemRackSettings.HideTradables or nil
+	local allowHidden = ItemRackSettings and ItemRackSettings.AllowHidden or nil
+	local checkBound = hideTradables ~= nil and hideTradables ~= "OFF"
+	local cInfo = checkBound and C_Container and type(C_Container.GetContainerItemInfo) == "function"
+		and C_Container.GetContainerItemInfo or nil
+	local legacyInfo = checkBound and not cInfo and (GetContainerItemInfo or _G.GetContainerItemInfo) or nil
+
+	local hidden = {}
+	local hiddenCount = 0
+	for k, v in pairs((ItemRackUser and ItemRackUser.Hidden) or {}) do
+		if v then
+			hidden[k] = v
+			hiddenCount = hiddenCount + 1
+		end
+	end
+
+	local worn = {}
+	for slot = 0, 19 do
+		worn[slot] = ItemRack.GetID(slot)
+	end
+
+	local bagSlots = {}
+	local bags = {}
+	local bagBound = checkBound and {} or nil
+	for b = 0, 4 do
+		local count = (type(getNumSlots) == "function" and getNumSlots(b)) or 0
+		bagSlots[b] = count
+		local row = {}
+		bags[b] = row
+		local boundRow = bagBound and {} or nil
+		if bagBound then bagBound[b] = boundRow end
+		for j = 1, count do
+			local id = ItemRack.GetID(b, j)
+			row[j] = id
+			if boundRow and id ~= 0 then
+				if cInfo then
+					local ok, info = pcall(cInfo, b, j)
+					boundRow[j] = (ok and type(info) == "table" and info.isBound == true) and true or false
+				elseif type(legacyInfo) == "function" then
+					local ok, _, _, _, _, _, _, _, _, _, _, isBound = pcall(legacyInfo, b, j)
+					boundRow[j] = (ok and isBound == true) and true or false
+				else
+					boundRow[j] = false
+				end
+			end
+		end
+	end
+
+	local now = GetTime and select(2, pcall(GetTime))
+	return {
+		capturedAt = type(now) == "number" and now or nil,
+		bankOpen = ItemRack.BankOpen and true or false,
+		allowEmpty = ItemRackSettings and ItemRackSettings.AllowEmpty or nil,
+		allowHidden = allowHidden,
+		hideTradables = hideTradables,
+		altDown = (allowHidden == "ON" and IsAltKeyDown and select(2, pcall(IsAltKeyDown))) and true or false,
+		canWearOffHand = ItemRack.CanWearOneHandOffHand and true or false,
+		level = (UnitLevel and select(2, pcall(UnitLevel, "player"))) or 0,
+		skillLines = (GetNumSkillLines and select(2, pcall(GetNumSkillLines))) or 0,
+		hidden = hidden,
+		hiddenCount = hiddenCount,
+		worn = worn,
+		bagSlots = bagSlots,
+		bags = bags,
+		bagBound = bagBound,
+	}
+end
+
+function ItemRack.SameMenuSnapshotInputs(prev, curr)
+	if type(prev) ~= "table" or type(curr) ~= "table" then return false end
+	if prev.bankOpen ~= curr.bankOpen
+	or prev.allowEmpty ~= curr.allowEmpty
+	or prev.allowHidden ~= curr.allowHidden
+	or prev.hideTradables ~= curr.hideTradables
+	or prev.altDown ~= curr.altDown
+	or prev.canWearOffHand ~= curr.canWearOffHand
+	or prev.level ~= curr.level
+	or prev.skillLines ~= curr.skillLines
+	or prev.hiddenCount ~= curr.hiddenCount then
+		return false
+	end
+	for k, v in pairs(curr.hidden) do
+		if prev.hidden[k] ~= v then return false end
+	end
+	for slot = 0, 19 do
+		if prev.worn[slot] ~= curr.worn[slot] then return false end
+	end
+	local checkBound = curr.bagBound ~= nil
+	if (prev.bagBound ~= nil) ~= checkBound then return false end
+	for b = 0, 4 do
+		local count = curr.bagSlots[b] or 0
+		if (prev.bagSlots[b] or 0) ~= count then return false end
+		local prevRow = prev.bags[b]
+		local currRow = curr.bags[b]
+		if not prevRow or not currRow then return false end
+		for j = 1, count do
+			if prevRow[j] ~= currRow[j] then return false end
+		end
+		if checkBound then
+			local prevBound = prev.bagBound[b]
+			local currBound = curr.bagBound[b]
+			if not prevBound or not currBound then return false end
+			for j = 1, count do
+				if prevBound[j] ~= currBound[j] then return false end
+			end
+		end
+	end
+	return true
+end
+
+function ItemRack.RefreshMenuSnapshotsBatch(slotsToRefresh, reason, precomputedInputs)
+	local orderedSlots = {}
+	for id in pairs(slotsToRefresh) do
+		orderedSlots[#orderedSlots + 1] = id
+	end
+	if #orderedSlots == 0 then return true end
+	table.sort(orderedSlots)
+
+	local getNumSlots = GetContainerNumSlots or (C_Container and C_Container.GetContainerNumSlots) or _G.GetContainerNumSlots
+	local getItemID = GetContainerItemID or (C_Container and C_Container.GetContainerItemID) or _G.GetContainerItemID
+	local allowHiddenOff = (ItemRackSettings.AllowHidden == "OFF")
+	local altDown = (not allowHiddenOff and IsAltKeyDown and IsAltKeyDown()) and true or false
+	local hideTradablesActive = (ItemRackSettings.HideTradables ~= "OFF")
+
+	local function isAllowedByHidden(itemID)
+		return allowHiddenOff or altDown or not ItemRack.IsHidden(itemID)
+	end
+
+	local wornBySlot = {}
+	local function getWorn(slot)
+		local cached = wornBySlot[slot]
+		if cached == nil then
+			if precomputedInputs and precomputedInputs.worn and precomputedInputs.worn[slot] ~= nil then
+				cached = precomputedInputs.worn[slot]
+			else
+				cached = ItemRack.GetID(slot)
+			end
+			wornBySlot[slot] = cached
+		end
+		return cached
+	end
+
+	local menusBags, menusInc = {}, {}
+	local diagsBags, diagsInc = {}, {}
+	for _, id in ipairs(orderedSlots) do
+		diagsBags[id] = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id, false, reason or "snapshot_refresh")
+		diagsInc[id] = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id, true, reason or "snapshot_refresh")
+		menusBags[id] = {}
+		local inc = {}
+		menusInc[id] = inc
+		local wornID = getWorn(id)
+		if wornID ~= 0 and isAllowedByHidden(wornID) then
+			inc[#inc + 1] = wornID
+		end
+		local slotInfo = ItemRack.SlotInfo[id]
+		if slotInfo and slotInfo.other then
+			local otherID = getWorn(slotInfo.other)
+			if otherID ~= 0 and isAllowedByHidden(otherID) then
+				inc[#inc + 1] = otherID
+			end
+		end
+	end
+
+	local function applyBaseCandidateDiag(d, bag, pos, diagItemVal, unresolvedNum, isEmptySlot, providerUnavailable, diagEquipVal, itemID, isMissingMeta, isNonEquip)
+		if not d then return end
+		d.visited = d.visited + 1
+		d.bag, d.position = bag, pos
+		d.tooltipLine, d.tooltipText, d.tooltipRed = nil, nil, nil
+		if diagItemVal == 0 then
+			d.missingIDs = d.missingIDs + 1
+			if unresolvedNum then
+				ItemRack.MenuDiagnosticReject(d, "unresolvedLinks", unresolvedNum)
+			elseif isEmptySlot then
+				d.emptyBagSlots = d.emptyBagSlots + 1
+			elseif providerUnavailable then
+				d.idProviderUnavailable = d.idProviderUnavailable + 1
+			end
+		end
+		d.equipType = diagEquipVal
+		d.stage = "slot_match"
+		if isMissingMeta then
+			ItemRack.MenuDiagnosticReject(d, "missingMetadata", itemID)
+		elseif isNonEquip then
+			d.nonEquipment = d.nonEquipment + 1
+		end
+	end
+
+	local function applyMatchedCandidate(id, menu, d, itemID, slotCanWear, wearProbe, slotWearReason, isSoulbound, hiddenOK)
+		if d then
+			d.stage = "wearability"
+			d.tooltipLine = wearProbe.tooltipLine
+			d.tooltipText = wearProbe.tooltipText
+			d.tooltipRed = wearProbe.tooltipRed
+			d.wearReason = slotWearReason
+		end
+		if not slotCanWear then
+			ItemRack.MenuDiagnosticReject(d, "wearRejected", itemID, slotWearReason)
+			return
+		end
+		if d then d.stage = "soulbound_filter" end
+		if hideTradablesActive and not isSoulbound then
+			ItemRack.MenuDiagnosticReject(d, "soulboundRejected", itemID)
+			return
+		end
+		if id == 0 then
+			for k = 1, #menu do
+				if menu[k] == itemID then
+					if d then d.duplicates = d.duplicates + 1 end
+					return
+				end
+			end
+		end
+		if d then d.stage = "hidden_filter" end
+		if hiddenOK then
+			menu[#menu + 1] = itemID
+			if d then d.accepted = d.accepted + 1 end
+		else
+			ItemRack.MenuDiagnosticReject(d, "hiddenRejected", itemID)
+		end
+	end
+
+	local matchedSlots = {}
+	local function scanContainer(bag, usePrecomputed)
+		for _, id in ipairs(orderedSlots) do
+			local db, di = diagsBags[id], diagsInc[id]
+			if db then db.stage = "bag_slots"; db.bag = bag end
+			if di then di.stage = "bag_slots"; di.bag = bag end
+		end
+		local slots
+		if usePrecomputed and precomputedInputs and precomputedInputs.bagSlots and precomputedInputs.bagSlots[bag] ~= nil then
+			slots = precomputedInputs.bagSlots[bag]
+		else
+			slots = getNumSlots(bag)
+		end
+		local diagSlotsVal = ItemRack.MenuDiagnosticValue(slots)
+		for _, id in ipairs(orderedSlots) do
+			local db, di = diagsBags[id], diagsInc[id]
+			if db then db.bagSlots[bag] = diagSlotsVal end
+			if di then di.bagSlots[bag] = diagSlotsVal end
+		end
+		local preBagRow = usePrecomputed and precomputedInputs and precomputedInputs.bags and precomputedInputs.bags[bag] or nil
+		for pos = 1, (slots or 0) do
+			for _, id in ipairs(orderedSlots) do
+				local db, di = diagsBags[id], diagsInc[id]
+				if db then db.bag, db.position = bag, pos; db.stage = "item_link" end
+				if di then di.bag, di.position = bag, pos; di.stage = "item_link" end
+			end
+			local itemID
+			if preBagRow and preBagRow[pos] ~= nil then
+				itemID = preBagRow[pos]
+			else
+				itemID = ItemRack.GetID(bag, pos)
+			end
+			local diagItemVal = ItemRack.MenuDiagnosticValue(itemID)
+			local unresolvedNum, isEmptySlot, providerUnavailable = nil, false, false
+			if diagItemVal == 0 then
+				local numericID = ItemRack.MenuDiagnosticCall(getItemID, bag, pos)
+				if type(numericID) == "number" and numericID > 0 then
+					unresolvedNum = numericID
+				elseif numericID == "<nil>" or numericID == 0 then
+					isEmptySlot = true
+				else
+					providerUnavailable = true
+				end
+			end
+			for _, id in ipairs(orderedSlots) do
+				local db, di = diagsBags[id], diagsInc[id]
+				if db then db.stage = "item_metadata" end
+				if di then di.stage = "item_metadata" end
+			end
+			local _, _, equipSlot = ItemRack.GetInfoByID(itemID)
+			local diagEquipVal = ItemRack.MenuDiagnosticValue(equipSlot)
+			local isMissingMeta = (diagItemVal ~= 0 and diagEquipVal == "<nil>")
+			local isNonEquip = (diagEquipVal == "")
+
+			local matchCount = 0
+			for _, id in ipairs(orderedSlots) do
+				local db, di = diagsBags[id], diagsInc[id]
+				applyBaseCandidateDiag(db, bag, pos, diagItemVal, unresolvedNum, isEmptySlot, providerUnavailable, diagEquipVal, itemID, isMissingMeta, isNonEquip)
+				applyBaseCandidateDiag(di, bag, pos, diagItemVal, unresolvedNum, isEmptySlot, providerUnavailable, diagEquipVal, itemID, isMissingMeta, isNonEquip)
+				local slotInfo = ItemRack.SlotInfo[id]
+				if slotInfo and slotInfo[equipSlot] then
+					matchCount = matchCount + 1
+					matchedSlots[matchCount] = id
+				else
+					if db then db.slotMismatch = db.slotMismatch + 1 end
+					if di then di.slotMismatch = di.slotMismatch + 1 end
+				end
+			end
+
+			if matchCount > 0 then
+				local probeSlot = matchedSlots[1]
+				if matchCount > 1 then
+					for m = 1, matchCount do
+						if matchedSlots[m] ~= 17 then
+							probeSlot = matchedSlots[m]
+							break
+						end
+					end
+				end
+				local wearProbe = { stage = "wearability" }
+				local baseCanWear = ItemRack.PlayerCanWear(probeSlot, bag, pos, wearProbe)
+				local isSoulbound = nil
+				if baseCanWear and hideTradablesActive then
+					isSoulbound = ItemRack.IsSoulbound(bag, pos)
+				end
+				local hiddenOK = baseCanWear and isAllowedByHidden(itemID) or false
+				for m = 1, matchCount do
+					local id = matchedSlots[m]
+					local slotCanWear = baseCanWear
+					local slotWearReason = wearProbe.wearReason
+					if slotCanWear and id == 17 and probeSlot ~= 17
+					and (equipSlot == "INVTYPE_WEAPON" or equipSlot == "INVTYPE_WEAPONOFFHAND")
+					and not ItemRack.CanWearOneHandOffHand then
+						slotCanWear = nil
+						slotWearReason = "offhand_capability"
+					end
+					applyMatchedCandidate(id, menusBags[id], diagsBags[id], itemID, slotCanWear, wearProbe, slotWearReason, isSoulbound, hiddenOK)
+					applyMatchedCandidate(id, menusInc[id], diagsInc[id], itemID, slotCanWear, wearProbe, slotWearReason, isSoulbound, hiddenOK)
+				end
+			end
+		end
+	end
+
+	for b = 0, 4 do
+		scanContainer(b, true)
+	end
+	if ItemRack.BankOpen then
+		for _, b in pairs(ItemRack.BankSlots or {}) do
+			scanContainer(b, false)
+		end
+	elseif ItemRackSettings.AllowEmpty == "ON" then
+		for _, id in ipairs(orderedSlots) do
+			if getWorn(id) ~= 0 then
+				table.insert(menusBags[id], 0)
+				table.insert(menusInc[id], 0)
+			end
+		end
+	end
+
+	local allStored = true
+	for _, id in ipairs(orderedSlots) do
+		ItemRack.Menu = menusBags[id]
+		if not ItemRack.StoreMenuSnapshot(id, false, diagsBags[id]) then
+			allStored = false
+		end
+		if diagsBags[id] and ItemRack.FinishMenuDiagnostic then
+			ItemRack.FinishMenuDiagnostic(diagsBags[id])
+		end
+		ItemRack.Menu = menusInc[id]
+		if not ItemRack.StoreMenuSnapshot(id, true, diagsInc[id]) then
+			allStored = false
+		end
+		if diagsInc[id] and ItemRack.FinishMenuDiagnostic then
+			ItemRack.FinishMenuDiagnostic(diagsInc[id])
+		end
+	end
+	return allStored
+end
+
 function ItemRack.RefreshQuickAccessMenuSnapshots(onlySlot,reason)
 	if not ItemRack.IsForever() or InCombatLockdown() then return false end
+	local started = debugprofilestop and debugprofilestop()
+	local stats = ItemRack.SnapshotRefreshStats
+	if not stats then
+		stats = { refreshed = 0, skipped = 0, lastReason = nil, lastSkippedReason = nil, lastDurationMs = 0 }
+		ItemRack.SnapshotRefreshStats = stats
+	end
 	local activeMenu = ItemRack.Menu
 	local slotsToRefresh = {}
 	if onlySlot then
 		slotsToRefresh[onlySlot] = true
+		ItemRack.SnapshotInputsState = nil
 	else
 		for id in pairs(ItemRackUser.Buttons or {}) do
 			if id<20 then
@@ -5301,19 +5728,70 @@ function ItemRack.RefreshQuickAccessMenuSnapshots(onlySlot,reason)
 		end
 	end
 
+	local inputsOk, currentInputs = false, nil
+	if not onlySlot and ItemRack.MenuSnapshotInputs and ItemRack.SameMenuSnapshotInputs then
+		inputsOk, currentInputs = pcall(ItemRack.MenuSnapshotInputs)
+		if inputsOk and currentInputs and not ItemRack.BankOpen and ItemRack.SnapshotInputsState and reason then
+			local skipReasons = ItemRack.SnapshotSkipReasons
+			local reasonEligible = skipReasons and skipReasons[reason]
+				or reason == "combat_entry_refresh"
+				or reason == "combat_exit_refresh"
+				or reason == "inventory_refresh"
+			local maxAge = ItemRack.SnapshotMaxAge or 600
+			local ageFresh = true
+			if currentInputs.capturedAt and ItemRack.SnapshotInputsState.capturedAt then
+				ageFresh = (currentInputs.capturedAt - ItemRack.SnapshotInputsState.capturedAt) < maxAge
+			end
+			if reasonEligible and ageFresh then
+				local snapshots = ItemRack.MenuSnapshots
+				local allHaveSnapshots = snapshots ~= nil
+				if allHaveSnapshots then
+					for id in pairs(slotsToRefresh) do
+						if type(snapshots[ItemRack.GetMenuSnapshotKey(id, false)]) ~= "table"
+						or type(snapshots[ItemRack.GetMenuSnapshotKey(id, true)]) ~= "table" then
+							allHaveSnapshots = false
+							break
+						end
+					end
+				end
+				if allHaveSnapshots and ItemRack.SameMenuSnapshotInputs(ItemRack.SnapshotInputsState, currentInputs) then
+					stats.skipped = (stats.skipped or 0) + 1
+					stats.lastSkippedReason = reason
+					stats.lastDurationMs = started and math.max((debugprofilestop() - started), 0) or 0
+					return true
+				end
+			end
+		end
+	end
+
+	local allStored = true
 	local ok, err = pcall(function()
-		for id in pairs(slotsToRefresh) do
-			for _, includeWorn in ipairs({false, true}) do
-				local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,includeWorn,reason or "snapshot_refresh")
-				ItemRack.Menu = {}
-				ItemRack.DiscoverEquipmentMenuItems(id,includeWorn,diagnostic)
-				ItemRack.StoreMenuSnapshot(id,includeWorn,diagnostic)
-				if diagnostic then ItemRack.FinishMenuDiagnostic(diagnostic) end
+		if ItemRack.RefreshMenuSnapshotsBatch then
+			allStored = ItemRack.RefreshMenuSnapshotsBatch(slotsToRefresh, reason, inputsOk and currentInputs or nil)
+		else
+			for id in pairs(slotsToRefresh) do
+				for _, includeWorn in ipairs({false, true}) do
+					local diagnostic = ItemRack.BeginMenuDiagnostic and ItemRack.BeginMenuDiagnostic(id,includeWorn,reason or "snapshot_refresh")
+					ItemRack.Menu = {}
+					ItemRack.DiscoverEquipmentMenuItems(id,includeWorn,diagnostic)
+					if not ItemRack.StoreMenuSnapshot(id,includeWorn,diagnostic) then
+						allStored = false
+					end
+					if diagnostic then ItemRack.FinishMenuDiagnostic(diagnostic) end
+				end
 			end
 		end
 	end)
 	ItemRack.Menu = activeMenu
 	if not ok then error(err, 0) end
+	stats.refreshed = (stats.refreshed or 0) + 1
+	stats.lastReason = reason or "snapshot_refresh"
+	stats.lastDurationMs = started and math.max((debugprofilestop() - started), 0) or 0
+	if not onlySlot and not ItemRack.BankOpen and inputsOk and currentInputs and allStored ~= false then
+		ItemRack.SnapshotInputsState = currentInputs
+	elseif not allStored then
+		ItemRack.SnapshotInputsState = nil
+	end
 	return true
 end
 
@@ -5390,8 +5868,8 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup,viewKey)
 				if not string.match(i,"^~") then --do not list internal sets, prefixed with ~
 					ItemRack.AddToMenu(i)
 				end
-				table.sort(targetItems)
 			end
+			table.sort(targetItems)
 		end
 		if showButtonMenu then
 			table.insert(targetItems,"MENU")
@@ -5607,12 +6085,20 @@ function ItemRack.BuildMenu(id,menuInclude,masqueGroup,viewKey)
 				ItemRack.SetRuneIconOverlay(_G[prefix..i],runeItemID,_G[prefix..i.."Icon"],16,"BOTTOMLEFT")
 			end
 			if ItemRack.RecordBreakoutEvent then
-				local diag = ItemRack.CollectMenuFrameDiagnostics and ItemRack.CollectMenuFrameDiagnostics(menuFrame, id, targetItems, menuDockedTo, prefix)
 				local issue = "rendered"
-				if diag then
-					if diag.visible == false then issue = "rendered_parent_hidden"
-					elseif type(diag.effectiveAlpha) == "number" and diag.effectiveAlpha <= 0 then issue = "rendered_zero_alpha"
-					elseif diag.offscreen == true then issue = "rendered_offscreen" end
+				if (ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Breakouts))
+				and ItemRack.CollectMenuFrameDiagnostics then
+					local diag = ItemRack.CollectMenuFrameDiagnostics(menuFrame, id, targetItems, menuDockedTo, prefix)
+					if diag then
+						if diag.visible == false then issue = "rendered_parent_hidden"
+						elseif type(diag.effectiveAlpha) == "number" and diag.effectiveAlpha <= 0 then issue = "rendered_zero_alpha"
+						elseif diag.offscreen == true then issue = "rendered_offscreen" end
+					end
+				else
+					local vis = menuFrame.IsVisible and select(2, pcall(menuFrame.IsVisible, menuFrame))
+					local alpha = menuFrame.GetEffectiveAlpha and select(2, pcall(menuFrame.GetEffectiveAlpha, menuFrame))
+					if vis == false then issue = "rendered_parent_hidden"
+					elseif type(alpha) == "number" and alpha <= 0 then issue = "rendered_zero_alpha" end
 				end
 				ItemRack.RecordBreakoutEvent("render", isPinned and "pinned" or "hover", id, issue,
 					"rows="..tostring(#(targetItems)))
@@ -6662,6 +7148,8 @@ function ItemRack.newUseAction(slot,cursor,self)
 end
 
 function ItemRack.newUseItemByName(name)
+	if type(name) ~= "string" or name == "" then return end
+	if IsEquippedItem and not IsEquippedItem(name) then return end
 	for i=0,19 do
 		if name==GetItemInfo(GetInventoryItemLink("player",i) or 0) then
 			if ItemRack.SpecialItems then ItemRack.SpecialItems.TraceHook("UseItemByName",i) end
@@ -6738,11 +7226,13 @@ function ItemRack.AddToCombatQueue(slot,id,isAutoQueue,setOwner)
 		ItemRack.AutoQueueOwner[slot] = queueOwner
 		ItemRack.AutoQueueList[slot] = queueList
 		-- Debug: trace who is adding to CombatQueue
-		local itemName = id and id ~= 0 and (ItemRack.GetInfoByID(id) or tostring(id)) or "empty"
-		ItemRack.Debug("CombatQueue", "AddToCombatQueue slot="..tostring(slot).." item="..tostring(itemName).." auto="..tostring(isAutoQueue).." owner="..tostring(queueOwner or "global"))
-		local stack = debugstack and debugstack(2,4,0)
-		if stack then
-			ItemRack.Debug("CombatQueue", "stack: "..stack)
+		if ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.CombatQueue) then
+			local itemName = id and id ~= 0 and (ItemRack.GetInfoByID(id) or tostring(id)) or "empty"
+			ItemRack.Debug("CombatQueue", "AddToCombatQueue slot="..tostring(slot).." item="..tostring(itemName).." auto="..tostring(isAutoQueue).." owner="..tostring(queueOwner or "global"))
+			local stack = debugstack and debugstack(2,4,0)
+			if stack then
+				ItemRack.Debug("CombatQueue", "stack: "..stack)
+			end
 		end
 		ItemRack.UpdateCombatQueue()
 	end
@@ -6849,10 +7339,10 @@ function ItemRack.OnModifierStateChanged(self, event, ...)
 						ItemRack.OnEnterButton(focus)
 					elseif string.match(fname, "^Character.*Slot$") and PaperDollItemSlotButton_OnEnter then
 						PaperDollItemSlotButton_OnEnter(focus)
-					elseif ItemRack.RecordBreakoutEvent then
+					elseif (ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Breakouts)) and ItemRack.RecordBreakoutEvent then
 						ItemRack.RecordBreakoutEvent("modifier_gate", "hover", nil, "shift_focus_not_button", fname)
 					end
-				elseif ItemRack.RecordBreakoutEvent then
+				elseif (ItemRack.DebugAll or (ItemRack.DebugTags and ItemRack.DebugTags.Breakouts)) and ItemRack.RecordBreakoutEvent then
 					ItemRack.RecordBreakoutEvent("modifier_gate", "hover", nil, "shift_no_named_focus")
 				end
 			end
@@ -9130,6 +9620,38 @@ local function QueueFieldProxy(field,setname)
 	local targetSet = ItemRackUser.EnablePerSetQueues == "ON" and targetSetName
 		and ItemRackUser.Sets[targetSetName]
 	if not targetSet then return ItemRackUser[field] end
+	if setname == nil then
+		local cache = ItemRack.QueueProxyCache
+		if not cache then
+			cache = setmetatable({}, { __mode = "k" })
+			ItemRack.QueueProxyCache = cache
+		end
+		local proxies = cache[targetSet]
+		if not proxies then
+			proxies = {
+				Queues = setmetatable({}, {
+					__index = function(_,slot)
+						return ItemRack.GetQueueContext(slot,nil).list
+					end,
+					__newindex = function(_,slot,value)
+						targetSet.Queues = targetSet.Queues or {}
+						targetSet.Queues[slot] = value
+					end,
+				}),
+				QueuesEnabled = setmetatable({}, {
+					__index = function(_,slot)
+						return ItemRack.GetQueueContext(slot,nil).enabled
+					end,
+					__newindex = function(_,slot,value)
+						targetSet.QueuesEnabled = targetSet.QueuesEnabled or {}
+						targetSet.QueuesEnabled[slot] = value
+					end,
+				}),
+			}
+			cache[targetSet] = proxies
+		end
+		return proxies[field]
+	end
 	return setmetatable({}, {
 		__index = function(_,slot)
 			local context = ItemRack.GetQueueContext(slot,setname)

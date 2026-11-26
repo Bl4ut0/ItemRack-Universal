@@ -26,6 +26,23 @@ function ItemRack.PeriodicQueueCheck()
 		return
 	end
 	if ItemRack.SpecialItems then ItemRack.SpecialItems.Poll() end
+	-- Only process queues if global EnableQueues is ON and at least one slot is enabled.
+	-- Check this before scanning bag locks (AnythingLocked) on every UNIT_AURA / 1s tick.
+	if ItemRackUser.EnableQueues ~= "ON" then
+		ItemRack.Debug("Queue","Global queues disabled (EnableQueues ~= ON)")
+		return
+	end
+	local queuesEnabled = ItemRack.GetQueuesEnabled()
+	local hasAnyEnabled = false
+	for i=0,19 do
+		if queuesEnabled[i] then
+			hasAnyEnabled = true
+			break
+		end
+	end
+	if not hasAnyEnabled then
+		return
+	end
 	if ItemRack.IsAutomaticSwapBlocked and ItemRack.IsAutomaticSwapBlocked() then
 		if ItemRack.QueueDiagnostic then ItemRack.QueueDiagnostic("autoqueue_skipped", { reason = "automatic_swap_suspended" }) end
 		return
@@ -39,16 +56,10 @@ function ItemRack.PeriodicQueueCheck()
 		ItemRack.Debug("Queue","SpellIsTargeting - skipping queue check")
 		return
 	end
-	-- Only process queues if global EnableQueues is ON and at least one slot is enabled
-	if ItemRackUser.EnableQueues=="ON" then
-		local queuesEnabled = ItemRack.GetQueuesEnabled()
-		for i=0,19 do
-			if queuesEnabled[i] then
-				ItemRack.ProcessAutoQueue(i)
-			end
+	for i=0,19 do
+		if queuesEnabled[i] then
+			ItemRack.ProcessAutoQueue(i)
 		end
-	else
-		ItemRack.Debug("Queue","Global queues disabled (EnableQueues ~= ON)")
 	end
 end
 
